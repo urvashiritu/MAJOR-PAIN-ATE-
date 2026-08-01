@@ -29,7 +29,7 @@ Select a dataset for training and evaluating our ensemble ML models (Isolation F
 | File | Size | Format |
 |------|------|--------|
 | rba-dataset.zip | 1.1 GB | ZIP (contains single CSV) |
-| rba-dataset.csv | 8.5 GB | CSV, 33 million rows, 16 columns |
+| rba-dataset.csv | 8.5 GB | CSV, 31.3 million rows (31,269,264), 16 columns |
 
 ### Columns
 
@@ -91,7 +91,7 @@ Is Account Takeover: False
 | Has success/failure | Yes |
 | Has attack labels | Yes (Is Attack IP, Is Account Takeover) |
 | All 8 features computable | Yes |
-| Ground truth available | Yes (87 confirmed account takeovers) |
+| Ground truth available | Yes (141 confirmed account takeovers) |
 | Size manageable | Yes 8.5 GB |
 | Already downloaded | Yes |
 | Academic citations | ACM TOPS paper + follow-ups |
@@ -232,7 +232,7 @@ activity: LogOn
 | browser | **Yes** | No | No |
 | OS | **Yes** | No | No |
 | success/failure | **Yes** | Yes | No (LogOn/LogOff) |
-| attack labels | Yes (87 ATOs) | Yes (749 redteam) | Yes (70 malicious users) |
+| attack labels | Yes (141 ATOs) | Yes (749 redteam) | Yes (70 malicious users) |
 | All 8 features | Yes | No (missing 3+) | No (missing 4+) |
 | Download size | 8.5 GB | 89 GB (full) | 16 GB (full) |
 | Already downloaded | Yes | Partial sample | Wrong file |
@@ -248,7 +248,7 @@ activity: LogOn
 
 2. **Already downloaded and cached** — 1.2 GB zip extracted to 8.5 GB CSV. DuckDB cache (533 MB) already built. Zero setup time.
 
-3. **33 million events** — More than enough data for training our 4 ML models.
+3. **31.3 million events** — More than enough data for training our 4 ML models.
 
 4. **Ground truth labels** — Is Attack IP and Is Account Takeover columns let us evaluate precision, recall, F1.
 
@@ -256,7 +256,7 @@ activity: LogOn
 
 ### What RBA Lacks vs CERT
 
-- Only 87 confirmed account takeovers (vs 70 malicious users with multi-day scenarios in CERT)
+- Only 141 confirmed account takeovers (vs 70 malicious users with multi-day scenarios in CERT)
 - Synthesized data (statistically reconstructed from real patterns), not real logs
 - Fewer academic citations (ACM TOPS 2022 vs 275+ papers for CERT)
 
@@ -292,7 +292,7 @@ We selected the RBA dataset for the following reasons:
 
 - It is the only dataset among the three that contains all columns needed for our 8 behavioral features
 - It is already downloaded and ready for use (8.5 GB extracted CSV + 533 MB DuckDB cache)
-- It has 33 million login events with ground truth labels for evaluation
+- It has 31.3 million login events with ground truth labels for evaluation
 - It is specifically designed for login-level anomaly detection, matching our project objective
 - CERT r4.2 (more academic prestige) lacks country, device, browser, OS, and success/failure columns in its auth logs
 - LANL (real enterprise data) is 89 GB and lacks country and device information entirely

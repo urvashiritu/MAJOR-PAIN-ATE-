@@ -131,7 +131,7 @@ A live dashboard on Laptop 1 showing login events arriving in real-time from Lap
 - **Created by:** Wiefling et al., ACM TOPS 2022
 - **From:** Telenor Norway SSO (synthesized from real login patterns)
 - **Size:** 8.5 GB CSV (compressed to 1.1 GB zip)
-- **Rows:** 33 million login events
+- **Rows:** 31,269,264 login events (31.3M)
 - **Download:** https://zenodo.org/records/6782156
 - **Status:** Already downloaded. DuckDB cache built (533 MB)
 
@@ -158,13 +158,14 @@ A live dashboard on Laptop 1 showing login events arriving in real-time from Lap
 
 ### What the dataset contains
 
-- **33 million login events** from a real SSO system
-- **87 confirmed account takeovers** (gold standard — rare. In real enterprises, attacks are <0.1% of logins)
-- **Millions of Attack IP logins** (logins from known attacker IP addresses — this becomes our primary training label because it has more samples)
+- **31.3 million login events** from a real SSO system
+- **141 confirmed account takeovers** (gold standard — rare. In real enterprises, attacks are <0.1% of logins). ⚠️ Verified Aug 1, 2026: earlier drafts said 87 — wrong. All numbers verified in `DATASET_FINDINGS_VERIFIED.md`.
+- **3.1M Attack IP logins** (logins from known attacker IP addresses — this becomes our primary training label because it has more samples; 804K of them are successful logins)
+- **⚠️ One bot user holds 45% of all events and 53% of all attack labels** — see `DATASET_FINDINGS_VERIFIED.md` §4.1 before planning any sampling
 
-### The 87 confirmed attacks — is that enough?
+### The 141 confirmed attacks — is that enough?
 
-87 attacks is realistic for a real enterprise (attacks are rare). But for ML training, we also use the "Is Attack IP" column as the primary label, which gives us ~50K-100K attack rows. The 87 ATOs are used for evaluation (does our model catch the most dangerous attacks?).
+141 attacks is realistic for a real enterprise (attacks are rare). But for ML training, we also use the "Is Attack IP" column as the primary label, which gives us ~3.1M attack rows (804K of them successful logins). The 141 ATOs are used for evaluation (does our model catch the most dangerous attacks?).
 
 ### What we do NOT do to the raw CSV
 
@@ -187,7 +188,7 @@ Yes, for 4 reasons:
 
 2. **Real-world login distributions** — Normal login rates (~1-2 per user per day), geographic spread, device diversity all come from real patterns.
 
-3. **Impossible travel detection** — 33M events across 2 years means we can measure "Login from India → Russia in 2 minutes" against real data and know it's impossible.
+3. **Impossible travel detection** — 31.3M events across 1 year (Feb 2020 – Feb 2021; earlier drafts said 2 years — wrong) means we can measure "Login from India → Russia in 2 minutes" against real data and know it's impossible.
 
 4. **Scalability proof** — DuckDB pipeline can query full 33M. Even though we sample for training, the pipeline design scales. This goes in the report.
 
@@ -283,7 +284,7 @@ Ensemble averaging reduces false positives. If 3 models say normal and 1 says an
 
 ### Why not deep learning?
 
-- Deep learning needs thousands of attack samples. We have 87 ATOs and ~50K Attack IP labels. Not enough.
+- Deep learning needs thousands of diverse attack samples. We have 141 ATOs and 3.1M Attack IP rows, but most attack rows are the same bot patterns repeated (53% from one user) — not enough diverse examples.
 - scikit-learn models are INTERPRETABLE — we can show exactly why a row was flagged (which features, which model). Deep learning is a black box.
 - For a BE project, explainability matters more than marginal accuracy gain.
 
@@ -419,7 +420,7 @@ Generate a fully synthetic dataset with realistic typing speeds, mouse movements
 | OS Name + Version | Part of device_change |
 | Login Successful | Compute failed_before_success |
 | Is Attack IP | Training label (1 = attack, 0 = normal) |
-| Is Account Takeover | Secondary evaluation label (87 ATOs) |
+| Is Account Takeover | Secondary evaluation label (141 ATOs) |
 | User Agent String | Parsed to extract device_type + browser + OS |
 
 ### From second laptop (live demo)
@@ -505,11 +506,11 @@ These would require invasive permissions and aren't appropriate for a college pr
 ### Training Phase (done once, before viva)
 
 ```
-RBA Dataset (33M rows, 8.5GB CSV via DuckDB)
+RBA Dataset (31.3M rows, 8.5GB CSV via DuckDB)
     │
     ▼
 DuckDB query → sample 500K rows (stratified:
-    includes all 87 ATOs + all Attack IP rows + random normal rows)
+    includes all 141 ATOs + all Attack IP rows + random normal rows)
     │
     ▼
 Feature Engineering (02_feature_engineering.py):
@@ -592,7 +593,7 @@ DASHBOARD (07_dashboard.py — Streamlit):
 
 | Phase | What happens | Where data comes from |
 |---|---|---|
-| **Training** | ML models learn what "normal" vs "attack" looks like | RBA dataset (33M historical events) |
+| **Training** | ML models learn what "normal" vs "attack" looks like | RBA dataset (31.3M historical events) |
 | **Live demo** | Load trained .pkl model files, score new events as they arrive | Laptop 2 sends events via HTTP |
 
 The training dataset and the live demo data are different. The connection is the .pkl model files. The models learn patterns from RBA, then apply those same patterns to new events from Laptop 2.
@@ -1105,7 +1106,7 @@ Hemanth's output (training_data.parquet)
 
 | Time | Speaker | Action | Dashboard | What to say |
 |---|---|---|---|---|
-| 0:00-0:30 | Vishwanath | Both laptops ready, click Start | "SYSTEM READY" | "This is our AI-Based Identity Anomaly Detection System. It monitors login events in real-time using 4 ML models trained on 33 million events from a real enterprise SSO system." |
+| 0:00-0:30 | Vishwanath | Both laptops ready, click Start | "SYSTEM READY" | "This is our AI-Based Identity Anomaly Detection System. It monitors login events in real-time using 4 ML models trained on 31.3 million events from a real enterprise SSO system." |
 | 0:30-1:00 | Hemanth | Laptop 2 sends normal events (5 sec apart) | Green rows appearing. "igris | India | 2pm | Score: 5/100 ✓" | "Laptop 2 is logging in as igris — normal behavior. India, Chrome browser, daytime. All 8 features show normal values. Device fingerprint matches known device. Score: 5/100." |
 | 1:00-1:15 | Hemanth | Point to device fingerprint | "Device: igris-laptop ✓" | "Each laptop is fingerprinted using SHA256 hash of MAC, hostname, CPU, screen. This hash matches igris's known device — so it's trusted." |
 | 1:15-1:30 | Urvashi | Send night login (normal but unusual time) | Yellow: "igris | India | 11pm | Score: 28/100" | "Now igris logs in at 11pm. Hour feature fires, score rises to 28. But country and device match — so still low. System doesn't overreact to single changes." |
@@ -1115,7 +1116,7 @@ Hemanth's output (training_data.parquet)
 | 2:45-3:00 | Veenashree | Click "This was me" | Score drops. Device becomes known. | "If igris was actually traveling, click 'This was me.' System adds Russia + Android to known list. Future events from Russia won't trigger." |
 | 3:00-3:15 | Vishwanath | Send normal events again | Green: Score 5/100 | "Back to normal. System adapts. Real-time detection with false positive handling." |
 | 3:15-3:30 | Vishwanath | Same laptop attack (stolen device) | Alert with device match but ML fires | "Stolen laptop scenario: same device hash matches, but behavior is wrong. 8 features still fire. Combined score 85." |
-| 3:30-3:45 | Any | Summary metrics | Show metrics panel | "System achieves 94.2% accuracy, 91.7% precision, 88.3% recall. Processing speed: 2847 events/sec — proving enterprise-scale readiness." |
+| 3:30-3:45 | Any | Summary metrics | Show metrics panel | "Performance numbers are being re-measured honestly after Phase 3 retraining — the 94.2%/91.7%/88.3% figures in early drafts were never actually measured (real recall was ~2%). Processing speed benchmark: 2847 events/sec." |
 | 3:45-4:00 | Any | Limitations slide | Show "What We Don't Detect" | "We acknowledge limitations: perfect mimic, MFA bypass, post-login threats. These require additional controls documented in our report." |
 | 4:00-5:00 | All | Q&A | — | See viva preparation section |
 
@@ -1179,8 +1180,8 @@ Dashboard has "Simulate Events" button that replays pre-recorded events from tes
 │ │  Sessions Today:           5 (normal: 3-8)                     ││
 │ └────────────────────────────────────────────────────────────────────┘│
 ├──────────────────────────────────────────────────────────────────────┤
-│  Performance: 2,847 events/sec | Accuracy: 94.2% | Precision: 91.7% │
-│  Recall: 88.3% | F1: 89.9% | Last updated: 14:45:23                 │
+│  Performance: 2,847 events/sec | Accuracy: TBD (being re-measured)      │
+│  Precision: TBD | Recall: TBD | F1: TBD | Last updated: 14:45:23        │
 │  🛡 Defense-in-Depth: ML Ensemble + Device Fingerprint + Behavior   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -1197,7 +1198,7 @@ Dashboard has "Simulate Events" button that replays pre-recorded events from tes
 | One-Class SVM (50K rows) | ~5 minutes | ~20 seconds | CPU | Training once, doesn't matter |
 | LOF (500K rows) | No training (lazy) | No training | CPU | No training needed |
 | Elliptic Envelope (500K rows) | ~10 seconds | ~1 second | CPU | Already fast |
-| **Full 33M training** | **Hours (won't work)** | **Minutes** | **Not needed** | We sample 500K |
+| **Full 31.3M training** | **Hours (won't work)** | **Minutes** | **Not needed** | We sample 500K |
 | **Deep learning (autoencoder)** | Slow | Fast | **Not using** | Not enough attack data |
 
 ### Why we don't NEED the GPU for core project
@@ -1209,7 +1210,7 @@ Dashboard has "Simulate Events" button that replays pre-recorded events from tes
 ### Where GPU could help (if time permits in Week 4)
 
 - **Path B revisit** — if we generate synthetic behavioral data, cuML can train on the full expanded dataset faster
-- **Full 33M benchmark** — prove the system scales by running cuML on all 33M rows
+- **Full 31.3M benchmark** — prove the system scales by running cuML on all 31.3M rows
 - **Dashboard visualization** — no GPU impact (Streamlit is CPU-bound)
 
 **Bottom line:** The RTX 3050 is available but not required. Build the core project with CPU-first sklearn. If done early, GPU acceleration can be an enhancement.
@@ -1228,7 +1229,7 @@ Dashboard has "Simulate Events" button that replays pre-recorded events from tes
 
 ### Q3: Why not deep learning?
 
-> *"Deep learning requires thousands of attack samples — we have 87 confirmed ATOs and ~50K Attack IP rows from RBA. scikit-learn models are also interpretable: we can show exactly why a row was flagged (which features, which model contributed). Deep learning is a black box — for a BE project, explainability matters more than marginal accuracy gain."*
+> *"Deep learning requires thousands of diverse attack samples — we have 141 confirmed ATOs and 3.1M Attack IP rows from RBA (804K successful; most attack rows are repeated bot patterns). scikit-learn models are also interpretable: we can show exactly why a row was flagged (which features, which model contributed). Deep learning is a black box — for a BE project, explainability matters more than marginal accuracy gain."*
 
 ### Q4: How is this different from a simple rule-based system?
 
@@ -1236,7 +1237,7 @@ Dashboard has "Simulate Events" button that replays pre-recorded events from tes
 
 ### Q5: Is your ML actually learning or just memorizing your rules?
 
-> *"Our ML trains on 8 real features from 500K RBA events with real attack labels (Is Attack IP column from the dataset). The models learn non-linear patterns validated on held-out test data — 94.2% accuracy, 91.7% precision, 88.3% recall.*
+> *"Our ML trains on 8 real features from 500K RBA events with real attack labels (Is Attack IP column from the dataset). The models learn non-linear patterns validated on held-out test data — real metrics are being re-measured after Phase 3 (the 94.2%/91.7%/88.3% figures in earlier drafts were never measured; actual recall was ~2%).*
 >
 > *The behavioral biometrics (typing speed, mouse speed) are NOT fed into the ML. They are displayed on the dashboard as a separate rule-based overlay, which we clearly distinguish in our report. The ML is trained on real data only."*
 
@@ -1260,7 +1261,7 @@ Dashboard has "Simulate Events" button that replays pre-recorded events from tes
 
 ### Q8: What dataset did you use and why?
 
-> *"The RBA dataset from Telenor Norway (Wiefling et al., ACM TOPS 2022). 33 million login events with country, device type, browser, OS, timestamp, success/failure, and attack labels. LANL (89 GB, no country/device info) and CERT r4.2 (16 GB, no country/device/success columns) lack critical columns for our 8 features. RBA is the only dataset with all columns needed."*
+> *"The RBA dataset from Telenor Norway (Wiefling et al., ACM TOPS 2022). 31.3 million login events with country, device type, browser, OS, timestamp, success/failure, and attack labels. LANL (89 GB, no country/device info) and CERT r4.2 (16 GB, no country/device/success columns) lack critical columns for our 8 features. RBA is the only dataset with all columns needed."*
 
 ### Q9: How do you know your behavioral features aren't fake ML?
 
@@ -1276,7 +1277,7 @@ Dashboard has "Simulate Events" button that replays pre-recorded events from tes
 
 ### Q12: What was the hardest part?
 
-> *"Feature engineering with user context — computing country_change and device_change requires maintaining per-user history across 33 million events in chronological order. The second hardest was handling class imbalance — only 87 confirmed ATOs in 33M events. We addressed this by using Is Attack IP as our primary label (~50K attack rows) and stratified sampling."*
+> *"Feature engineering with user context — computing country_change and device_change requires maintaining per-user history across 31.3 million events in chronological order. The second hardest was handling class imbalance — only 141 confirmed ATOs in 31.3M events. We addressed this by using Is Attack IP as our primary label (~3.1M attack rows) and user-based stratified sampling."*
 
 ### Q13: Individual contribution questions
 
@@ -1300,7 +1301,7 @@ Dashboard has "Simulate Events" button that replays pre-recorded events from tes
 | **Team member absent on viva day** | Low | Medium | Everyone knows how to run all parts. Commands documented in README. No single point of failure. |
 | **Streamlit dashboard slow** | Medium | Low | Limit feed to last 50 events. Polling 1 second. Pre-generate charts from evaluation data. |
 | **Keyboard/mouse capture not working** | Medium | Low | Behavioral values hardcoded per mode (normal=62, attack=120). Live capture is enhancement, not dependency. |
-| **33M sampling too slow** | Low | Medium | DuckDB query for 500K rows takes <30 seconds. If slow, reduce to 100K. |
+| **31.3M sampling too slow** | Low | Medium | DuckDB query for 500K rows takes <30 seconds. If slow, reduce to 100K. |
 
 ---
 

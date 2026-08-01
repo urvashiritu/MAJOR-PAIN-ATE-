@@ -19,8 +19,8 @@
 
 | Doc | What it covers |
 |---|---|
+| `DATASET_FINDINGS_VERIFIED.md` | **Read this first** — verified facts from the full 33M scan, beginner-friendly, what's next |
 | `COMPLETE_PROJECT_REFERENCE.md` | Full project reference + **status update & roadmap** (read the status section first) |
-| `data_preprocessing_report.md` | How training_data.csv was built, problems found, known limitations |
 | `dataset_analysis.md` | Why RBA was chosen over LANL and CERT |
 
 ## Known Issues (must fix in next phase)
