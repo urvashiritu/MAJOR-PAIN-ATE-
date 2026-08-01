@@ -121,7 +121,7 @@ The current `data/processed/training_data.csv` (18,191 rows) is broken and will 
    - The robot user: capped (e.g. 50K rows) + A/B test with/without
    - Per-user event cap (~10K) so no single user dominates
    - Target attack ratio 5–10%
-3. **Full-dataset baselines** — per-user "countries seen / devices seen" computed from ALL 33M rows via DuckDB (cheap, ~5s scans), so `country_change` / `device_change` are accurate even in a 1M-row sample
+3. **Full-dataset baselines** — per-user "countries seen / devices seen" computed from ALL 31.3M rows via DuckDB (cheap, ~5s scans), so `country_change` / `device_change` are accurate even in a 1M-row sample
 4. **Feature engineering fixes** (from the verified issues):
    - `device_change`: no version numbers
    - `failed_before_success`: true 5-minute window (old code counted "since last success" — wrong)

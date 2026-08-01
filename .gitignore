@@ -4,6 +4,8 @@ data/raw/rba-dataset.csv
 # Derived / generated artifacts
 models/
 outputs/
+data/processed/
+data/raw/rba.duckdb
 
 # Python
 __pycache__/

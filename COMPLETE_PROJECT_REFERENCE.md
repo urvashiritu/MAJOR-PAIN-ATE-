@@ -34,10 +34,9 @@ The multi-source synthetic approach (7 AI-generated log formats + `parser.py` no
 | Item | Path | Purpose |
 |---|---|---|
 | Raw RBA dataset | `data/raw/rba-dataset.csv` | 8.5 GB, 31,269,264 events (unchanged original) |
-| Training file | `data/processed/training_data.csv` | 18,191 rows, 8 features + `label` (248 attacks) |
-| Test labels | `data/processed/test_split_y.npy` | Held-out labels from the 80/20 split |
-| Notebooks | `notebooks/rba.ipynb`, `notebooks/train-data-ana.ipynb` | Sampling + feature engineering history |
-| Docs | 4 `.md` files + `LICENSE` | This reference, reports |
+| Docs | 4 `.md` files + `LICENSE` | This reference, findings briefing, dataset analysis, README |
+
+The old 18K-row training file (`training_data.csv`), the test labels, and the two notebooks from the broken pipeline were **removed** — they documented the failed approach and are superseded by `DATASET_FINDINGS_VERIFIED.md`. (Still recoverable from git history if ever needed.)
 
 **No `.py` scripts exist right now.** The previous `anomaly_detector.py` / `train_models.py` / `evaluate.py` were removed (poor structure, unmaintainable, semantics drifting from this doc). The `venv/` and `requirements.txt` were removed too — recreate with `pip install numpy pandas scikit-learn joblib duckdb`.
 
@@ -52,7 +51,7 @@ The multi-source synthetic approach (7 AI-generated log formats + `parser.py` no
 
 ### Roadmap (next phases)
 
-- **Phase 2 — Rebuild the training dataset**: user-based stratified sampling via DuckDB (~1M rows target, 5-10% attack ratio, all 141 ATOs included); full-33M per-user baselines (country/device history, normal frequency) via DuckDB to make contextual features accurate; vectorized/chunked feature engineering.
+- **Phase 2 — Rebuild the training dataset**: user-based stratified sampling via DuckDB (~1M rows target, 5-10% attack ratio, all 141 ATOs included); full-31.3M per-user baselines (country/device history, normal frequency) via DuckDB to make contextual features accurate; vectorized/chunked feature engineering.
 - **Phase 3 — Retrain + honest evaluation**: IF + Elliptic Envelope on the full sample; One-Class SVM + LOF on a 200-500K subset (sklearn scaling limit); `contamination` matched to the real attack ratio; reproducible metrics, threshold sweep, charts.
 - **Phase 4 — Docs**: rewrite reports with real numbers; re-verify every claim in this document.
 
@@ -180,7 +179,7 @@ Training file (500K rows, 8 feature columns + 1 label column)
 
 This is safer. One mistake in feature engineering corrupts the training file, not the original dataset.
 
-### Is 33M useful even though we sample for training?
+### Is 31.3M useful even though we sample for training?
 
 Yes, for 4 reasons:
 
@@ -190,7 +189,7 @@ Yes, for 4 reasons:
 
 3. **Impossible travel detection** — 31.3M events across 1 year (Feb 2020 – Feb 2021; earlier drafts said 2 years — wrong) means we can measure "Login from India → Russia in 2 minutes" against real data and know it's impossible.
 
-4. **Scalability proof** — DuckDB pipeline can query full 33M. Even though we sample for training, the pipeline design scales. This goes in the report.
+4. **Scalability proof** — DuckDB pipeline can query full 31.3M. Even though we sample for training, the pipeline design scales. This goes in the report.
 
 ---
 
@@ -953,7 +952,7 @@ Their features have a problem: RBA dataset doesn't have MFA, VPN, or TOR columns
 ```
 identity-anomaly-detection/
 │
-├── data/                          # Dataset files (DuckDB cache, 533MB)
+├── data/                          # Dataset files (DuckDB cache built by 01_build_training_data.py)
 │   └── (RBA DuckDB cache — already exists)
 │
 ├── src/                           # All source code

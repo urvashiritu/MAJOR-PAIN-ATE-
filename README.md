@@ -9,16 +9,15 @@
 
 - **Dataset strategy: RBA-only.** The multi-source synthetic experiment (7 AI-generated log formats + parser.py) was prototyped, evaluated, and **removed** — the synthetic data was inconsistent and unlabelable (details in `COMPLETE_PROJECT_REFERENCE.md`).
 - **Repo contents:**
-  - `data/raw/rba-dataset.csv` — raw RBA dataset (8.5 GB, 31M events, Zenodo)
-  - `data/processed/training_data.csv` — old engineered training file (18,191 rows, 8 features + label) — **broken, to be replaced**
-  - `notebooks/rba.ipynb`, `notebooks/train-data-ana.ipynb` — sampling + feature engineering history
-- **No .py scripts right now** — the pipeline scripts were removed; a clean rewrite is planned (see roadmap in `COMPLETE_PROJECT_REFERENCE.md` status section).
+  - `data/raw/rba-dataset.csv` — raw RBA dataset (8.5 GB, 31.3M events, Zenodo)
+  - 4 docs (see below) + `LICENSE`
+- **No .py scripts right now** — the broken pipeline scripts and the old 18K-row training file (248 attacks) were removed; a clean rewrite is planned (see roadmap in `COMPLETE_PROJECT_REFERENCE.md` status section).
 
 ## Docs
 
 | Doc | What it covers |
 |---|---|
-| `DATASET_FINDINGS_VERIFIED.md` | **Read this first** — verified facts from the full 33M scan, beginner-friendly, what's next |
+| `DATASET_FINDINGS_VERIFIED.md` | **Read this first** — verified facts from the full 31.3M scan, beginner-friendly, what's next |
 | `COMPLETE_PROJECT_REFERENCE.md` | Full project reference + **status update & roadmap** (read the status section first) |
 | `dataset_analysis.md` | Why RBA was chosen over LANL and CERT |
 
