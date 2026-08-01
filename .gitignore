@@ -1,0 +1,17 @@
+# Dataset (re-downloadable from Zenodo: https://zenodo.org/records/6782156)
+data/raw/rba-dataset.csv
+
+# Derived / generated artifacts
+models/
+outputs/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store

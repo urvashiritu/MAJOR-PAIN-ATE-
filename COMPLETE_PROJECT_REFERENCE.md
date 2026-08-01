@@ -14,6 +14,55 @@
 
 ---
 
+## ⚠️ STATUS UPDATE (Aug 1, 2026) — Read This First
+
+### Dataset strategy decision: RBA-only
+
+The multi-source synthetic approach (7 AI-generated log formats + `parser.py` normalization) was prototyped, evaluated, and **removed** on Aug 1, 2026. What we learned from the experiment:
+
+| Problem | Evidence |
+|---|---|
+| Synthetic data was internally inconsistent | Impossible combos (`Desktop + Safari + Android 15`), `user_agent` contradicts stated browser in 381/500 web_login rows |
+| Only 1 of 7 sources had labels | web_login: 73 attack-IP + 8 ATO out of 500; the other 6 sources (SSH, VPN, AD, M365, AWS, DB) had **no ground truth** — detection quality unmeasurable there |
+| Models could not learn from it | Both the RBA-trained and normalized-trained ensembles scored **AUC ≈ 0.45** (worse than random) on the synthetic labels |
+| Scale | 3,500 events total vs 31M real RBA events |
+
+**Conclusion:** the parser concept (SIEM-style normalization of heterogeneous auth logs into one schema) remains a valid *future demo enhancement*, but it is **not training data**. All synthetic files, `parser.py`, `score_normalized.py`, `compare_models.py`, and their outputs were deleted.
+
+### What exists in the repo right now
+
+| Item | Path | Purpose |
+|---|---|---|
+| Raw RBA dataset | `data/raw/rba-dataset.csv` | 8.5 GB, 31,269,264 events (unchanged original) |
+| Training file | `data/processed/training_data.csv` | 18,191 rows, 8 features + `label` (248 attacks) |
+| Test labels | `data/processed/test_split_y.npy` | Held-out labels from the 80/20 split |
+| Notebooks | `notebooks/rba.ipynb`, `notebooks/train-data-ana.ipynb` | Sampling + feature engineering history |
+| Docs | 4 `.md` files + `LICENSE` | This reference, reports |
+
+**No `.py` scripts exist right now.** The previous `anomaly_detector.py` / `train_models.py` / `evaluate.py` were removed (poor structure, unmaintainable, semantics drifting from this doc). The `venv/` and `requirements.txt` were removed too — recreate with `pip install numpy pandas scikit-learn joblib duckdb`.
+
+### Known issues to fix (learned since this doc was written)
+
+1. **Attack-ratio collapse**: the 50K stratified sample (10% attack) became 18,191 rows with **248 attacks (1.36%)**. Cause: row-level sampling + the "users with ≥3 events" filter — most sampled attack rows belonged to users with <3 sampled events and were deleted. Fix: **user-based sampling** (keep all events of sampled users; filter first, then balance).
+2. **Metrics in this document are NOT measured**: the 94.2% accuracy / 91.7% precision / 88.3% recall claims are not reproducible by any code that existed. The actual evaluation output was: at thr=30 → precision 0.0087, recall 0.0200, F1 0.0121; best F1 0.0185 at thr=35. Must be re-measured honestly after retraining.
+3. **`failed_before_success` semantics**: this doc says "failed attempts in the last 5 minutes" (§3); the implementation counted *consecutive failures since last success* with no time window. The intended 5-minute window must be implemented in the rewrite.
+4. **`device_change` includes exact browser version** (`Firefox 20.0.0.1618` vs `.1619` = false change). Strip version numbers.
+5. **First login per user → `country_change = 1`** (no baseline exists). Consider `0` for a user's first-ever event.
+6. **`contamination=0.05` was hardcoded** in all 4 models regardless of the actual attack ratio.
+
+### Roadmap (next phases)
+
+- **Phase 2 — Rebuild the training dataset**: user-based stratified sampling via DuckDB (~1M rows target, 5-10% attack ratio, all 141 ATOs included); full-33M per-user baselines (country/device history, normal frequency) via DuckDB to make contextual features accurate; vectorized/chunked feature engineering.
+- **Phase 3 — Retrain + honest evaluation**: IF + Elliptic Envelope on the full sample; One-Class SVM + LOF on a 200-500K subset (sklearn scaling limit); `contamination` matched to the real attack ratio; reproducible metrics, threshold sweep, charts.
+- **Phase 4 — Docs**: rewrite reports with real numbers; re-verify every claim in this document.
+
+### Stale sections in this document
+
+- **§15 File Structure, §16 Work Distribution, §23 Getting Started Commands** describe `src/01_load_and_sample.py` … `07_dashboard.py` — these files do **not** exist yet. Treat them as the *target structure* for the rewrite, not current reality.
+- **§21 Q5 and the dashboard wireframe** quote the unverified 94.2%/91.7%/88.3% metrics — treat as aspirational until Phase 3 delivers measured numbers.
+
+---
+
 ## Table of Contents
 
 1. [What Are We Building?](#1-what-are-we-building)

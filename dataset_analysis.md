@@ -296,3 +296,13 @@ We selected the RBA dataset for the following reasons:
 - It is specifically designed for login-level anomaly detection, matching our project objective
 - CERT r4.2 (more academic prestige) lacks country, device, browser, OS, and success/failure columns in its auth logs
 - LANL (real enterprise data) is 89 GB and lacks country and device information entirely
+
+---
+
+## 9. Update (Aug 1, 2026)
+
+**Decision stands: RBA is the only training dataset.**
+
+A multi-source extension was prototyped afterwards — 7 AI-generated synthetic log formats (SSH, VPN, Windows AD, M365, AWS, database audit, web login) normalized by a `parser.py` into a common schema — then **removed**. The synthetic data was internally inconsistent (impossible device/browser/OS combos), only 1 of 7 sources had ground-truth labels, and models scored AUC ≈ 0.45 (worse than random) on those labels. It could not serve as training or evaluation data.
+
+The parser concept (normalizing heterogeneous auth logs into one schema) remains a candidate **future demo enhancement**, matching how SIEM products consume logs — but the ML trains on the real RBA dataset only.
