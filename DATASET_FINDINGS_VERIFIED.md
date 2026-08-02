@@ -87,11 +87,11 @@ This is clearly a bot / service account (a machine hammering passwords), not a h
 
 ### 4.4 The data is dirty (~25% of rows)
 
-- Browser says Android but OS says iOS (or similar contradictions): **~7.6M rows** with browser/OS mismatches
+- Browser says Android but OS says iOS (or similar contradictions): **~7.6M rows** with browser/OS mismatches (exact counts by pattern: `dataset_scan_report.md` §3.1 — the authoritative issue inventory)
 - **4,549 distinct browser strings** like "Firefox 20.0.0.1618" — version numbers create fake "new devices" every time someone updates their browser
-- Old docs blamed these inconsistencies on the *synthetic* data and removed it — but the **real dataset has them too**
+- Old docs blamed these inconsistencies on the *synthetic* data and removed it — but the **real dataset has them too** (and §3.8–3.11 of the scan report show the synthesis artifacts directly: impossible versions, generator-bot UAs, VLC noise)
 
-**Why it matters:** our `device_change` feature (has this device been seen before?) will flag innocent browser updates as device changes. We must clean: strip version numbers from browser/OS strings and fix impossible combos.
+**Why it matters:** our `device_change` feature (has this device been seen before?) will flag innocent browser updates as device changes. We must clean: strip version numbers from browser/OS strings and fix impossible combos — implemented in `src/00_clean_dataset.py`, full before/after counts in `dataset_scan_report.md` §6.
 
 ---
 

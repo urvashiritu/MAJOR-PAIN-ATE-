@@ -5,13 +5,15 @@
 
 ---
 
-## Current State (Aug 1, 2026)
+## Current State (Aug 2, 2026)
 
 - **Dataset strategy: RBA-only.** The multi-source synthetic experiment (7 AI-generated log formats + parser.py) was prototyped, evaluated, and **removed** — the synthetic data was inconsistent and unlabelable (details in `COMPLETE_PROJECT_REFERENCE.md`).
 - **Repo contents:**
   - `data/raw/rba-dataset.csv` — raw RBA dataset (8.5 GB, 31.3M events, Zenodo)
+  - `data/processed/rba_clean.parquet` — cleaned version (654 MB, 31,269,264 rows preserved, flags added, no deletions) + `cleaning_summary.json`
+  - `src/00_clean_dataset.py` — the cleaning script (full-file DuckDB, ~30 s)
   - 4 docs (see below) + `LICENSE`
-- **No .py scripts right now** — the broken pipeline scripts and the old 18K-row training file (248 attacks) were removed; a clean rewrite is planned (see roadmap in `COMPLETE_PROJECT_REFERENCE.md` status section).
+- **Pipeline rewrite started:** the broken pipeline scripts and the old 18K-row training file (248 attacks) were removed; the clean rewrite begins with `src/00_clean_dataset.py` (roadmap in `COMPLETE_PROJECT_REFERENCE.md` status section).
 
 ## Docs
 
@@ -19,7 +21,7 @@
 |---|---|
 | `DATASET_FINDINGS_VERIFIED.md` | **Read this first** — verified facts from the full 31.3M scan, beginner-friendly, what's next |
 | `COMPLETE_PROJECT_REFERENCE.md` | Full project reference + **status update & roadmap** (read the status section first) |
-| `dataset_analysis.md` | Why RBA was chosen over LANL and CERT |
+| `dataset_scan_report.md` | **New (Aug 2)** — full-scan quality report: every inconsistency found in all 31.3M rows + the cleaning solution |
 
 ## Known Issues (must fix in next phase)
 

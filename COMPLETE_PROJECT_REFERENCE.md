@@ -34,11 +34,15 @@ The multi-source synthetic approach (7 AI-generated log formats + `parser.py` no
 | Item | Path | Purpose |
 |---|---|---|
 | Raw RBA dataset | `data/raw/rba-dataset.csv` | 8.5 GB, 31,269,264 events (unchanged original) |
-| Docs | 4 `.md` files + `LICENSE` | This reference, findings briefing, dataset analysis, README |
+| Cleaned dataset | `data/processed/rba_clean.parquet` | 654 MB, same row count, normalized browser/OS/device + inconsistency flags (built Aug 2 by `src/00_clean_dataset.py`, ~30 s) |
+| Cleaning script | `src/00_clean_dataset.py` | Full-file DuckDB clean + `--verify` before/after check table; documented in `dataset_scan_report.md` |
+| Docs | 4 `.md` files + `LICENSE` | This reference, findings briefing, **dataset scan report**, README |
 
 The old 18K-row training file (`training_data.csv`), the test labels, and the two notebooks from the broken pipeline were **removed** — they documented the failed approach and are superseded by `DATASET_FINDINGS_VERIFIED.md`. (Still recoverable from git history if ever needed.)
 
-**No `.py` scripts exist right now.** The previous `anomaly_detector.py` / `train_models.py` / `evaluate.py` were removed (poor structure, unmaintainable, semantics drifting from this doc). The `venv/` and `requirements.txt` were removed too — recreate with `pip install numpy pandas scikit-learn joblib duckdb`.
+The full-dataset quality audit (Aug 2, 2026) is in `dataset_scan_report.md` — all 31,269,264 rows scanned; 16 columns verified correct; 12 issue classes documented (inconsistencies + synthesis artifacts), fixed or flagged by `src/00_clean_dataset.py`.
+
+The previous `anomaly_detector.py` / `train_models.py` / `evaluate.py` were removed (poor structure, unmaintainable, semantics drifting from this doc); the rewrite starts with `src/00_clean_dataset.py`. The `venv/` was recreated — packages needed: `numpy pandas scikit-learn joblib duckdb`.
 
 ### Known issues to fix (learned since this doc was written)
 
