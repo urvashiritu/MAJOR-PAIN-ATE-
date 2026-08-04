@@ -14,7 +14,7 @@
 
 ---
 
-## ⚠️ STATUS UPDATE (Aug 1, 2026) — Read This First
+## ⚠️ STATUS UPDATE (Aug 1,2026)
 
 ### Dataset strategy decision: RBA-only
 
@@ -44,7 +44,7 @@ The full-dataset quality audit (Aug 2, 2026) is in `dataset_scan_report.md` — 
 
 The previous `anomaly_detector.py` / `train_models.py` / `evaluate.py` were removed (poor structure, unmaintainable, semantics drifting from this doc); the rewrite starts with `src/00_clean_dataset.py`. The `venv/` was recreated — packages needed: `numpy pandas scikit-learn joblib duckdb`.
 
-### Known issues to fix (learned since this doc was written)
+### Known issues to fix 
 
 1. **Attack-ratio collapse**: the 50K stratified sample (10% attack) became 18,191 rows with **248 attacks (1.36%)**. Cause: row-level sampling + the "users with ≥3 events" filter — most sampled attack rows belonged to users with <3 sampled events and were deleted. Fix: **user-based sampling** (keep all events of sampled users; filter first, then balance).
 2. **Metrics in this document are NOT measured**: the 94.2% accuracy / 91.7% precision / 88.3% recall claims are not reproducible by any code that existed. The actual evaluation output was: at thr=30 → precision 0.0087, recall 0.0200, F1 0.0121; best F1 0.0185 at thr=35. Must be re-measured honestly after retraining.
