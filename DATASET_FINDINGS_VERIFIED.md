@@ -1,10 +1,9 @@
-# Dataset Findings — Verified on the Real Data (Read This First)
+# Dataset Findings — Verified on the Real Data 
 
 **Team:** Hemanth | Urvashi | Veenashree | Vishwanath
 **Guide:** Dr. Anitha A C
 **Last verified:** Aug 1, 2026
 
-This document is written for everyone, including teammates who haven't seen the code yet. If you only read one file, read this one.
 
 ---
 
@@ -52,48 +51,123 @@ Someone actually scanned all 31,269,264 rows (it takes only 5 seconds on our lap
 
 ---
 
-## 4. The 4 discoveries that change everything
+## 4. Key Dataset Discoveries
 
-We found these by scanning the full dataset. The old docs never mentioned them.
+Our full analysis of the **31.3 million event RBA dataset** uncovered several findings that significantly influenced our preprocessing, sampling strategy, and feature engineering pipeline.
 
-### 4.1 The robot user (most important)
+### 4.1 The Robot User (Most Important)
 
-One single user has **14,025,899 events — 45% of the ENTIRE dataset**:
+One single user accounts for **14,025,899 login events (44.86% of the entire dataset)**.
 
-- Logs in 300,000–800,000 times EVERY HOUR, 24 hours a day, for a year
-- From ~200 different countries
-- **14 million failed logins, only 3 successes** (0.00002% success rate)
+Further analysis showed that this user:
 
-This is clearly a bot / service account (a machine hammering passwords), not a human.
+- Logs in **300,000–800,000 times every hour**, 24×7 for nearly a year.
+- Appears from **~200 different countries**.
+- Uses hundreds of browser and operating system combinations.
+- Frequently appears with automated user agents such as **ZipppBot**, **startmebot**, and **VLC**.
+- Contributes **23% of all Browser–OS inconsistencies** found in the dataset.
 
-**Why it matters:** If we sample randomly, half of everything we train on is this one robot's failed logins. The model would learn "one weird robot" instead of "how normal humans behave." It also holds **53% of all attack flags** (1.65M of 3.1M), so how we treat it changes what "attack" means in our training data.
+This user is clearly not representative of normal human behavior and is likely a synthetic service account or automated background actor.
 
-**What we'll do:** keep the bot in the data but limited (cap how many of its rows we take), and run an A/B experiment: model trained with it vs without it — keep whichever is more honest.
+**Why it matters:** Random row sampling would result in nearly half of the training data coming from this single identity. The model would learn one robot's behavior instead of general human login behavior. This user also contributes over **53% of all Attack IP events**, making it critical to handle carefully during preprocessing.
 
-### 4.2 Attacks are concentrated in a few users
-
-- 41 users hold **1.66M of the 3.1M attack rows** (54%)
-- 8,122 users have ≥10 attack rows (together ~14.2M events)
-- Most "attack users" (742K of them) have just 1–2 attack rows
-
-**Why it matters:** Attack patterns aren't spread evenly. If we sample rows randomly we'll mostly get the concentrated bots; if we sample users randomly we may miss attacks entirely. We need **tiered sampling** (see §6).
-
-### 4.3 The gold signal: successful logins from bad IPs
-
-- **804,491 attack rows are SUCCESSFUL logins** — someone logged in successfully from a known-bad IP. That is exactly the account-compromise pattern we want to detect
-- **141 ATOs: 140 of 141 are successful logins**, and only 55% of them overlap with the attack-IP flag — meaning attack-IP alone misses half of real takeovers
-
-**Why it matters:** These are the rows that make our model actually useful. Training must include all 138 ATO users and a healthy chunk of the 804K successful-attack rows.
-
-### 4.4 The data is dirty (~25% of rows)
-
-- Browser says Android but OS says iOS (or similar contradictions): **~7.6M rows** with browser/OS mismatches (exact counts by pattern: `dataset_scan_report.md` §3.1 — the authoritative issue inventory)
-- **4,549 distinct browser strings** like "Firefox 20.0.0.1618" — version numbers create fake "new devices" every time someone updates their browser
-- Old docs blamed these inconsistencies on the *synthetic* data and removed it — but the **real dataset has them too** (and §3.8–3.11 of the scan report show the synthesis artifacts directly: impossible versions, generator-bot UAs, VLC noise)
-
-**Why it matters:** our `device_change` feature (has this device been seen before?) will flag innocent browser updates as device changes. We must clean: strip version numbers from browser/OS strings and fix impossible combos — implemented in `src/00_clean_dataset.py`, full before/after counts in `dataset_scan_report.md` §6.
+**Our approach:** Rather than removing the user, we cap its contribution during sampling and compare model performance with and without the dominant account to determine the least biased training strategy.
 
 ---
+
+### 4.2 Highly Imbalanced User Activity
+
+The dataset contains **4,304,857 unique users**, but login activity is extremely skewed.
+
+| Statistic | Value |
+|-----------|------:|
+| Total Users | 4,304,857 |
+| Mean Logins/User | 7.26 |
+| Median | 2 |
+| 90th Percentile | 9 |
+| 95th Percentile | 13 |
+| 99th Percentile | 28 |
+| Maximum | 14,025,899 |
+
+Most users perform only a handful of logins, while one account dominates nearly half of the dataset.
+
+Further analysis also revealed:
+
+- **41 users account for approximately 1.66 million Attack IP events (54% of all attacks).**
+- **8,122 users have at least 10 attack events.**
+- **More than 742,000 attack users have only one or two attack events.**
+
+**Why it matters:** Attack behaviour is highly concentrated. Simple random sampling would overrepresent a few highly active users while underrepresenting millions of normal users. A user-aware, tiered sampling strategy is therefore required.
+
+---
+
+### 4.3 The Gold Signal: Successful Logins from Bad IPs
+
+The dataset contains valuable real-world attack scenarios:
+
+- **3,096,977 Attack IP events**
+- **804,491 successful logins from Attack IP addresses**
+- **141 confirmed Account Takeover (ATO) events**
+- **140 of the 141 ATO events are successful logins**
+- Only **77 events overlap** between the Attack IP and Account Takeover labels, meaning Attack IP alone does not capture every takeover.
+
+**Why it matters:** These are the most valuable training examples for identity anomaly detection. Successful logins from malicious IPs closely resemble real account compromise scenarios, making them essential for training and evaluation.
+
+---
+
+### 4.4 Dataset Quality Issues
+
+Comprehensive profiling identified several data quality characteristics that require preprocessing.
+
+- **95.92% of Round-Trip Time (RTT) values are missing**, while all other important columns are nearly complete.
+- **4,549 distinct browser strings** exist, many differing only by version numbers (e.g., `Firefox 20.0.0.1618`), which would artificially create new devices after every browser update.
+- Automated user agents such as **ZipppBot**, **Linkbot**, **startmebot**, **AwarioSmartBot**, and **VLC** appear throughout the dataset.
+- The Browser column occasionally contains operating system names (e.g., **Android**) instead of actual browsers.
+
+**Why it matters:** Without normalization, features such as `device_change`, `browser_change`, and user profiling would generate many false anomalies.
+
+---
+
+### 4.5 Browser–OS Inconsistencies
+
+Our analysis uncovered widespread inconsistencies between browser and operating system values.
+
+- **1,126,457 login events (3.60% of the dataset)** contain impossible Browser–OS combinations such as **Android Browser + iOS OS**.
+- The dominant user contributes only **23%** of these inconsistencies, while the remaining **77%** are distributed across the rest of the dataset.
+- The original project documentation attributed these inconsistencies only to synthetic data generation, but our full-dataset analysis confirmed that they are present throughout the actual RBA dataset as well.
+
+**Why it matters:** Browser and operating system values cannot be used directly for behavioral features. They must first be normalized into browser and OS families before features such as `device_change` are computed.
+
+---
+
+### 4.6 Data Integrity Verification
+
+Before preprocessing, we verified the integrity of the original dataset.
+
+- **31,269,264 login events**
+- **0 duplicate rows**
+- **No missing or invalid timestamps**
+- Dataset spans **03 February 2020 – 28 February 2021**
+- Events are already **chronologically sorted**
+
+**Why it matters:** These checks confirm that the dataset is structurally reliable and does not require duplicate removal or timestamp correction. Preprocessing can therefore focus on behavioral normalization and feature engineering rather than repairing corrupted records.
+
+---
+
+### 4.7 Preprocessing Strategy
+
+Based on these findings, our preprocessing pipeline performs the following steps before model training:
+
+- Normalize browser names by removing version numbers.
+- Normalize operating systems into major OS families.
+- Preserve known automated user agents as separate categories.
+- Handle Browser–OS inconsistencies before feature engineering.
+- Apply user-aware sampling to reduce bias from the dominant account.
+- Retain all Account Takeover events and successful attack logins.
+- Generate behavioral features such as `country_change`, `device_change`, `failed_before_success`, `rapid_login_rate`, and `login_frequency_today` on the cleaned dataset.
+
+These preprocessing decisions ensure that the downstream anomaly detection models learn representative user behavior rather than artifacts introduced by dataset imbalance or synthetic characteristics.
+
 
 ## 5. Why the old training file is broken
 
@@ -136,7 +210,6 @@ The current `data/processed/training_data.csv` (18,191 rows) is broken and will 
 
 | Member | Role | What to do |
 |---|---|---|
-| **Everyone** | — | Read this file. Ask questions if anything is unclear |
 | **Hemanth** | Data Pipeline | Own the clean + sample + feature engineering code (`src/01_build_training_data.py`) |
 | **Urvashi** | ML Models | Own training + evaluation (`src/02_train_models.py`, `src/03_evaluate.py`) — train on Hemanth's output, report REAL numbers |
 | **Veenashree** | Dashboard | Own the dashboard (Streamlit) that shows live events + alerts |
