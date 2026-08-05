@@ -81,7 +81,7 @@ SELECT
         WHEN regexp_matches(ua, '(?i)Windows Phone') THEN 'Windows Phone'
         WHEN regexp_matches(ua, '(?i)Android') THEN 'Android'
         WHEN regexp_matches(ua, '(?i)Windows') THEN 'Windows'
-        WHEN regexp_matches(ua, '(?i)CrOS') THEN 'ChromeOS'
+        WHEN regexp_matches(ua, '(?i)X11; CrOS') THEN 'ChromeOS'
         WHEN regexp_matches(ua, '(?i)Mac OS X|Macintosh|Mac_PowerPC') THEN 'macOS'
         WHEN regexp_matches(ua, '(?i)Linux|X11') THEN 'Linux'
         -- UA silent on platform -> fall back to the OS column's keyword
@@ -90,7 +90,7 @@ SELECT
         WHEN regexp_matches(os_raw, '(?i)Android') THEN 'Android'
         WHEN regexp_matches(os_raw, '(?i)Windows') THEN 'Windows'
         WHEN regexp_matches(os_raw, '(?i)Mac OS X|macOS|Macintosh') THEN 'macOS'
-        WHEN regexp_matches(os_raw, '(?i)ChromeOS|CrOS') THEN 'ChromeOS'
+        WHEN regexp_matches(os_raw, '(?i)Chrome ?OS') THEN 'ChromeOS'
         WHEN regexp_matches(os_raw, '(?i)Linux|Unix') THEN 'Linux'
         ELSE 'unknown'
     END                                                              AS os_family,
@@ -102,11 +102,12 @@ SELECT
         ' ')                                                             AS browser_family,
     CASE
         WHEN device_raw = 'bot' OR device_raw = 'unknown' THEN device_raw
-        WHEN regexp_matches(ua, '(?i)iPad')              THEN 'tablet'
-        WHEN regexp_matches(ua, '(?i)iPhone|Mobile')     THEN 'mobile'
-        WHEN regexp_matches(ua, '(?i)Android')           THEN 'tablet'
+        WHEN regexp_matches(ua, '(?i)iPad')                THEN 'tablet'
+        -- explicit tablet markers checked BEFORE Mobile (tablet UAs carry "Mobile")
+        WHEN regexp_matches(ua, '(?i)Tablet|SM-T|Tab S|Tab A|Galaxy Tab|Nexus (7|9|10)|Xoom|KFAPWI|Lenovo TAB') THEN 'tablet'
+        WHEN regexp_matches(ua, '(?i)iPhone|iPod|Windows Phone|Android|Mobile') THEN 'mobile'
         -- UA has no device marker -> trust the raw Device Type
-        WHEN device_raw IN ('mobile', 'tablet')          THEN device_raw
+        WHEN device_raw IN ('mobile', 'tablet')            THEN device_raw
         ELSE 'desktop'
     END                                                              AS device_type,
     -- 3.3: RFC1918 / loopback / link-local

@@ -36,7 +36,7 @@ The multi-source synthetic approach (7 AI-generated log formats + `parser.py` no
 | Raw RBA dataset | `data/raw/rba-dataset.csv` | 8.5 GB, 31,269,264 events (unchanged original) |
 | Cleaned dataset | `data/processed/rba_clean.parquet` | 654 MB, same row count, normalized browser/OS/device + inconsistency flags (built Aug 2 by `src/00_clean_dataset.py`, ~30 s) |
 | Cleaning script | `src/00_clean_dataset.py` | Full-file DuckDB clean + `--verify` before/after check table; documented in `dataset_scan_report.md` |
-| Docs | 4 `.md` files + `LICENSE` | This reference, findings briefing, **dataset scan report**, README |
+| Docs | 5 `.md` files + `LICENSE` | This reference, findings briefing, **dataset scan report**, **project roadmap**, reclean summary, README |
 
 The old 18K-row training file (`training_data.csv`), the test labels, and the two notebooks from the broken pipeline were **removed** — they documented the failed approach and are superseded by `DATASET_FINDINGS_VERIFIED.md`. (Still recoverable from git history if ever needed.)
 
