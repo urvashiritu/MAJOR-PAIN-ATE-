@@ -36,9 +36,9 @@ The multi-source synthetic approach (7 AI-generated log formats + `parser.py` no
 | Raw RBA dataset | `data/raw/rba-dataset.csv` | 8.5 GB, 31,269,264 events (unchanged original) |
 | Cleaned dataset | `data/processed/rba_clean.parquet` | 654 MB, same row count, normalized browser/OS/device + inconsistency flags (rebuilt Aug 5 by `src/00_clean_dataset.py`, ~30 s) |
 | Cleaning script | `src/00_clean_dataset.py` | Full-file DuckDB clean + `--verify` before/after check table; documented in `dataset_scan_report.md` |
-| Docs | 5 `.md` files + `LICENSE` | This reference, findings briefing, **dataset scan report**, **project roadmap**, README |
+| Docs | 4 `.md` files + `LICENSE` | This reference, **dataset scan report**, **project roadmap**, README |
 
-The old 18K-row training file (`training_data.csv`), the test labels, and the two notebooks from the broken pipeline were **removed** — they documented the failed approach and are superseded by `DATASET_FINDINGS_VERIFIED.md`. (Still recoverable from git history if ever needed.)
+The old 18K-row training file (`training_data.csv`), the test labels, and the two notebooks from the broken pipeline were **removed** — they documented the failed approach and are superseded by `dataset_scan_report.md`. (Still recoverable from git history if ever needed.)
 
 The full-dataset quality audit (Aug 2, 2026) is in `dataset_scan_report.md` — all 31,269,264 rows scanned; 16 columns verified correct; 12 issue classes documented (inconsistencies + synthesis artifacts), fixed or flagged by `src/00_clean_dataset.py`.
 
@@ -162,9 +162,9 @@ A live dashboard on Laptop 1 showing login events arriving in real-time from Lap
 ### What the dataset contains
 
 - **31.3 million login events** from a real SSO system
-- **141 confirmed account takeovers** (gold standard — rare. In real enterprises, attacks are <0.1% of logins). ⚠️ Verified Aug 1, 2026: earlier drafts said 87 — wrong. All numbers verified in `DATASET_FINDINGS_VERIFIED.md`.
+- **141 confirmed account takeovers** (gold standard — rare. In real enterprises, attacks are <0.1% of logins). ⚠️ Verified Aug 1, 2026: earlier drafts said 87 — wrong. All numbers verified in `dataset_scan_report.md`.
 - **3.1M Attack IP logins** (logins from known attacker IP addresses — this becomes our primary training label because it has more samples; 804K of them are successful logins)
-- **⚠️ One bot user holds 45% of all events and 53% of all attack labels** — see `DATASET_FINDINGS_VERIFIED.md` §4.1 before planning any sampling
+- **⚠️ One bot user holds 45% of all events and 53% of all attack labels** — see `dataset_scan_report.md` §7.1 before planning any sampling
 
 ### The 141 confirmed attacks — is that enough?
 

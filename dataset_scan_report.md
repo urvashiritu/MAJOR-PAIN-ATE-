@@ -136,7 +136,7 @@ Versions appear **before their real-world release date** (or after the dataset e
 | Normal-looking UAs also stamped with the URL (e.g. Lumia `... das-group/rba-dataset ...`) | ~1,693,598 |
 
 - 2,020,868 of them have `device = bot`; 349,510 carry attack-IP flags (11.3% of all), 500,565 are "successful" logins
-- The single bot user `-4324475583306591935` — 14,025,899 rows (**44.86% of ALL events**), 4 successes, 1,650,627 attack flags = **53% of all attack flags** (concentration problem, same class; handled at sampling — see `DATASET_FINDINGS_VERIFIED.md` §4.1)
+- The single bot user `-4324475583306591935` — 14,025,899 rows (**44.86% of ALL events**), 4 successes, 1,650,627 attack flags = **53% of all attack flags** (concentration problem, same class; handled at sampling — see §7.1)
 
 **Impact:** ~12% of the dataset is the generator's own machinery; treat as a distinct traffic class (flag it, cap it at sampling — never silently train on it as "normal human behavior").
 
@@ -234,3 +234,50 @@ Re-run the scan queries on the cleaned file — every §3 count that is *fixable
 ## 6. Reproducibility
 
 Every number in this report is produced by the checks in `src/00_clean_dataset.py --verify`, which re-runs them on any file and prints a comparison table. Rerun after any dataset change.
+
+---
+
+## 7. Blind re-audit (Aug 8, 2026) — full re-derivation without doc context
+
+An independent pass was run against `data/raw/rba-dataset.csv` deriving every number fresh (no prior scan output as input). Purpose: catch what the earlier two scans inherited rather than measured.
+
+### 7.1 Independently re-derived facts (all match this report)
+
+| Fact | This report | Blind re-derivation |
+|---|---|---|
+| Rows / users / countries | 31,269,264 / 4,304,857 / 229 | same |
+| Success / fail | 12,541,442 / 18,727,822 | same |
+| Attack-IP / attack+success | 3,096,977 / 804,491 | same |
+| ATO rows / users / attack-flagged | 141 / 138 / 77 | same |
+| ATO from private IP | 39 | same |
+| Robot rows / successes / countries / attack flags | 14,025,899 / 4 / 227 / 1,650,627 | same (44.86% of rows, 53.3% of attack flags) |
+| Top-41 users' attack share | — | 53.7% |
+| Heavy users (≥10 attacks) / their events | 8,122 / ~14.2M | same (14,264,175) |
+| Private IPs / non-NO / attack-on-private / private-success | 7,291,335 / 5,266,810 / 506,460 / 1,920,195 | same |
+| RTT missing / >60 s / max | 29,993,329 / 79 / 223,457 | same |
+| Region/City dash-dash / dash-set / NULLs | 13,895,698 / 117,683 / 55,999 | same |
+| Impossible versions (Chrome-85 / Android-11 / iOS-14 / Chrome 90+) | 7,337 / 38 / 516,751 / 239,712 | same |
+| Browser↔OS contradictions | 1,223,315 | same |
+| Duplicate rows (whole or key fields) | 0 | same |
+| Generator-bot / VLC | 3,704,894 / 708,927 | same |
+| Median / p90 events per user | 2 / 9 | same |
+
+### 7.2 What the blind pass found that the earlier scans missed
+
+| Finding | Rows | Why it was missed |
+|---|---|---|
+| **KaiOS population is 339,945 total** — OS column says `KaiOS` for 278,811 rows, but only 65,233 UAs carry a KaiOS token. The other ~213K are LYF F220B / Nokia 8110 4G KaiOS phones whose UAs say `Android` (205,821), are platform-silent (69,172), or say `iPhone` (5,673) | 278,811 | Earlier scans only counted the UA-token subset; the os_raw authoritative fallback was never checked |
+| **`device=tablet` but UA has no tablet marker** | 691,864 | §3.2 only audited the *mobile* side of the device marker issue |
+| **`os_raw = "Other "`** (2,883,889 rows, 2,754,361 of them UA-silent) — a 9.2% OS category never documented | 2,883,889 | No scan ever grouped the raw OS column by distinct value |
+| **UA completely silent on platform** (no OS token at all) | 3,006,003 | §3.1 counted contradictions, not absences |
+| **`device=desktop` but UA says mobile** | 3,388 | Small, opposite direction of the big §3.2 count |
+| **`device=mobile` but UA silent** | 30,680 | Small subset of §3.2's browser-based count |
+| **Device Type NULL** | 1,526 | Earlier scan said "no NULLs" — checked Browser/OS only |
+| **Short UAs (<15 chars)** | 9,715 | Never quantified |
+
+### 7.3 What this means for the pipeline
+
+- **KaiOS is a real OS family in this dataset (339,945 rows, 1.1%)** — it must be its own `os_family` (already done in `src/00_clean_dataset.py`; the union `os_raw LIKE KaiOS OR UA LIKE KaiOS` = 339,945 exactly matches the cleaned parquet's `KaiOS` total, so the fix is complete and the earlier "74,845" figure was just the UA-token subset).
+- `os_raw = "Other "` rows are mostly bot/unknown traffic — check they don't pollute `browser_family` features.
+- The 3,388 desktop-but-Android-UA rows and 30,680 mobile-but-silent-UA rows should be eyeballed during sampling, not cleaning.
+- **Lesson:** a scan that only re-checks previous findings inherits their blind spots. The blind pass found 8 new issues solely because it re-derived counts from scratch and grouped by distinct raw values. Every future scan should start from the raw CSV, not from this report.

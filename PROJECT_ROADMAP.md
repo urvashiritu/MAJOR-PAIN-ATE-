@@ -86,7 +86,7 @@ Do not start with the dashboard. Build and test each layer in this order:
 ### Work
 
 - Keep `major.md` as the theoretical background and presentation material.
-- Keep `DATASET_FINDINGS_VERIFIED.md` as dataset evidence, while correcting
+- Use `dataset_scan_report.md` as dataset evidence (facts, issues, cleaning, blind re-audit §7), while correcting
   any contradictory missing-value/device statements.
 - Treat old unverified metrics as invalid until reproduced.
 - Use this file as the implementation source of truth.
