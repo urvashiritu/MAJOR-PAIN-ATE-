@@ -277,6 +277,7 @@ An independent pass was run against `data/raw/rba-dataset.csv` deriving every nu
 
 ### 7.3 What this means for the pipeline
 
+- **All §7.2 findings are already handled by the current cleaned parquet — no rebuild needed.** Verified against `data/processed/rba_clean.parquet`: `os_family='KaiOS'` = 339,945 (union matches exactly); `device=tablet` w/o UA marker → 691,572 already `mobile`; `device=desktop` but UA mobile → all 3,388 already `mobile`; `os_raw="Other "` → 2,754,370 `unknown`, 126,803 `iOS` (UA says iOS — correct), 2,704 `ChromeOS`; 1,526 NULL-device rows → `desktop` (no mobile UA markers). Guards `kaios_rows`, `null_device_rows`, `other_os_unknown` added to `CHECKS_CLEAN` so future scans can't re-flag these.
 - **KaiOS is a real OS family in this dataset (339,945 rows, 1.1%)** — it must be its own `os_family` (already done in `src/00_clean_dataset.py`; the union `os_raw LIKE KaiOS OR UA LIKE KaiOS` = 339,945 exactly matches the cleaned parquet's `KaiOS` total, so the fix is complete and the earlier "74,845" figure was just the UA-token subset).
 - `os_raw = "Other "` rows are mostly bot/unknown traffic — check they don't pollute `browser_family` features.
 - The 3,388 desktop-but-Android-UA rows and 30,680 mobile-but-silent-UA rows should be eyeballed during sampling, not cleaning.

@@ -182,6 +182,9 @@ CHECKS_CLEAN = {
     "wp_as_ios": "COUNT(*) FILTER (WHERE os_family='iOS' AND regexp_matches(os_raw, '(?i)Windows Phone'))",
     "kaios_as_ios": "COUNT(*) FILTER (WHERE os_family='iOS' AND regexp_matches(os_raw, '(?i)KaiOS'))",
     "cros_as_android": "COUNT(*) FILTER (WHERE os_family='Android' AND regexp_matches(user_agent, '(?i)X11; CrOS'))",
+    "kaios_rows": "COUNT(*) FILTER (WHERE os_family='KaiOS')",
+    "null_device_rows": "COUNT(*) FILTER (WHERE device_raw IS NULL)",
+    "other_os_unknown": "COUNT(*) FILTER (WHERE os_raw='Other ' AND os_family='unknown')",
 }
 
 
@@ -256,7 +259,8 @@ def main() -> None:
             a = after.get(name)
             av = f"{a:>14,}" if isinstance(a, int) else f"{str(a):>14}"
             print(f"{name:<22}{before[name]:>14,}{av}")
-        for name in ("ua_os_conflict", "geo_null_now"):
+        for name in ("ua_os_conflict", "geo_null_now", "wp_as_ios", "kaios_as_ios",
+                     "cros_as_android", "kaios_rows", "null_device_rows", "other_os_unknown"):
             if name in after:
                 print(f"{name:<22}{'-':>14}{after[name]:>14,}")
         return
