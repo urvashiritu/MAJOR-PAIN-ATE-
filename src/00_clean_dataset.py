@@ -99,6 +99,14 @@ SELECT
         WHEN regexp_matches(os_raw, '(?i)Mac OS X|macOS|Macintosh') THEN 'macOS'
         WHEN regexp_matches(os_raw, '(?i)Chrome ?OS') THEN 'ChromeOS'
         WHEN regexp_matches(os_raw, '(?i)Linux|Unix') THEN 'Linux'
+        -- legacy OS families the generator stores in os_raw (UA-silent rows)
+        -- (scan 4 coverage audit, Aug 8: these were falling to 'unknown')
+        WHEN regexp_matches(os_raw, '(?i)BlackBerry') THEN 'BlackBerry'
+        WHEN regexp_matches(os_raw, '(?i)MeeGo') THEN 'MeeGo'
+        WHEN regexp_matches(os_raw, '(?i)Symbian') THEN 'Symbian'
+        WHEN regexp_matches(os_raw, '(?i)Roku') THEN 'Roku'
+        WHEN regexp_matches(os_raw, '(?i)WebTV') THEN 'WebTV'
+        WHEN regexp_matches(os_raw, '(?i)Firefox OS') THEN 'Firefox OS'
         ELSE 'unknown'
     END                                                              AS os_family,
     array_to_string(
@@ -185,6 +193,7 @@ CHECKS_CLEAN = {
     "kaios_rows": "COUNT(*) FILTER (WHERE os_family='KaiOS')",
     "null_device_rows": "COUNT(*) FILTER (WHERE device_raw IS NULL)",
     "other_os_unknown": "COUNT(*) FILTER (WHERE os_raw='Other ' AND os_family='unknown')",
+    "legacy_os_rows": "COUNT(*) FILTER (WHERE os_family IN ('BlackBerry','MeeGo','Symbian','Roku','WebTV','Firefox OS'))",
 }
 
 
@@ -260,7 +269,8 @@ def main() -> None:
             av = f"{a:>14,}" if isinstance(a, int) else f"{str(a):>14}"
             print(f"{name:<22}{before[name]:>14,}{av}")
         for name in ("ua_os_conflict", "geo_null_now", "wp_as_ios", "kaios_as_ios",
-                     "cros_as_android", "kaios_rows", "null_device_rows", "other_os_unknown"):
+                     "cros_as_android", "kaios_rows", "null_device_rows", "other_os_unknown",
+                     "legacy_os_rows"):
             if name in after:
                 print(f"{name:<22}{'-':>14}{after[name]:>14,}")
         return

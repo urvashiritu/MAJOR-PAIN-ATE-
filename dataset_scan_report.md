@@ -197,7 +197,7 @@ is_generator_bot, is_vlc
 ### Step 2 — Fix rules (implemented in `src/00_clean_dataset.py`)
 
 1. **`os_family`** — derived from the User Agent string (source of truth), not the OS column:
-   `KaiOS → KaiOS` (os_raw is authoritative — these devices spoof a Chrome/CriOS UA); `Windows Phone → Windows Phone` (checked BEFORE iOS — WP UAs carry a `like iPhone OS` spoof token); `iPhone|iPad|iPod|iOS → iOS`; `Android([^@]|$) → Android` (the `@` excludes `android@` tokens in ChromeOS UAs); `Windows → Windows`; `CrOS → ChromeOS`; `Mac OS X|Macintosh → macOS`; `Linux|X11 → Linux`; else `unknown`. Flag `ua_os_conflict = True` where this differs from the raw OS column (fixes §3.1).
+   `KaiOS → KaiOS` (os_raw is authoritative — these devices spoof a Chrome/CriOS UA); `Windows Phone → Windows Phone` (checked BEFORE iOS — WP UAs carry a `like iPhone OS` spoof token); `iPhone|iPad|iPod|iOS → iOS`; `Android([^@]|$) → Android` (the `@` excludes `android@` tokens in ChromeOS UAs); `Windows → Windows`; `CrOS → ChromeOS`; `Mac OS X|Macintosh → macOS`; `Linux|X11 → Linux`; then legacy families from os_raw (UA-silent rows only, added by the §8 audit): `BlackBerry → BlackBerry`, `MeeGo → MeeGo`, `Symbian → Symbian`, `Roku → Roku`, `WebTV → WebTV`, `Firefox OS → Firefox OS`; else `unknown`. Flag `ua_os_conflict = True` where this differs from the raw OS column (fixes §3.1).
 2. **`browser_family`** — raw browser string with version tokens stripped — both `85.0.4183` and `11_6_3` forms: `Chrome Mobile WebView 85.0.4183 → Chrome Mobile WebView`; `Firefox 20.0.0.1618 → Firefox`; `Unknown Mac OS X 11_6_3 Browser → Unknown Mac OS X Browser`. 4,549 distinct strings collapse to ~200 families, so browser updates no longer look like device changes. Flag `version_stripped`. (Fixes §3.12.)
 3. **`device_type`** — derived from UA: `iPad → tablet`; `iPhone|iPod|Mobile|Android([^@]|$).*Mobile → mobile` (the `[^@]` guard stops `android@` tokens in ChromeOS UAs from forcing mobile); `Android → tablet`; else `desktop` (fixes §3.2). Raw `bot`/`unknown` values are preserved in `device_raw`.
 4. **`is_private_ip`** — `10.x`, `172.16–31.x`, `192.168.x`, `127.x`, `169.254.x` → True (7.29M rows). When True, set **`geo_unreliable = True`** — country/region/city are kept raw but flagged; nothing is fabricated, and the label columns are untouched (fixes §3.3).
@@ -282,3 +282,59 @@ An independent pass was run against `data/raw/rba-dataset.csv` deriving every nu
 - `os_raw = "Other "` rows are mostly bot/unknown traffic — check they don't pollute `browser_family` features.
 - The 3,388 desktop-but-Android-UA rows and 30,680 mobile-but-silent-UA rows should be eyeballed during sampling, not cleaning.
 - **Lesson:** a scan that only re-checks previous findings inherits their blind spots. The blind pass found 8 new issues solely because it re-derived counts from scratch and grouped by distinct raw values. Every future scan should start from the raw CSV, not from this report.
+
+---
+
+## 8. Exhaustive coverage audit (Scan 4, Aug 8, 2026) — audit-complete definition
+
+The loop-closing pass: instead of hunting by hypothesis, it enumerates the **entire value space** — every column's formats, every mapping's coverage, every cross-tab — from the raw CSV. Method: one read-only script (`/tmp/opencode/scan4_audit.py`), in-memory DuckDB, all 31,269,264 rows, zero writes.
+
+### 8.1 Coverage grid — results
+
+| # | Dimension | Criterion | Result |
+|---|---|---|---|
+| 0 | Parse integrity | strict vs loose CSV read drop 0 rows | **PASS** (31,269,264 = 31,269,264) |
+| 1 | `index` | unique, non-null | **PASS** (31,269,264 distinct, 0 NULL) |
+| 2 | `User ID` | integer-like | **PASS** — signed 64-bit ints (22.6M negative — legitimate; parquet: 4,304,857 distinct users, 0 NULL) |
+| 3 | `IP Address` | valid IPv4 form | **PASS** (0 malformed) |
+| 4 | `ASN` | numeric, non-null | **PASS** (0 non-numeric, 0 NULL) |
+| 5 | `Country` | valid ISO-3166 alpha-2, uppercase | **PASS** (0 bad, 229 distinct) |
+| 6 | `Login Timestamp` | parseable, sane range | **PASS** (0 unparseable; 2020-02-03 → 2021-02-28) |
+| 7 | `RTT` | no non-numeric, no negatives | **PASS** (0 / 0; missing = NULL only) |
+| 8 | `Login Successful` / `Is Attack IP` / `Is Account Takeover` | only True/False | **PASS** (2 distinct values each, 0 other, 0 NULL) |
+| 9 | Encoding | no control chars | **PASS** (0 in city/region/UA) |
+| 10 | Non-ASCII text | benign international names | **OBSERVED** (city 739,490 / region 911,579 — accented names; UA only 2,233) |
+| 11 | `os_raw → os_family` coverage | every raw value mapped | **FAILED → FIXED** (6 legacy families below) |
+| 12 | `device_raw → device_type` coverage | every raw value mapped | **PASS** (all 6 values incl. `None`→desktop) |
+| 13 | `browser_raw → browser_family` | version-strip covers all | **PASS** (consistent with §3.12) |
+| 14 | `os_family × device_type` cross-tab | no impossible pairs | **PASS** (bot/unknown device × unknown OS expected; 80 ChromeOS-mobile = genuine tablets) |
+| 15 | Geo placeholder matrix | enumerated | **PASS** (set/set 17,194,572 · dash/dash 13,895,698 · dash/set 117,683 · NULL/set 43,867 · set/dash 8,854 · set/NULL 5,048 · NULL/NULL 3,542) |
+| 16 | Hour-of-day | no gaps, sane diurnal curve | **PASS** (0.34% at hour 0 → 1.43% at hour 15, smooth) |
+| 17 | Duplicate UA, different OS/browser column | spoofing scale | **PASS** (0 UAs with >1 OS value, 0 with >1 browser value) |
+
+### 8.2 The one gap found — and fixed
+
+Six **real OS families** were falling to `os_family='unknown'` because the UA branches don't match them (their UAs are platform-silent) and no `os_raw` fallback existed:
+
+| Family | Rows (raw) |
+|---|---|
+| BlackBerry | 7,809 |
+| MeeGo | 3,110 |
+| Roku | 75 |
+| Symbian | 35 |
+| WebTV | 21 |
+| Firefox OS | 5 |
+
+**Fix:** six `os_raw` fallback branches added to the `os_family` CASE in `src/00_clean_dataset.py` (after the UA branches, before `else unknown` — same pattern as KaiOS). Guard `legacy_os_rows` added to `CHECKS_CLEAN`. Parquet rebuilt (Aug 8): `legacy_os_rows = 11,055` matches the raw audit exactly; all prior guards unchanged (`wp_as_ios=0`, `kaios_as_ios=0`, `cros_as_android=0`, `kaios_rows=339,945`, `null_device_rows=1,526`, `other_os_unknown=2,754,370`, `ua_os_conflict=1,079,367`, rows 31,269,264).
+
+Remaining `unknown` after fix: **2,755,896** = `os_raw="Other "` (2,754,370, deliberately unknown) + `os_raw="134"` (1,526, the NULL-device junk rows, guarded by `null_device_rows`).
+
+### 8.3 Observed, not defects
+
+- **1.13M iOS-family rows whose `browser_raw` column says `Android 2.0` etc.** (e.g. `browser_raw="Android 2.0"`, `os_raw="iOS 13.5.5"`, UA `iPhone`). Generator slop in the *browser* column — the UA, `os_family`, and `device_type` are all correct, so nothing changes for features; `browser_family` is only informational for these rows. Eyeball during feature engineering, do not re-map.
+- Non-ASCII city/region names (row 10) — normal international text.
+- Hour-of-day has a strong human diurnal shape — useful for `is_night` features, not an anomaly.
+
+### 8.4 Audit-complete statement
+
+**Every column enumerated, every mapping's coverage measured, every two-way cross-tab checked, format/enum/encoding validation passed — the only gap found (6 legacy OS families, 11,055 rows) was fixed and is now a permanent guard. The cleaned parquet is declared audit-complete as of Aug 8, 2026.** Future audits start from the raw CSV with the same grid; any new value domain or mapping hole will surface as a §8.1 row that fails.

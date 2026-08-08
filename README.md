@@ -33,13 +33,14 @@ We are building a system that watches login events (like "someone logged in from
 - **Reclean done (Aug 5):** the cleaned parquet was rebuilt with two fixes — Android devices now default to `mobile` (only real tablet signatures become `tablet`), and ChromeOS detection no longer matches `SamsungBrowser/CrossApp`. Verified in `dataset_scan_report.md` §6 (`src/00_clean_dataset.py --verify`).
 - **Revalidation fixes (Aug 8):** rebuilt again with three more OS/device mislabel fixes (~164K rows) — Windows Phone no longer caught by the iOS spoof token, KaiOS no longer matched by the `iOS` fallback, and `android@` tokens no longer classify ChromeOS desktops as Android mobile. Verified: `wp_as_ios=0`, `kaios_as_ios=0`, `cros_as_android=0`; `ua_os_conflict` 1,223,315 → 1,079,367.
 - **Blind re-audit (Aug 8):** the full dataset was re-scanned from scratch (no doc context) — every documented number re-verified, plus 8 previously-missed issues found (KaiOS scale 339,945, `device=tablet` w/o marker 691,864, `os_raw="Other "` 2.88M, silent-UA rows 3.0M, etc.). Full findings: `dataset_scan_report.md` §7.
+- **Exhaustive coverage audit (Aug 8, `dataset_scan_report.md` §8):** the loop-closing pass — every column's formats, every mapping's coverage, every cross-tab enumerated. One gap found and fixed: 6 legacy OS families (BlackBerry 7,809 / MeeGo 3,110 / Roku / Symbian / WebTV / Firefox OS = 11,055 rows) were falling to `unknown`; `os_family` branches added, parquet rebuilt, guard `legacy_os_rows=11,055`. **Dataset declared audit-complete.**
 - **Pipeline rewrite started:** the broken pipeline scripts and the old 18K-row training file (248 attacks) were removed; the clean rewrite begins with `src/00_clean_dataset.py` (roadmap in `COMPLETE_PROJECT_REFERENCE.md` status section).
 
 ## Docs
 
 | Doc | What it covers |
 |---|---|
-| `dataset_scan_report.md` | Full-scan quality report: every inconsistency found in all 31.3M rows + the cleaning solution + the blind re-audit (§7) |
+| `dataset_scan_report.md` | Full-scan quality report: every inconsistency found in all 31.3M rows + the cleaning solution + blind re-audit (§7) + exhaustive coverage audit (§8) |
 | `PROJECT_ROADMAP.md` | **Implementation source of truth** — phases 0–11, build order, definition of done |
 | `COMPLETE_PROJECT_REFERENCE.md` | Full project reference + **status update & roadmap** (read the status section first) |
 
