@@ -12,15 +12,14 @@
   - `data/raw/rba-dataset.csv` — raw RBA dataset (8.5 GB, 31.3M events, Zenodo)
   - `data/processed/rba_clean.parquet` — cleaned version (654 MB, 31,269,264 rows preserved, flags added, no deletions) + `cleaning_summary.json`
   - `src/00_clean_dataset.py` — the cleaning script (full-file DuckDB, ~30 s)
-  - 6 docs (this README + 5 below, see reading order) + `LICENSE`
-- **Reclean done (Aug 5):** the cleaned parquet was rebuilt with two fixes — Android devices now default to `mobile` (only real tablet signatures become `tablet`), and ChromeOS detection no longer matches `SamsungBrowser/CrossApp`. Details + verification in `fullDataset_cleaned_summary.md`.
+  - 5 docs (this README + 4 below, see reading order) + `LICENSE`
+- **Reclean done (Aug 5):** the cleaned parquet was rebuilt with two fixes — Android devices now default to `mobile` (only real tablet signatures become `tablet`), and ChromeOS detection no longer matches `SamsungBrowser/CrossApp`. Verified in `dataset_scan_report.md` §6 (`src/00_clean_dataset.py --verify`).
 - **Pipeline rewrite started:** the broken pipeline scripts and the old 18K-row training file (248 attacks) were removed; the clean rewrite begins with `src/00_clean_dataset.py` (roadmap in `COMPLETE_PROJECT_REFERENCE.md` status section).
 
 ## Docs
 
 | Doc | What it covers |
 |---|---|
-| `fullDataset_cleaned_summary.md` | **New (Aug 5)** — what we did in the reclean session + Q&A, the easiest read |
 | `DATASET_FINDINGS_VERIFIED.md` | Verified facts from the full 31.3M scan, beginner-friendly, what's next |
 | `dataset_scan_report.md` | Full-scan quality report: every inconsistency found in all 31.3M rows + the cleaning solution |
 | `PROJECT_ROADMAP.md` | **Implementation source of truth** — phases 0–11, build order, definition of done |
@@ -28,12 +27,11 @@
 
 ## How to read these docs (recommended order)
 
-1. `fullDataset_cleaned_summary.md` — what we just did + Q&A, the easiest read
-2. `README.md` — this overview, current state, known issues
-3. `DATASET_FINDINGS_VERIFIED.md` — the verified dataset facts, plain English
-4. `dataset_scan_report.md` — the full quality audit, when you need the numbers
-5. `PROJECT_ROADMAP.md` — the implementation plan (phases 0–11)
-6. `COMPLETE_PROJECT_REFERENCE.md` — the deep design reference; read its STATUS UPDATE section first
+1. `README.md` — this overview, current state, known issues
+2. `DATASET_FINDINGS_VERIFIED.md` — the verified dataset facts, plain English
+3. `dataset_scan_report.md` — the full quality audit, when you need the numbers
+4. `PROJECT_ROADMAP.md` — the implementation plan (phases 0–11)
+5. `COMPLETE_PROJECT_REFERENCE.md` — the deep design reference; read its STATUS UPDATE section first
 
 ## Known Issues (must fix in next phase)
 
