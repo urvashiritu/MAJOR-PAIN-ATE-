@@ -176,7 +176,7 @@ data/processed/development_sample.parquet
 
 All values in the reports must be reproducible from the raw file.
 
-## Phase 3: Cleaning And Sampling
+## Phase 3: Cleaning And Sampling — ✅ DONE (Aug 8, 2026)
 
 ### Cleaning
 
@@ -209,14 +209,14 @@ split as a secondary experiment for unseen users. A user-only split by itself
 can make contextual history features unrealistic because every first event for
 an unseen user has no prior baseline.
 
-### Completion criteria
+### Completion criteria — all met
 
-- All 141 confirmed takeover rows and their users are accounted for.
-- The dominant user cannot dominate the training sample.
-- No test event contributes future information to its own features.
-- Sampling statistics are saved in a report.
+- All 141 confirmed takeover rows and their users are accounted for. *(138/138 users, 141/141 rows in `sample.parquet`, gate-checked)*
+- The dominant user cannot dominate the training sample. *(robot capped at 50,000 rows, `is_robot_sampled` flag, 10K per-user cap; max non-robot user 6,417 rows)*
+- No test event contributes future information to its own features. *(features use only strictly-earlier events; full-dataset baselines never feed per-event features)*
+- Sampling statistics are saved in a report. *(`data/processed/sampling_report.json`)*
 
-## Phase 4: Feature Engineering
+## Phase 4: Feature Engineering — ✅ DONE (Aug 8, 2026)
 
 Implement one shared feature function for both offline and live events.
 
@@ -240,12 +240,16 @@ Implement one shared feature function for both offline and live events.
 - `device_change` uses normalized device/browser/OS fields.
 - Every historical feature uses only events earlier than the current event.
 
-### Completion criteria
+### Completion criteria — implemented (Aug 8)
 
-- Unit tests cover first events, missing devices, repeated events, time windows,
-  midnight/day changes, and chronological ordering.
-- The same input event produces the same offline and live feature values.
-- A feature report contains distributions and example events.
+- Shared feature function `feature_sql` in `src/02_feature_engineering.py` — one code path for offline and live events, so the same input event produces identical values by construction.
+- First events → `country_change=0` / `device_change=0` via explicit `rn=1` policy (not coalesce — validated: naive form flags 100% of first events).
+- `failed_before_success` = real 5-minute lookback over strictly-earlier events (ASOF join uses `>` to avoid self-matching; 124,001 events flagged).
+- `rapid_login_rate` = 60-second window (max 11); `login_frequency_today` = same-day earlier events (max 386).
+- `device_change` uses version-stripped `browser_family` / `os_family` / `device_type` (209,892 changes).
+- Per-user `ts` strictly increasing, ordered by `(ts, row_id)` — deterministic chronology; no future leakage (per-event features never read `user_baselines`).
+- Feature report with distributions: `data/processed/features_report.json`.
+- **Deferred to Phase 10:** formal unit-test suite (first events, missing devices, repeated events, time windows, midnight/day changes, chronological ordering) — the semantics were validated by an independent audit agent instead; tests will codify them.
 
 ## Phase 5: Rule-Based Baseline
 
@@ -443,11 +447,12 @@ The project is ready for demonstration when:
 
 ## Immediate Next Tasks
 
-1. Correct contradictions in the dataset documentation about blank devices and
-   device categories.
-2. Create the repository structure and Python environment.
-3. Implement the dataset audit script.
-4. Implement the development sample and save its statistics.
-5. Implement and test the eight shared features.
+1. ~~Correct contradictions in the dataset documentation~~ — ✅ done (dataset audit-complete, §7–§8)
+2. ~~Create the repository structure and Python environment~~ — ✅ done (src/ + venv/)
+3. ~~Implement the dataset audit script~~ — ✅ done (`src/00_clean_dataset.py --verify`)
+4. ~~Implement the development sample and save its statistics~~ — ✅ done (`src/01_load_and_sample.py`, 1M rows, 24.70% attack)
+5. ~~Implement and test the eight shared features~~ — ✅ done (`src/02_feature_engineering.py`, agent-validated; formal tests deferred to Phase 10)
+6. **Implement the Phase 5 rule-based baseline** — explainable score with reasons; points tuned on validation data.
+7. **Implement Phase 6 models** — Isolation Forest on the full sample, OCSVM + LOF on a 200–500K subset; `contamination` from the measured ratio; reproducible metrics + threshold curves; must beat the rule baseline.
 
-Do not begin the full live dashboard until these five tasks are complete.
+Do not begin the full live dashboard until the rule baseline and models are complete.

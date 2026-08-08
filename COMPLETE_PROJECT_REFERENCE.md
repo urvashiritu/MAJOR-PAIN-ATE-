@@ -14,7 +14,34 @@
 
 ---
 
-## ⚠️ STATUS UPDATE (Aug 1, 2026) — Read This First
+## ⚠️ STATUS UPDATE (Aug 8, 2026) — Read This First
+
+Since the Aug 1 update, the dataset has been cleaned, audited to completion, sampled, and featurized:
+
+- **Dataset audit-complete (Aug 2 → Aug 8):** three passes — full scan (12 issue classes), blind re-audit from raw CSV (8 new findings, all already handled), and an exhaustive coverage audit (`dataset_scan_report.md` §7–§8) that enumerated every column's formats, every mapping's coverage, and every cross-tab. One gap was found and fixed: 6 legacy OS families (BlackBerry, MeeGo, Roku, Symbian, WebTV, Firefox OS = 11,055 rows) now map instead of falling to `unknown`. Guard checks in `src/00_clean_dataset.py --verify` make regressions detectable.
+- **Phase 3 — Sampling done:** `src/01_load_and_sample.py` builds a 1,000,000-row whole-user stratified sample (never row-sampling): all 138 ATO users (141/141 rows), all 8,110 attack-heavy users, robot user capped at 50,000 with `is_robot_sampled` flag, random light/normal users with a 10K per-user cap. Gates PASS: attack share 24.70% (natural), 152,863 gold rows, all 4.3M users in `user_baselines.parquet` (full-dataset per-user history). The design was validated by two independent audit agents before implementation.
+- **Phase 4 — Features done:** `src/02_feature_engineering.py` implements one shared feature function (`feature_sql`) used by both offline and live paths, so values are identical by construction. Features: `hour`, `is_night`, `is_weekend`, `country_change`, `device_change`, `failed_before_success` (true 5-min window, strictly earlier events), `rapid_login_rate` (60 s), `login_frequency_today`. First-ever event → `country_change=0`/`device_change=0` by explicit policy. Per-event features never read `user_baselines` (that would leak future information); baselines serve only non-temporal user context. Counts match an independent validation agent exactly.
+- **Next:** Phase 5 rule-based baseline (points tuned on validation data), then Phase 6 anomaly models with `contamination` set from the measured ratio — never hardcoded.
+
+### Known issues to fix (learned since this doc was written)
+
+1. ~~**Attack-ratio collapse**~~ — **FIXED (Aug 8):** user-based sampling (keep all events of sampled users) yields 1M rows / 24.70% attack share; ATO rows all included.
+2. **Metrics in this document are NOT measured** — still true; the 94.2% / 91.7% / 88.3% claims are aspirational until Phase 6 measures and reports honestly.
+3. ~~**`failed_before_success` semantics**~~ — **FIXED (Aug 8):** the shared feature function counts failed logins in the 5 minutes before the event (strictly earlier), not failures since last success.
+4. ~~**`device_change` includes exact browser version**~~ — **FIXED (Aug 8):** features use version-stripped `browser_family` / `os_family` / `device_type`.
+5. ~~**First login per user → `country_change = 1`**~~ — **FIXED (Aug 8):** explicit policy — first-ever event gets `country_change = 0` and `device_change = 0`.
+6. **`contamination=0.05` was hardcoded** — **STILL OPEN:** Phase 6 must set it from the measured attack ratio of the training subset.
+
+### Roadmap (next phases)
+
+- **Phase 5 — Rule-based baseline:** explainable score (new country +30, new device +25, failed login +20, rapid login +15, unusual hour +15) → low/medium/high/critical; points tuned on validation data; each decision includes human-readable reasons.
+- **Phase 6 — Models + honest evaluation:** IF on the full sample; One-Class SVM + LOF on a 200–500K subset; Elliptic Envelope if distributions suit; `contamination` from measured ratio; precision/recall/F1/FPR + threshold curves + ATO and attack-IP-success detection; models must beat the rule baseline.
+- **Phase 7–9 — API, website, dashboard, live demo:** user profiles + `POST /login` flow returning allow/challenge/block; dashboard event stream; Laptop-1 dashboard / Laptop-2 site demo.
+- **Phase 10–11 — Testing, report, presentation:** data/feature/model/application test levels; 15-section report with measured results only.
+
+---
+
+## ⚠️ STATUS UPDATE (Aug 1, 2026) — Historical context (superseded by the Aug 8 update above)
 
 ### Dataset strategy decision: RBA-only
 
@@ -61,7 +88,7 @@ The previous `anomaly_detector.py` / `train_models.py` / `evaluate.py` were remo
 
 ### Stale sections in this document
 
-- **§15 File Structure, §16 Work Distribution, §23 Getting Started Commands** describe `src/01_load_and_sample.py` … `07_dashboard.py` — these files do **not** exist yet. Treat them as the *target structure* for the rewrite, not current reality.
+- **§15 File Structure, §16 Work Distribution, §23 Getting Started Commands** describe `src/01_load_and_sample.py` … `07_dashboard.py` — `01_load_and_sample.py` and `02_feature_engineering.py` now exist (Aug 8); `03`–`07` do not yet. Treat the rest as the *target structure* for the rewrite, not current reality.
 - **§21 Q5 and the dashboard wireframe** quote the unverified 94.2%/91.7%/88.3% metrics — treat as aspirational until Phase 3 delivers measured numbers.
 
 ---

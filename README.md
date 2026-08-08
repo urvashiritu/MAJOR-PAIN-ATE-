@@ -27,14 +27,21 @@ We are building a system that watches login events (like "someone logged in from
 - **Dataset strategy: RBA-only.** The multi-source synthetic experiment (7 AI-generated log formats + parser.py) was prototyped, evaluated, and **removed** — the synthetic data was inconsistent and unlabelable (details in `COMPLETE_PROJECT_REFERENCE.md`).
 - **Repo contents:**
   - `data/raw/rba-dataset.csv` — raw RBA dataset (8.5 GB, 31.3M events, Zenodo)
-  - `data/processed/rba_clean.parquet` — cleaned version (654 MB, 31,269,264 rows preserved, flags added, no deletions) + `cleaning_summary.json`
-  - `src/00_clean_dataset.py` — the cleaning script (full-file DuckDB, ~30 s)
+  - `data/processed/rba_clean.parquet` — cleaned version (685 MB, 31,269,264 rows preserved, flags added, no deletions) + `cleaning_summary.json`
+  - `data/processed/sample.parquet` — stratified sample (1,000,000 rows, 193,688 users) + `sampling_report.json`
+  - `data/processed/user_baselines.parquet` — per-user history over all 31.3M rows (for contextual features)
+  - `data/processed/features.parquet` — sample + the 8 behavioral features + `features_report.json`
+  - `src/00_clean_dataset.py` — cleaning script (full-file DuckDB, ~30 s)
+  - `src/01_load_and_sample.py` — whole-user stratified sampling + baselines (~2 min)
+  - `src/02_feature_engineering.py` — shared feature function (offline/live identical, ~5 s)
   - 4 docs (this README + 3 below, see reading order) + `LICENSE`
 - **Reclean done (Aug 5):** the cleaned parquet was rebuilt with two fixes — Android devices now default to `mobile` (only real tablet signatures become `tablet`), and ChromeOS detection no longer matches `SamsungBrowser/CrossApp`. Verified in `dataset_scan_report.md` §6 (`src/00_clean_dataset.py --verify`).
 - **Revalidation fixes (Aug 8):** rebuilt again with three more OS/device mislabel fixes (~164K rows) — Windows Phone no longer caught by the iOS spoof token, KaiOS no longer matched by the `iOS` fallback, and `android@` tokens no longer classify ChromeOS desktops as Android mobile. Verified: `wp_as_ios=0`, `kaios_as_ios=0`, `cros_as_android=0`; `ua_os_conflict` 1,223,315 → 1,079,367.
 - **Blind re-audit (Aug 8):** the full dataset was re-scanned from scratch (no doc context) — every documented number re-verified, plus 8 previously-missed issues found (KaiOS scale 339,945, `device=tablet` w/o marker 691,864, `os_raw="Other "` 2.88M, silent-UA rows 3.0M, etc.). Full findings: `dataset_scan_report.md` §7.
 - **Exhaustive coverage audit (Aug 8, `dataset_scan_report.md` §8):** the loop-closing pass — every column's formats, every mapping's coverage, every cross-tab enumerated. One gap found and fixed: 6 legacy OS families (BlackBerry 7,809 / MeeGo 3,110 / Roku / Symbian / WebTV / Firefox OS = 11,055 rows) were falling to `unknown`; `os_family` branches added, parquet rebuilt, guard `legacy_os_rows=11,055`. **Dataset declared audit-complete.**
-- **Pipeline rewrite started:** the broken pipeline scripts and the old 18K-row training file (248 attacks) were removed; the clean rewrite begins with `src/00_clean_dataset.py` (roadmap in `COMPLETE_PROJECT_REFERENCE.md` status section).
+- **Pipeline rewrite started:** the broken pipeline scripts and the old 18K-row training file (248 attacks) were removed; the clean rewrite is now `src/00_clean_dataset.py` → `src/01_load_and_sample.py` → `src/02_feature_engineering.py` (roadmap in `COMPLETE_PROJECT_REFERENCE.md` status section).
+- **Sampling done (Aug 8, Phase 3):** whole-user stratified sampling to 1,000,000 rows — all 138 ATO users (141/141 rows), all 8,110 attack-heavy users, robot capped at 50,000 (flag `is_robot_sampled`), random light + normal users, 10K per-user cap. Gates all PASS: attack share 24.70% (natural, not forced), gold rows 152,863, all 4.3M users covered by full-dataset baselines. Design validated by two audit agents before implementation.
+- **Features done (Aug 8, Phase 4):** shared feature function (`feature_sql`) computes `hour`, `is_night`, `is_weekend`, `country_change`, `device_change`, `failed_before_success` (true 5-min window), `rapid_login_rate` (60 s), `login_frequency_today` — only strictly-earlier events per user, first-ever event → `country_change=0`/`device_change=0` by explicit policy. Counts match the independent validator exactly (49,936 / 209,892 / 124,001 / max 11 / max 386). No future leakage: per-event features never use `user_baselines`.
 
 ## Docs
 
@@ -53,6 +60,8 @@ We are building a system that watches login events (like "someone logged in from
 
 ## Known Issues (must fix in next phase)
 
-1. Training data has only 248 attack examples (1.36%) — row-level sampling collapsed the 10% attack ratio
-2. Documented metrics (94.2%/91.7%/88.3%) are not reproducible — actual recall is ~2%
-3. `failed_before_success` semantics: docs say "5-min window", implementation used "since last success"
+1. ~~Training data has only 248 attack examples (1.36%)~~ — **RESOLVED (Aug 8):** whole-user sampling now yields 1,000,000 rows with a 24.70% natural attack share.
+2. ~~Documented metrics (94.2%/91.7%/88.3%) are not reproducible — actual recall is ~2%~~ — **SUPERSEDED:** the old model artifacts were removed; honest metrics come from Phase 6 (models & evaluation) and will be reported as measured.
+3. ~~`failed_before_success` semantics: docs say "5-min window", implementation used "since last success"~~ — **RESOLVED (Aug 8):** the shared feature function uses a real 5-minute lookback (strictly earlier events only).
+4. **Open:** `contamination` for the anomaly models (Phase 6) must be set from the measured attack ratio, never hardcoded.
+5. **Open:** rule-baseline point values (Phase 5) must be tuned on validation data, not presented as constants.
