@@ -34,9 +34,9 @@ The multi-source synthetic approach (7 AI-generated log formats + `parser.py` no
 | Item | Path | Purpose |
 |---|---|---|
 | Raw RBA dataset | `data/raw/rba-dataset.csv` | 8.5 GB, 31,269,264 events (unchanged original) |
-| Cleaned dataset | `data/processed/rba_clean.parquet` | 654 MB, same row count, normalized browser/OS/device + inconsistency flags (built Aug 2 by `src/00_clean_dataset.py`, ~30 s) |
+| Cleaned dataset | `data/processed/rba_clean.parquet` | 654 MB, same row count, normalized browser/OS/device + inconsistency flags (rebuilt Aug 5 by `src/00_clean_dataset.py`, ~30 s) |
 | Cleaning script | `src/00_clean_dataset.py` | Full-file DuckDB clean + `--verify` before/after check table; documented in `dataset_scan_report.md` |
-| Docs | 5 `.md` files + `LICENSE` | This reference, findings briefing, **dataset scan report**, **project roadmap**, reclean summary, README |
+| Docs | 5 `.md` files + `LICENSE` | This reference, findings briefing, **dataset scan report**, **project roadmap**, README |
 
 The old 18K-row training file (`training_data.csv`), the test labels, and the two notebooks from the broken pipeline were **removed** — they documented the failed approach and are superseded by `DATASET_FINDINGS_VERIFIED.md`. (Still recoverable from git history if ever needed.)
 
@@ -136,7 +136,7 @@ A live dashboard on Laptop 1 showing login events arriving in real-time from Lap
 - **Size:** 8.5 GB CSV (compressed to 1.1 GB zip)
 - **Rows:** 31,269,264 login events (31.3M)
 - **Download:** https://zenodo.org/records/6782156
-- **Status:** Already downloaded. DuckDB cache built (533 MB)
+- **Status:** Already downloaded. Cleaned via DuckDB on the fly (`src/00_clean_dataset.py`); no persistent DuckDB cache file
 
 ### Why RBA and not LANL or CERT?
 
@@ -541,7 +541,7 @@ Train 4 models (03_train_models.py):
     - IsolationForest(n_estimators=100, random_state=42)
     - OneClassSVM(nu=0.1) — on 50K subset only (SVM is slow)
     - LocalOutlierFactor(novelty=True, n_neighbors=20)
-    - EllipticEnvelope(contamination=0.01)
+    - EllipticEnvelope(contamination=<real attack ratio>)  # set from the data, never hardcoded
     │
     ▼
 Evaluate (04_evaluate.py):
@@ -816,7 +816,7 @@ When asked "how does your system compare to real products":
 |---|---|---|
 | Language | Python 3.10+ | Everyone knows it |
 | Data processing | pandas, numpy | Standard |
-| Large data querying | DuckDB | Query 8.5GB CSV without loading to RAM. Already has cache (533 MB) |
+| Large data querying | DuckDB | Query 8.5GB CSV without loading to RAM (queries the CSV / parquet directly; no persistent cache) |
 | ML models | scikit-learn | All 4 models + evaluation |
 | Model saving | joblib | Save/load .pkl files |
 | API server | FastAPI + uvicorn | Receive events, run inference |
@@ -956,8 +956,9 @@ Their features have a problem: RBA dataset doesn't have MFA, VPN, or TOR columns
 ```
 identity-anomaly-detection/
 │
-├── data/                          # Dataset files (DuckDB cache built by 01_build_training_data.py)
-│   └── (RBA DuckDB cache — already exists)
+├── data/                          # Dataset files
+│   ├── raw/rba-dataset.csv         # 8.5 GB, 31,269,264 events (unchanged original)
+│   └── processed/rba_clean.parquet # cleaned, normalized, flags (rebuilt by 00_clean_dataset.py)
 │
 ├── src/                           # All source code
 │   ├── 01_load_and_sample.py      # Load RBA via DuckDB, sample 500K rows, save as parquet
@@ -990,7 +991,7 @@ identity-anomaly-detection/
 
 ### What each file does
 
-**01_load_and_sample.py** — Connects to DuckDB cache, queries stratified sample (all ATOs + Attack IP rows + random normal), saves as parquet.
+**01_load_and_sample.py** — Loads cleaned parquet, queries stratified sample (all ATOs + Attack IP rows + random normal), saves as parquet.
 
 **02_feature_engineering.py** — Reads sample, groups by user chronologically, computes 8 features per row using user history (last 10 logins, last 60 seconds, last 5 minutes). Most complex file.
 
@@ -1049,7 +1050,7 @@ Hemanth's output (training_data.parquet)
 
 | Day | Hemanth | Urvashi | Veenashree | Vishwanath |
 |---|---|---|---|---|
-| Mon | Setup Python, install deps, verify DuckDB cache | Same setup + learn sklearn basics | Same setup + learn Streamlit basics | Same setup + learn FastAPI basics |
+| Mon | Setup Python, install deps, verify cleaned parquet loads | Same setup + learn sklearn basics | Same setup + learn Streamlit basics | Same setup + learn FastAPI basics |
 | Tue | 01_load_and_sample.py — DuckDB query, sample 500K | Read sklearn docs for all 4 models | Dashboard skeleton — title, 3 tabs, layout | utils/device_fingerprint.py — hash generation |
 | Wed | 02_feature_engineering.py — simple features (hour, night, weekend) | Train Isolation Forest on sample | Tab 1: live feed with mock data | 05_server.py — /login endpoint, mock score |
 | Thu | Contextual features: country_change, device_change with user history | Train Elliptic Envelope + LOF | Tab 2: charts with mock data | 05_server.py — load .pkl, score real event |
@@ -1298,7 +1299,7 @@ Dashboard has "Simulate Events" button that replays pre-recorded events from tes
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | **One-Class SVM too slow** for 500K rows | High | Medium | Train on 50K subset. If still too slow, drop it and use 3 models. Ensemble still effective with 3. |
-| **DuckDB cache corrupted/missing** | Low | High | Download RBA from Zenodo (2 hours). Keep download URL and script ready. |
+| **Raw CSV missing/corrupted** | Low | High | Re-download RBA from Zenodo (2 hours). Keep download URL and script ready. |
 | **Client→server network fails during viva** | Medium | High | Dashboard has backup "Simulate Events" button that replays pre-recorded test data. Demo continues without Laptop 2. |
 | **Model accuracy < 80%** | Low | Medium | Add ensemble fallback rule: if 3+ features fire, flag as suspicious. Hybrid approach still strong. |
 | **Team member absent on viva day** | Low | Medium | Everyone knows how to run all parts. Commands documented in README. No single point of failure. |

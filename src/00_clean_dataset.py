@@ -75,19 +75,26 @@ SELECT
     attack_str = 'True'                                            AS is_attack_ip,
     ato_str = 'True'                                               AS is_ato,
     -- 3.1 + 3.2: derive truth from the User Agent string
-    -- (Windows Phone UAs contain an 'Android' token -> check it BEFORE Android)
+    -- (Windows Phone UAs contain an 'Android' token AND a 'like iPhone OS' spoof
+    --  token -> check Windows Phone BEFORE iOS/Android so both are ignored)
     CASE
-        WHEN regexp_matches(ua, '(?i)iPhone|iPad|iPod|iOS') THEN 'iOS'
+        -- KaiOS devices report a spoofed Chrome/CriOS UA template (with an
+        -- ';Android;' and 'CriOS/..' token) but the OS column genuinely says
+        -- KaiOS -> os_raw is authoritative, checked BEFORE the UA branches
+        WHEN regexp_matches(os_raw, '(?i)KaiOS') OR regexp_matches(ua, '(?i)KaiOS') THEN 'KaiOS'
         WHEN regexp_matches(ua, '(?i)Windows Phone') THEN 'Windows Phone'
-        WHEN regexp_matches(ua, '(?i)Android') THEN 'Android'
+        WHEN regexp_matches(ua, '(?i)iPhone|iPad|iPod|iOS') THEN 'iOS'
+        WHEN regexp_matches(ua, '(?i)Android([^@]|$)') THEN 'Android'
         WHEN regexp_matches(ua, '(?i)Windows') THEN 'Windows'
         WHEN regexp_matches(ua, '(?i)X11; CrOS') THEN 'ChromeOS'
         WHEN regexp_matches(ua, '(?i)Mac OS X|Macintosh|Mac_PowerPC') THEN 'macOS'
         WHEN regexp_matches(ua, '(?i)Linux|X11') THEN 'Linux'
         -- UA silent on platform -> fall back to the OS column's keyword
+        -- (KaiOS contains the substring 'iOS' -> must be checked BEFORE iOS)
+        WHEN regexp_matches(os_raw, '(?i)KaiOS') THEN 'KaiOS'
         WHEN regexp_matches(os_raw, '(?i)iOS|iPhone|iPad|iPod') THEN 'iOS'
         WHEN regexp_matches(os_raw, '(?i)Windows Phone') THEN 'Windows Phone'
-        WHEN regexp_matches(os_raw, '(?i)Android') THEN 'Android'
+        WHEN regexp_matches(os_raw, '(?i)Android([^@]|$)') THEN 'Android'
         WHEN regexp_matches(os_raw, '(?i)Windows') THEN 'Windows'
         WHEN regexp_matches(os_raw, '(?i)Mac OS X|macOS|Macintosh') THEN 'macOS'
         WHEN regexp_matches(os_raw, '(?i)Chrome ?OS') THEN 'ChromeOS'
@@ -105,7 +112,7 @@ SELECT
         WHEN regexp_matches(ua, '(?i)iPad')                THEN 'tablet'
         -- explicit tablet markers checked BEFORE Mobile (tablet UAs carry "Mobile")
         WHEN regexp_matches(ua, '(?i)Tablet|SM-T|Tab S|Tab A|Galaxy Tab|Nexus (7|9|10)|Xoom|KFAPWI|Lenovo TAB') THEN 'tablet'
-        WHEN regexp_matches(ua, '(?i)iPhone|iPod|Windows Phone|Android|Mobile') THEN 'mobile'
+        WHEN regexp_matches(ua, '(?i)iPhone|iPod|Windows Phone|Android([^@]|$)|Mobile') THEN 'mobile'
         -- UA has no device marker -> trust the raw Device Type
         WHEN device_raw IN ('mobile', 'tablet')            THEN device_raw
         ELSE 'desktop'
@@ -172,6 +179,9 @@ CHECKS_CLEAN = {
     "vlc_rows": "COUNT(*) FILTER (WHERE is_vlc)",
     "digit_family_rows": "COUNT(*) FILTER (WHERE regexp_matches(browser_family, '[0-9]'))",
     "geo_null_now": "COUNT(*) FILTER (WHERE region IS NULL AND city IS NULL)",
+    "wp_as_ios": "COUNT(*) FILTER (WHERE os_family='iOS' AND regexp_matches(os_raw, '(?i)Windows Phone'))",
+    "kaios_as_ios": "COUNT(*) FILTER (WHERE os_family='iOS' AND regexp_matches(os_raw, '(?i)KaiOS'))",
+    "cros_as_android": "COUNT(*) FILTER (WHERE os_family='Android' AND regexp_matches(user_agent, '(?i)X11; CrOS'))",
 }
 
 

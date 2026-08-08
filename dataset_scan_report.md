@@ -13,7 +13,7 @@
 | index | numeric, sequential, unique | ✓ perfect sequence 0 → 31,269,263, no gaps, no reuse |
 | Login Timestamp | parseable, valid range | ✓ 100% parse (`%Y-%m-%d %H:%M:%S[.%f]`), 2020-02-03 12:43:30 → 2021-02-28 23:59:58 |
 | User ID | numeric | ✓ all int64 (−9.22e18 … +9.22e18); 2,151,939 negative users + 2,152,918 positive users (both signs are legitimate) |
-| Round-Trip Time [ms] | numeric where present | ✓ 8 … 223,457 ms — but see §3.4 (96% empty) |
+| Round-Trip Time [ms] | numeric where present | ✓ 8 … 223,457 ms — but see §3.4 (95.9% empty) |
 | IP Address | IPv4 format, octet range | ✓ all match `\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}`, no octet > 255 |
 | Country | ISO-3166 alpha-2 | ✓ 229 codes, all valid except `XK` (Kosovo, de-facto standard, 53 rows) |
 | Region / City | — | ⚠️ two missing-value conventions, see §3.5 |
@@ -119,6 +119,8 @@ Versions appear **before their real-world release date** (or after the dataset e
 | iOS 14 before 2020-09-16 (release) | 516,751 |
 | iOS 15+ (released Sep 2021, after dataset end) | 2,259 |
 
+> **Reproducibility note:** every count above uses the **`browser_raw` / `os_raw` column** as the source of the version string (e.g. `Chrome 85` matches `^Chrome 85`), **not** the `user_agent` column. Matching the UA instead yields very different numbers (e.g. `Chrome 85` in the UA → 1.18M), so always run these against the raw columns. Each row is one query against `data/raw/rba-dataset.csv`.
+
 **Impact:** proves the dataset is synthesized (Wiefling et al. 2022) and that raw version strings cannot be trusted for temporal features. Use version-stripped families instead.
 
 ### 3.9 Generator-bot traffic — 3,704,894 rows (11.8%) — MEDIUM-HIGH
@@ -195,9 +197,9 @@ is_generator_bot, is_vlc
 ### Step 2 — Fix rules (implemented in `src/00_clean_dataset.py`)
 
 1. **`os_family`** — derived from the User Agent string (source of truth), not the OS column:
-   `iPhone|iPad|iPod → iOS`; `Android → Android`; `Windows Phone → Windows Phone`; `Windows → Windows`; `CrOS → ChromeOS`; `Mac OS X|Macintosh → macOS`; `Linux|X11 → Linux`; else `unknown`. Flag `ua_os_conflict = True` where this differs from the raw OS column (fixes §3.1).
+   `KaiOS → KaiOS` (os_raw is authoritative — these devices spoof a Chrome/CriOS UA); `Windows Phone → Windows Phone` (checked BEFORE iOS — WP UAs carry a `like iPhone OS` spoof token); `iPhone|iPad|iPod|iOS → iOS`; `Android([^@]|$) → Android` (the `@` excludes `android@` tokens in ChromeOS UAs); `Windows → Windows`; `CrOS → ChromeOS`; `Mac OS X|Macintosh → macOS`; `Linux|X11 → Linux`; else `unknown`. Flag `ua_os_conflict = True` where this differs from the raw OS column (fixes §3.1).
 2. **`browser_family`** — raw browser string with version tokens stripped — both `85.0.4183` and `11_6_3` forms: `Chrome Mobile WebView 85.0.4183 → Chrome Mobile WebView`; `Firefox 20.0.0.1618 → Firefox`; `Unknown Mac OS X 11_6_3 Browser → Unknown Mac OS X Browser`. 4,549 distinct strings collapse to ~200 families, so browser updates no longer look like device changes. Flag `version_stripped`. (Fixes §3.12.)
-3. **`device_type`** — derived from UA: `iPad → tablet`; `iPhone|Mobile|Android.*Mobile → mobile`; `Android → tablet`; else `desktop` (fixes §3.2). Raw `bot`/`unknown` values are preserved in `device_raw`.
+3. **`device_type`** — derived from UA: `iPad → tablet`; `iPhone|iPod|Mobile|Android([^@]|$).*Mobile → mobile` (the `[^@]` guard stops `android@` tokens in ChromeOS UAs from forcing mobile); `Android → tablet`; else `desktop` (fixes §3.2). Raw `bot`/`unknown` values are preserved in `device_raw`.
 4. **`is_private_ip`** — `10.x`, `172.16–31.x`, `192.168.x`, `127.x`, `169.254.x` → True (7.29M rows). When True, set **`geo_unreliable = True`** — country/region/city are kept raw but flagged; nothing is fabricated, and the label columns are untouched (fixes §3.3).
 5. **RTT** — `rtt_missing` flag (95.9%); `rtt > 60,000 → NULL + rtt_outlier = True` (fixes §3.4).
 6. **Missing geo** — `-` and empty strings both → NULL (fixes §3.5).
