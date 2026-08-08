@@ -227,7 +227,7 @@ Implement one shared feature function for both offline and live events.
 - `is_weekend`
 - `country_change`
 - `device_change`
-- `failed_before_success`
+- `failed_recently` (was `failed_before_success` — renamed Aug 8: the feature flags *any* event with a failed login in the prior 5 min, including failed events, so the old name overpromised)
 - `rapid_login_rate`
 - `login_frequency_today`
 
@@ -235,7 +235,7 @@ Implement one shared feature function for both offline and live events.
 
 - The first-ever event has no previous country/device baseline, so handle it
   with an explicit policy rather than automatically calling it suspicious.
-- `failed_before_success` uses a real five-minute lookback window.
+- `failed_recently` uses a real five-minute lookback window.
 - `rapid_login_rate` uses a defined 60-second window.
 - `device_change` uses normalized device/browser/OS fields.
 - Every historical feature uses only events earlier than the current event.
@@ -243,13 +243,15 @@ Implement one shared feature function for both offline and live events.
 ### Completion criteria — implemented (Aug 8)
 
 - Shared feature function `feature_sql` in `src/02_feature_engineering.py` — one code path for offline and live events, so the same input event produces identical values by construction.
+- Features are computed over the user's **true full history**: `src/02` runs once over all 31.3M clean rows (`rba_features.parquet`), then `src/01` samples *from the featured table*. (Previously features were computed on the sample itself — the robot user's random 50K-row subset made its features wrong: `rapid_login_rate` mean 0.118 vs true 34.0, `failed_recently` 41.9% vs a true 100%.)
 - First events → `country_change=0` / `device_change=0` via explicit `rn=1` policy (not coalesce — validated: naive form flags 100% of first events).
-- `failed_before_success` = real 5-minute lookback over strictly-earlier events (ASOF join uses `>` to avoid self-matching; 124,001 events flagged).
-- `rapid_login_rate` = 60-second window (max 11); `login_frequency_today` = same-day earlier events (max 386).
-- `device_change` uses version-stripped `browser_family` / `os_family` / `device_type` (209,892 changes).
+- `failed_recently` = real 5-minute lookback over strictly-earlier events (ASOF join uses `>` to avoid self-matching).
+- `rapid_login_rate` = 60-second window; `login_frequency_today` = same-day earlier events.
+- `device_change` uses version-stripped `browser_family` / `os_family` / `device_type`.
 - Per-user `ts` strictly increasing, ordered by `(ts, row_id)` — deterministic chronology; no future leakage (per-event features never read `user_baselines`).
-- Feature report with distributions: `data/processed/features_report.json`.
-- **Deferred to Phase 10:** formal unit-test suite (first events, missing devices, repeated events, time windows, midnight/day changes, chronological ordering) — the semantics were validated by an independent audit agent instead; tests will codify them.
+- Feature report with distributions: `data/processed/features_report.json` (full-dataset pass, not sample counts).
+- Output contract: `rba_features.parquet` (36 cols: 27 clean + 8 features + `rn`) is the full-history table the sample is drawn from; the training table `features.parquet` (35 cols) contains no intermediate columns (`prior_fail_ts`) and no sample artifacts (`rn`, `is_robot_sampled`) — enforced by `src/03_validate_contract.py`.
+- **Deferred to Phase 10:** formal unit-test suite (first events, missing devices, repeated events, time windows, midnight/day changes, chronological ordering) — the semantics were validated by an independent audit agent instead; tests will codify them. `src/03_validate_contract.py` covers the schema/invariant layer now.
 
 ## Phase 5: Rule-Based Baseline
 
@@ -450,7 +452,7 @@ The project is ready for demonstration when:
 1. ~~Correct contradictions in the dataset documentation~~ — ✅ done (dataset audit-complete, §7–§8)
 2. ~~Create the repository structure and Python environment~~ — ✅ done (src/ + venv/)
 3. ~~Implement the dataset audit script~~ — ✅ done (`src/00_clean_dataset.py --verify`)
-4. ~~Implement the development sample and save its statistics~~ — ✅ done (`src/01_load_and_sample.py`, 1M rows, 24.70% attack)
+4. ~~Implement the development sample and save its statistics~~ — ✅ done (`src/01_load_and_sample.py`, 1,000,003 rows, 24.76% attack)
 5. ~~Implement and test the eight shared features~~ — ✅ done (`src/02_feature_engineering.py`, agent-validated; formal tests deferred to Phase 10)
 6. **Implement the Phase 5 rule-based baseline** — explainable score with reasons; points tuned on validation data.
 7. **Implement Phase 6 models** — Isolation Forest on the full sample, OCSVM + LOF on a 200–500K subset; `contamination` from the measured ratio; reproducible metrics + threshold curves; must beat the rule baseline.

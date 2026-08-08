@@ -1,47 +1,61 @@
 #!/usr/bin/env python3
-"""Feature engineering for the RBA sample (Phase 4).
+"""Feature engineering over the FULL cleaned RBA dataset (Phase 4).
 
 One shared feature function (feature_sql) computes all features for both
 offline training and live events — the same SQL template runs against the
-sample parquet or against (prior events + live event) for one user.
+full cleaned parquet (31.3M rows) or against (prior events + live event)
+for one user.
 
-Features (validated against the sample, Aug 8 2026):
-  hour                  : 0-23 from ts
+Design (revised Aug 8 2026): features are computed over each user's TRUE
+full history, THEN src/01_load_and_sample.py draws the sample FROM this
+featured table. A sampled event therefore carries exactly the feature the
+live system would have computed at that moment. (Previously features were
+computed on the sample itself — the robot user's random 50K-row subset
+made its features wrong: rapid_login_rate mean 0.118 vs true 34.0, and
+failed_recently 41.9% vs a true 100%.)
+
+Features (validated against the full dataset, Aug 8 2026):
+  hour                  : 0-23 from ts (UTC — the generator's timestamps
+                          are naive, so night/weekend are UTC-based)
   is_night              : hour in {22,23,0..5}
   is_weekend            : dayofweek in {0,6} (DuckDB: Sunday=0, verified)
   country_change        : country differs from the user's previous event;
                           first event ever -> 0 (explicit policy, not suspicious)
   device_change         : (device_type, os_family, browser_family) tuple differs
                           from the previous event; first event -> 0
-  failed_before_success : a failed login exists in the 5 minutes before this
-                          event (strictly earlier; ASOF join must be '>' or it
-                          self-matches failures and flags all of them)
+  failed_recently       : a failed login exists in the 5 minutes before this
+                          event (any event, success or failure; strictly
+                          earlier; ASOF join must be '>' or it self-matches
+                          failures and flags all of them)
   rapid_login_rate      : count of this user's events in the prior 60 seconds
   login_frequency_today : count of this user's events earlier on the same day
 
 Every historical feature uses only events strictly earlier than the current
 event, ordered by (ts, row_id) — ts is strictly increasing per user in the
-sample (validated: 0 ties, 0 descents), so ordering is deterministic.
+dataset (validated: 0 ties, 0 descents), so ordering is deterministic.
+No feature reads user_baselines.parquet (that would leak future
+information); per-event features are history-only by construction.
 
 Usage:
   python src/02_feature_engineering.py
-  python src/02_feature_engineering.py --input data/processed/sample.parquet
+  python src/02_feature_engineering.py --input data/processed/rba_clean.parquet
 """
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 import duckdb
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_INPUT = ROOT / "data" / "processed" / "sample.parquet"
-DEFAULT_OUTPUT = ROOT / "data" / "processed" / "features.parquet"
+DEFAULT_INPUT = ROOT / "data" / "processed" / "rba_clean.parquet"
+DEFAULT_OUTPUT = ROOT / "data" / "processed" / "rba_features.parquet"
 DEFAULT_REPORT = ROOT / "data" / "processed" / "features_report.json"
 
 
 def feature_sql(src: str) -> str:
-    """Shared feature function: same SQL for offline sample and live user events.
+    """Shared feature function: same SQL for offline full pass and live user events.
 
     `src` is a table expression returning columns row_id, ts, user_id,
     country, device_type, os_family, browser_family, login_success.
@@ -72,7 +86,7 @@ def feature_sql(src: str) -> str:
                OR p.os_family != LAG(p.os_family) OVER w
                OR p.browser_family != LAG(p.browser_family) OVER w END AS device_change,
         p.prior_fail_ts IS NOT NULL
-            AND p.ts - p.prior_fail_ts <= INTERVAL '5 minutes' AS failed_before_success,
+            AND p.ts - p.prior_fail_ts <= INTERVAL '5 minutes' AS failed_recently,
         COUNT(*) OVER (
             PARTITION BY p.user_id ORDER BY p.ts
             RANGE BETWEEN INTERVAL '60 seconds' PRECEDING AND CURRENT ROW
@@ -85,7 +99,7 @@ def feature_sql(src: str) -> str:
     """
 
 
-def run_gates(con: duckdb.DuckDBPyConnection, out: Path) -> list:
+def run_gates(con: duckdb.DuckDBPyConnection, out: Path, expected_rows: int) -> list:
     failures = []
     row = con.execute(f"""
         SELECT COUNT(*) AS n,
@@ -94,18 +108,32 @@ def run_gates(con: duckdb.DuckDBPyConnection, out: Path) -> list:
                COUNT(*) FILTER (WHERE device_change IS NULL) AS null_dc,
                COUNT(*) FILTER (WHERE rn = 1 AND country_change) AS first_cc,
                COUNT(*) FILTER (WHERE rn = 1 AND device_change) AS first_dc,
-               COUNT(*) FILTER (WHERE failed_before_success IS NULL) AS null_fbs,
+               COUNT(*) FILTER (WHERE failed_recently IS NULL) AS null_fr,
                COUNT(*) FILTER (WHERE rapid_login_rate IS NULL) AS null_rlr,
                COUNT(*) FILTER (WHERE login_frequency_today IS NULL) AS null_lft
         FROM read_parquet('{out}')
     """).fetchone()
-    n, null_hour, null_cc, null_dc, first_cc, first_dc, null_fbs, null_rlr, null_lft = row
-    if n != 1_000_000:
-        failures.append(f"rows = {n}, expected 1,000,000")
-    if null_hour or null_cc or null_dc or null_fbs or null_rlr or null_lft:
-        failures.append(f"NULLs: hour={null_hour} cc={null_cc} dc={null_dc} fbs={null_fbs} rlr={null_rlr} lft={null_lft}")
+    n, null_hour, null_cc, null_dc, first_cc, first_dc, null_fr, null_rlr, null_lft = row
+    if n != expected_rows:
+        failures.append(f"rows = {n}, expected {expected_rows}")
+    if null_hour or null_cc or null_dc or null_fr or null_rlr or null_lft:
+        failures.append(f"NULLs: hour={null_hour} cc={null_cc} dc={null_dc} fr={null_fr} rlr={null_rlr} lft={null_lft}")
     if first_cc or first_dc:
         failures.append(f"first events flagged: country_change={first_cc} device_change={first_dc}")
+    return failures
+
+
+def check_columns(con: duckdb.DuckDBPyConnection, out: Path) -> list:
+    """Schema contract: no intermediate/artifact columns, renamed feature present."""
+    cols = {r[0] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{out}')").fetchall()}
+    failures = []
+    for forbidden in ("prior_fail_ts", "failed_before_success", "is_robot_sampled"):
+        if forbidden in cols:
+            failures.append(f"forbidden column present: {forbidden}")
+    for required in ("failed_recently", "hour", "is_night", "is_weekend", "country_change",
+                     "device_change", "rapid_login_rate", "login_frequency_today"):
+        if required not in cols:
+            failures.append(f"required feature column missing: {required}")
     return failures
 
 
@@ -116,7 +144,7 @@ def feature_report(con: duckdb.DuckDBPyConnection, out: Path) -> dict:
         UNION ALL
         SELECT 'device_change', COUNT(*) FILTER (WHERE device_change), COUNT(*), MIN(device_change), MAX(device_change) FROM read_parquet('{out}')
         UNION ALL
-        SELECT 'failed_before_success', COUNT(*) FILTER (WHERE failed_before_success), COUNT(*), MIN(failed_before_success), MAX(failed_before_success) FROM read_parquet('{out}')
+        SELECT 'failed_recently', COUNT(*) FILTER (WHERE failed_recently), COUNT(*), MIN(failed_recently), MAX(failed_recently) FROM read_parquet('{out}')
         UNION ALL
         SELECT 'is_night', COUNT(*) FILTER (WHERE is_night), COUNT(*), MIN(is_night), MAX(is_night) FROM read_parquet('{out}')
         UNION ALL
@@ -140,24 +168,57 @@ def main() -> None:
     ap.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     ap.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     ap.add_argument("--report", type=Path, default=DEFAULT_REPORT)
+    ap.add_argument("-v", "--verbose", action="count", default=0,
+                    help="verbosity: -v progress bar + phase banners, -vv adds row counts, -vvv prints the feature SQL")
     args = ap.parse_args()
+
+    def banner(msg: str) -> None:
+        if args.verbose:
+            print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
     con = duckdb.connect(":memory:")
     con.execute("SET threads=8")
+    if args.verbose:
+        con.execute("PRAGMA enable_progress_bar")
+
+    t0 = time.time()
+    banner(f"counting input rows in {args.input} ...")
+    expected_rows = con.execute(f"SELECT COUNT(*) FROM read_parquet('{args.input}')").fetchone()[0]
+    banner(f"input rows: {expected_rows:,} ({time.time() - t0:.1f}s)")
 
     sql = feature_sql(f"read_parquet('{args.input}')")
+    if args.verbose >= 3:
+        print("--- feature SQL ---", flush=True)
+        print(sql, flush=True)
+        print("------------------", flush=True)
+
+    t1 = time.time()
+    banner(f"computing features over {expected_rows:,} rows (window + ASOF passes)...")
     con.execute(f"""
         CREATE OR REPLACE TEMP TABLE feat AS
-        SELECT * EXCLUDE (rn), rn FROM ({sql})
+        SELECT * EXCLUDE (rn, prior_fail_ts), rn FROM ({sql})
     """)
-    con.execute(f"COPY feat TO '{args.output}' (FORMAT PARQUET, COMPRESSION ZSTD)")
-    print(f"wrote {args.output}")
+    if args.verbose >= 2:
+        feat_rows = con.execute("SELECT COUNT(*) FROM feat").fetchone()[0]
+        banner(f"feat table rows: {feat_rows:,}")
+    banner(f"feature pass done ({time.time() - t1:.1f}s)")
 
+    t2 = time.time()
+    banner(f"writing parquet -> {args.output} ...")
+    con.execute(f"COPY feat TO '{args.output}' (FORMAT PARQUET, COMPRESSION ZSTD)")
+    banner(f"copy done ({time.time() - t2:.1f}s)")
+    print(f"wrote {args.output} ({expected_rows:,} rows)")
+
+    t3 = time.time()
+    banner("running gates + column checks...")
     report = feature_report(con, args.output)
+    report["rows"] = expected_rows
     report["gates"] = "PASS"
-    failures = run_gates(con, args.output)
+    failures = run_gates(con, args.output, expected_rows)
+    failures += check_columns(con, args.output)
     if failures:
         report["gates"] = failures
+    banner(f"gates done ({time.time() - t3:.1f}s)")
 
     for b in report["binary_features"]:
         print(f"{b['feature']:<24}{b['true_count']:>10,} / {b['total']:>10,}")

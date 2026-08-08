@@ -163,7 +163,7 @@ Version stripping leaves parser-artifact families: `VLC 3.0.0-git`, `134 Browser
 | # | Issue | Rows | Severity | Fix |
 |---|---|---|---|---|
 | 3.1 | Browser↔OS contradiction | 1,223,315 | HIGH | Re-derive OS from UA string |
-| 3.3 | Private IP → foreign country / attack flag | 5,266,810 / 506,460 | HIGH | Flag `is_private_ip`, mark geo unreliable |
+| 3.3 | Private IP → foreign country / attack flag | 5,266,810 / 506,460 | HIGH | Flag `is_private_ip`; `geo_unreliable` = private IP OR missing region/city |
 | 3.2 | mobile device, desktop browser marker | 3,162,207 | MEDIUM | Re-derive device from UA string |
 | 3.4 | RTT missing / outliers | 29,993,329 / 79 | MEDIUM | Explicit missing + outlier flags |
 | 3.8 | Impossible versions vs date | 1,651,546 | MEDIUM-HIGH | Strip versions; report-only (keep) |
@@ -197,24 +197,24 @@ is_generator_bot, is_vlc
 ### Step 2 — Fix rules (implemented in `src/00_clean_dataset.py`)
 
 1. **`os_family`** — derived from the User Agent string (source of truth), not the OS column:
-   `KaiOS → KaiOS` (os_raw is authoritative — these devices spoof a Chrome/CriOS UA); `Windows Phone → Windows Phone` (checked BEFORE iOS — WP UAs carry a `like iPhone OS` spoof token); `iPhone|iPad|iPod|iOS → iOS`; `Android([^@]|$) → Android` (the `@` excludes `android@` tokens in ChromeOS UAs); `Windows → Windows`; `CrOS → ChromeOS`; `Mac OS X|Macintosh → macOS`; `Linux|X11 → Linux`; then legacy families from os_raw (UA-silent rows only, added by the §8 audit): `BlackBerry → BlackBerry`, `MeeGo → MeeGo`, `Symbian → Symbian`, `Roku → Roku`, `WebTV → WebTV`, `Firefox OS → Firefox OS`; else `unknown`. Flag `ua_os_conflict = True` where this differs from the raw OS column (fixes §3.1).
+   `KaiOS → KaiOS` (os_raw is authoritative — these devices spoof a Chrome/CriOS UA); `Windows Phone → Windows Phone` (checked BEFORE iOS — WP UAs carry a `like iPhone OS` spoof token); iOS requires a **token boundary** — `(^|[^A-Za-z0-9])(iPhone|iPad|iPod|iOS)($|[^A-Za-z0-9])` or an explicit `CriOS|EdgiOS|FxiOS` WebKit token — AND the raw OS must not say Android/Windows Phone (fixes §3.12: bare-substring `(?i)iOS` mislabeled 134,393 AwarioSmartBot crawlers and 26,263 CriOS-on-Android spoofs as iOS; `AwarioSmartBot` is now also flagged `is_generator_bot`); `Android([^@]|$) → Android` (the `@` excludes `android@` tokens in ChromeOS UAs; the `Andorid` typo, 242 rows, is matched too); `Windows → Windows`; `CrOS → ChromeOS`; `Mac OS X|Macintosh → macOS`; `Linux|X11 → Linux`; then legacy families from os_raw (UA-silent rows only, added by the §8 audit): `BlackBerry → BlackBerry`, `MeeGo → MeeGo`, `Symbian → Symbian`, `Roku → Roku`, `WebTV → WebTV`, `Firefox OS → Firefox OS`; else `unknown`. Flag `ua_os_conflict = True` where this differs from the raw OS column (fixes §3.1).
 2. **`browser_family`** — raw browser string with version tokens stripped — both `85.0.4183` and `11_6_3` forms: `Chrome Mobile WebView 85.0.4183 → Chrome Mobile WebView`; `Firefox 20.0.0.1618 → Firefox`; `Unknown Mac OS X 11_6_3 Browser → Unknown Mac OS X Browser`. 4,549 distinct strings collapse to ~200 families, so browser updates no longer look like device changes. Flag `version_stripped`. (Fixes §3.12.)
-3. **`device_type`** — derived from UA: `iPad → tablet`; `iPhone|iPod|Mobile|Android([^@]|$).*Mobile → mobile` (the `[^@]` guard stops `android@` tokens in ChromeOS UAs from forcing mobile); `Android → tablet`; else `desktop` (fixes §3.2). Raw `bot`/`unknown` values are preserved in `device_raw`.
-4. **`is_private_ip`** — `10.x`, `172.16–31.x`, `192.168.x`, `127.x`, `169.254.x` → True (7.29M rows). When True, set **`geo_unreliable = True`** — country/region/city are kept raw but flagged; nothing is fabricated, and the label columns are untouched (fixes §3.3).
+3. **`device_type`** — derived from UA: explicit tablet markers (`iPad`, `Tablet`, `SM-T`, `Galaxy Tab`, `Nexus 7/9/10`, `Xoom`, `KFAPWI`, `Lenovo TAB`) checked BEFORE Mobile (tablet UAs carry "Mobile"); `iPhone|iPod|Windows Phone|Android([^@]|$) → mobile` plus a **token-boundary `Mobile`** that counts only when the UA carries no desktop-OS token (`Mac OS X|Macintosh|Windows NT|X11;|CrOS`) — the generator appends `Mobile Safari/537.36` to desktop UAs, and bare-substring `Mobile` reclassified 3,402 desktop rows (fixes §3.12, guarded `desktop_reclass_mobile`); `Android → tablet`; **UA checks run before any `device_raw` fallback** (previously `unknown`/NULL short-circuited the UA — fixes §3.14); `device_raw='unknown'` or NULL → `unknown` (NULL was `desktop` — 1,526 rows, guarded `null_device_desktop`); else `desktop` (fixes §3.2). Raw `bot`/`unknown` values are preserved in `device_raw`.
+4. **`is_private_ip`** — `10.x`, `172.16–31.x`, `192.168.x`, `127.x`, `169.254.x` → True (7.29M rows). **`geo_unreliable`** is a distinct signal, `is_private_ip OR region NULL OR city NULL` (the NULLIF treats `-` and `''` as missing; was a byte-identical duplicate of `is_private_ip` — fixed Aug 8, guarded `geo_semantics_violations`). Country/region/city are kept raw but flagged; nothing is fabricated, and the label columns are untouched (fixes §3.3).
 5. **RTT** — `rtt_missing` flag (95.9%); `rtt > 60,000 → NULL + rtt_outlier = True` (fixes §3.4).
 6. **Missing geo** — `-` and empty strings both → NULL (fixes §3.5).
 7. **Timestamps** — parsed to `TIMESTAMP` for chronological processing; `row_id` added because the `index` column is dataset-local.
-8. **`is_generator_bot`** — UA matches `ZipppBot|startmebot|ZoomBot|MetaJobBot|das-group` → True (3.70M rows). Kept + flagged; the **sampling** stage decides whether to cap them (fixes §3.9).
+8. **`is_generator_bot`** — UA matches `ZipppBot|startmebot|ZoomBot|MetaJobBot|das-group|AwarioSmartBot` → True (3.70M rows; `AwarioSmartBot` added Aug 8 — a Linux crawler whose name contains `ioS`, previously mislabeled iOS). Kept + flagged; the **sampling** stage decides whether to cap them (fixes §3.9).
 9. **`is_vlc`** — UA matches `VLC` → True (708,927 rows, media players can't do SSO — synthetic noise). Kept + flagged (fixes §3.11).
 
 ### Step 3 — Verify
 
-Re-run the scan queries on the cleaned file — every §3 count that is *fixable* drops to ~0; the rest become explicit flags instead of silent contamination:
+Re-run the scan queries on the cleaned file — every §3 count that is a *mislabel error* drops to 0 (the four residual checks enforced by `src/03_validate_contract.py`); the rest become explicit flags instead of silent contamination. Transformation guards in `cleaning_summary.json` are intentionally non-zero — they count rows *re-derived* to a different value, not residual errors (e.g. `mobile_desktop_marker`: 3,162,207 → 1,307,183 rows whose `device_raw='mobile'` but UA signature said otherwise).
 
 | §3 | After cleaning |
 |---|---|
-| 3.1 / 3.2 | fixed (re-derived from UA) |
-| 3.3 / 3.4 / 3.5 | flagged (`is_private_ip`, `geo_unreliable`, `rtt_missing/outlier`, geo NULL) |
+| 3.1 / 3.2 | mislabel residuals 0 (contract checks); re-derivation guard `mobile_desktop_marker` 3,162,207 → 1,307,183 (intended, recorded in `cleaning_summary.json`) |
+| 3.3 / 3.4 / 3.5 | flagged (`is_private_ip`, `geo_unreliable` = private IP OR missing region/city, `rtt_missing/outlier`, geo NULL) |
 | 3.8 | kept — synthesis artifact, no fix (features use stripped families) |
 | 3.9 / 3.11 | flagged (`is_generator_bot`, `is_vlc`) |
 | 3.10 | kept — ASN is informational; row country is internally consistent |
@@ -316,18 +316,21 @@ The loop-closing pass: instead of hunting by hypothesis, it enumerates the **ent
 
 Six **real OS families** were falling to `os_family='unknown'` because the UA branches don't match them (their UAs are platform-silent) and no `os_raw` fallback existed:
 
-| Family | Rows (raw) |
-|---|---|
-| BlackBerry | 7,809 |
-| MeeGo | 3,110 |
-| Roku | 75 |
-| Symbian | 35 |
-| WebTV | 21 |
-| Firefox OS | 5 |
+| Family | Rows (raw) | Rows (complete) |
+|---|---|---|
+| BlackBerry | 7,809 | 7,837 |
+| MeeGo | 3,110 | 3,110 |
+| Roku | 75 | 649 |
+| Symbian | 35 | 35 |
+| WebTV | 21 | 21 |
+| Firefox OS | 5 | 5 |
+| **Total** | **11,055** | **11,657** |
 
-**Fix:** six `os_raw` fallback branches added to the `os_family` CASE in `src/00_clean_dataset.py` (after the UA branches, before `else unknown` — same pattern as KaiOS). Guard `legacy_os_rows` added to `CHECKS_CLEAN`. Parquet rebuilt (Aug 8): `legacy_os_rows = 11,055` matches the raw audit exactly; all prior guards unchanged (`wp_as_ios=0`, `kaios_as_ios=0`, `cros_as_android=0`, `kaios_rows=339,945`, `null_device_rows=1,526`, `other_os_unknown=2,754,370`, `ua_os_conflict=1,079,367`, rows 31,269,264).
+> **Why the difference:** the scan-4 raw audit grouped exact `os_raw` *values* (`os_raw='Roku'` = 75). Version-suffixed values — `Roku 9.10` (553), `Roku 9.40` (74), `Roku 10.0` (21), `Roku 9.0` (1) — were separate groups. The regex fallback (`(?i)Roku`) catches all of them, so the rebuilt parquet holds the **complete** count (11,657); scan-4's 11,055 was an under-count, confirmed by the scan-5 rebuild.
 
-Remaining `unknown` after fix: **2,755,896** = `os_raw="Other "` (2,754,370, deliberately unknown) + `os_raw="134"` (1,526, the NULL-device junk rows, guarded by `null_device_rows`).
+**Fix:** six `os_raw` fallback branches added to the `os_family` CASE in `src/00_clean_dataset.py` (after the UA branches, before `else unknown` — same pattern as KaiOS). Guard `legacy_os_rows` added to `CHECKS_CLEAN`. Parquet rebuilt (Aug 8): `legacy_os_rows = 11,657`; all prior guards unchanged (`wp_as_ios=0`, `kaios_as_ios=0`, `cros_as_android=0`, `kaios_rows=339,945`, `null_device_rows=1,526`, `other_os_unknown=2,880,931`, `ua_os_conflict=842,170` after the scan-5 iOS-fallback fix, rows 31,269,264).
+
+Remaining `unknown` after fix: **2,884,450** = `os_raw="Other "` (2,880,931, deliberately unknown) + `os_raw="134"` (1,526, the NULL-device junk rows, guarded by `null_device_rows`) + the scan-5 fix's 1,993 AwarioSmartBot rows with fabricated `os_raw="iOS 2.x"`.
 
 ### 8.3 Observed, not defects
 
@@ -337,4 +340,49 @@ Remaining `unknown` after fix: **2,755,896** = `os_raw="Other "` (2,754,370, del
 
 ### 8.4 Audit-complete statement
 
-**Every column enumerated, every mapping's coverage measured, every two-way cross-tab checked, format/enum/encoding validation passed — the only gap found (6 legacy OS families, 11,055 rows) was fixed and is now a permanent guard. The cleaned parquet is declared audit-complete as of Aug 8, 2026.** Future audits start from the raw CSV with the same grid; any new value domain or mapping hole will surface as a §8.1 row that fails.
+**Every column enumerated, every mapping's coverage measured, every two-way cross-tab checked, format/enum/encoding validation passed — the only gap found (6 legacy OS families, 11,657 rows complete count) was fixed and is now a permanent guard. The cleaned parquet is declared audit-complete as of Aug 8, 2026.** Future audits start from the raw CSV with the same grid; any new value domain or mapping hole will surface as a §8.1 row that fails.
+
+---
+
+## 9. Audit-fix pass (Scan 5, Aug 8, 2026) — pipeline implementation audit
+
+An independent agent audited the cleaning/sampling/feature **scripts** for implementation-vs-doc drift (scans 1–4 were dataset-only). 10 issues found; all fixed; all now regression-guarded by `src/03_validate_contract.py`, which **fails on the pre-fix parquets and passes on the rebuilt ones** (the check layer that was missing when the four root bugs slipped through).
+
+### 9.1 The 10 fixes
+
+| # | Issue | Fix | Contract guard |
+|---|---|---|---|
+| 1 | `geo_unreliable` was a byte-identical duplicate of `is_private_ip` | `geo_unreliable = is_private_ip OR region NULL OR city NULL` | `geo_semantics_violations` (12,271,729 on pre-fix) |
+| 2 | `(?i)iOS` substring mislabeled 134,393 AwarioSmartBot rows + 26,263 CriOS-on-Android spoofs | Token-boundary iOS; `CriOS/EdgiOS/FxiOS` honored only without Android/WP token; `AwarioSmartBot` → `is_generator_bot` | `ios_spoof_label` (160,656 on pre-fix) |
+| 3 | Bare `Mobile` substring reclassified 3,402 desktop rows as mobile | Token-boundary `Mobile` only when UA has no desktop-OS token; tablet markers checked before `Mobile` | `desktop_reclass_mobile` (3,402 on pre-fix) |
+| 4 | `device_raw='unknown'`/NULL short-circuited UA checks; NULL → `desktop` | UA checks run first; NULL/`unknown` → `unknown` | `null_device_desktop` (1,526 on pre-fix) |
+| 5 | `Andorid` typo (242 rows) escaped Android detection | `(Android\|Andorid)` in all Android regexes | `ios_spoof_label`/`ua_os_conflict` paths |
+| 6 | Sampling non-deterministic — `random()` is not reproducible under `threads>1` even with `setseed` | Hash-based deterministic ordering | identical rebuild |
+| 7 | `fixed_rows` hardcoded (wrong by 19,762 under `--no-genbots`) | Computed at runtime from tier recomputation | check 7 (fixed-rows cross-check) |
+| 8 | `prior_fail_ts` leaked into features output | Removed | `FORBIDDEN_COLS` (check 4) |
+| 9 | `rn`/`is_robot_sampled` still in the training table | Dropped | schema contract (check 1) |
+| 10 | `failed_before_success` misnomer — counted failures since last success, no time window | One shared `feature_sql` with a real 5-minute lookback (strictly earlier events); renamed `failed_recently` | check 8 feature sanity (no NULLs, first-event policy) |
+
+### 9.2 What this corrects in earlier sections
+
+- §7.3 said the 1,526 NULL-device rows → `desktop`; they now → `unknown` (fix 4).
+- §3.12's iOS-mislabel story now includes the spoof mechanism: 134,393 AwarioSmartBot + 26,263 CriOS-on-Android rows were the bulk of the old `iOS` class poison (fix 2).
+- §9.1 fixes 6–10 live in `src/01_load_and_sample.py` / `src/02_feature_engineering.py` — the scan queries in this report are cleaning-only, so they cannot see those; the contract validator is the guard that can.
+
+### 9.3 Status
+
+`python src/03_validate_contract.py` passes on the rebuilt artifacts (Aug 8): rows clean 31,269,264 → rba_features 31,269,264 → sample/features 1,000,003, feature columns `hour, is_night, is_weekend, country_change, device_change, failed_recently, rapid_login_rate, login_frequency_today`, zero forbidden columns, zero feature NULLs, zero first-event changes. Cleaning + sampling + features are declared stable as of Aug 8, 2026.
+
+---
+
+## 10. Scan-5 follow-up (Aug 8, 2026) — pre-flight validation + final rebuild
+
+The §9 fixes alone could not reach `contract: PASS` — an independent agent's re-derivation of the fixed SQL over the stale parquet found two residual defects, both fixed and re-validated before the expensive rebuild:
+
+| # | Defect | Fix | Contract check after rebuild |
+|---|---|---|---|
+| 11 | The os_raw iOS fallback still caught 1,993 AwarioSmartBot rows with fabricated `os_raw='iOS 2.x'` (UA platform-silent) — the §9.2 fix only guarded the UA branch | Fallback now excludes generator-bot UAs; those rows → `unknown` | `ios_spoof_label` 0 |
+| 12 | The token-boundary `Mobile` clause was quoted *inside* the regex string (dead text — SQL `''…''` escaping) | Repaired to a real `(Mobile AND NOT desktop-OS token)` OR-clause | — |
+| 13 | `desktop_reclass_mobile` counted 19 *correct* reclassifications (`device_raw='desktop'` rows whose UA genuinely says Windows Phone ×14 / YaApp_Android ×5) | Check narrowed to the actual bug signature: bare `Mobile` + desktop-OS marker, no genuine mobile token (same definition now in `00`'s `CHECKS_CLEAN`) | `desktop_reclass_mobile` 0 (pre-fix: 3,402) |
+
+**Pre-flight:** the four value checks re-derived from the stale parquet's raw columns under the fixed SQL — all 0 — before running the pipeline. **Final rebuild:** `00 → 02 -v → 01 → 03` all PASS (`contract: PASS`); `ua_os_conflict` 842,170; genbot 3,845,887 (incl. 140,993 AwarioSmartBot); legacy `os_family` 11,657 (complete count — see §8.2); sample 1,000,003 rows / 192,649 users / 153,352 gold rows.

@@ -13,9 +13,24 @@ one of the sample, never forced. Per-user cap: 10,000 rows (only the robot
 exceeds it). Genbot/VLC rows are kept with their flags unless excluded via
 --no-genbots / --no-vlc.
 
+INPUT: rba_features.parquet (src/02_feature_engineering.py's FULL-dataset
+feature pass). Features are computed over each user's true full history, so
+sampled events carry exactly what the live system would have computed — the
+sample is drawn FROM the featured table, never featured afterwards.
+
 The same run computes per-user baselines over ALL 31.3M rows
-(user_baselines.parquet) so contextual features in Phase 4 can use history a
+(user_baselines.parquet) so contextual features can use history a
 sampled user might not carry in the sample.
+
+Determinism: all random ordering uses hash(row_id, seed) / hash(user_id, seed)
+instead of random(), because random() is not reproducible under
+multithreaded execution even with setseed(). Re-running with the same seed
+reproduces the same sample.
+
+Outputs:
+  sample.parquet     : the 1M-row sample, features included
+  features.parquet   : final training table = sample minus pipeline
+                       artifacts (rn, is_robot_sampled)
 
 Gates (fail the run if violated):
   - ATO rows 141/141, ATO users 138/138
@@ -37,8 +52,9 @@ from pathlib import Path
 import duckdb
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_INPUT = ROOT / "data" / "processed" / "rba_clean.parquet"
+DEFAULT_INPUT = ROOT / "data" / "processed" / "rba_features.parquet"
 DEFAULT_SAMPLE = ROOT / "data" / "processed" / "sample.parquet"
+DEFAULT_FEATURES = ROOT / "data" / "processed" / "features.parquet"
 DEFAULT_BASELINES = ROOT / "data" / "processed" / "user_baselines.parquet"
 DEFAULT_REPORT = ROOT / "data" / "processed" / "sampling_report.json"
 
@@ -76,11 +92,24 @@ def tiers_sql(input_path: Path, flag_filter: str) -> str:
     """
 
 
-def prefix_users(con: duckdb.DuckDBPyConnection, tiers_table: str, tier: str, target: int) -> list:
+def fixed_rows_sql(tiers_table: str, seed: float) -> str:
+    """Sum of contributed rows for ato+heavy tiers, computed at runtime.
+
+    Replaces a hardcoded constant that went stale under --no-genbots
+    (240,158 vs the true 220,396). Uses the same tiers + USER_CAP semantics
+    as prefix_users so the number can never drift.
+    """
+    return f"""
+    SELECT COALESCE(SUM(LEAST(n_rows, {USER_CAP})), 0)
+    FROM {tiers_table} WHERE tier IN ('ato', 'heavy')
+    """
+
+
+def prefix_users(con: duckdb.DuckDBPyConnection, tiers_table: str, tier: str, target: int, seed: float) -> list:
     sql = f"""
     WITH ord AS (
         SELECT user_id, LEAST(n_rows, {USER_CAP}) AS contrib,
-               SUM(LEAST(n_rows, {USER_CAP})) OVER (ORDER BY random()) AS cum
+               SUM(LEAST(n_rows, {USER_CAP})) OVER (ORDER BY hash(user_id, {seed})) AS cum
         FROM {tiers_table} WHERE tier = '{tier}'
     )
     SELECT user_id, contrib FROM ord WHERE cum - contrib < {target}
@@ -89,7 +118,7 @@ def prefix_users(con: duckdb.DuckDBPyConnection, tiers_table: str, tier: str, ta
 
 
 def build_sample(con: duckdb.DuckDBPyConnection, input_path: Path, flag_filter: str,
-                 light_rows: list, normal_rows: list) -> None:
+                 light_rows: list, normal_rows: list, seed: float) -> None:
     tiers = tiers_sql(input_path, flag_filter)
     light_set = ", ".join(str(r[0]) for r in light_rows) or "NULL"
     normal_set = ", ".join(str(r[0]) for r in normal_rows) or "NULL"
@@ -105,18 +134,18 @@ def build_sample(con: duckdb.DuckDBPyConnection, input_path: Path, flag_filter: 
     con.execute(f"""
     CREATE OR REPLACE TEMP TABLE final_sample AS
     WITH capped AS (
-        SELECT s.*, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY random()) AS rn
+        SELECT s.*, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY hash(row_id, {seed})) AS rn_cap
         FROM read_parquet('{input_path}') s
         JOIN sel_users u ON s.user_id = u.user_id
         {flag_filter}
     )
-    SELECT * EXCLUDE (rn), FALSE AS is_robot_sampled FROM capped WHERE rn <= {USER_CAP}
+    SELECT * EXCLUDE (rn_cap), FALSE AS is_robot_sampled FROM capped WHERE rn_cap <= {USER_CAP}
     UNION ALL
     SELECT * FROM (
         SELECT *, TRUE AS is_robot_sampled
         FROM read_parquet('{input_path}')
         WHERE user_id = {ROBOT_USER_ID} {flag_filter}
-        ORDER BY random()
+        ORDER BY hash(row_id, {seed})
         LIMIT {ROBOT_CAP}
     )
     """)
@@ -175,7 +204,7 @@ def sample_stats(con: duckdb.DuckDBPyConnection, tiers: str, sample: Path, total
     return d
 
 
-def run_gates(stats: dict, baseline_users: int, flag_filter: str) -> list:
+def run_gates(stats: dict) -> list:
     failures = []
     if stats["ato_rows"] != 141:
         failures.append(f"ATO rows = {stats['ato_rows']}, expected 141")
@@ -187,8 +216,8 @@ def run_gates(stats: dict, baseline_users: int, flag_filter: str) -> list:
         failures.append(f"total rows = {stats['total_rows']}, target {stats['target']} +/-1%")
     if stats["max_nonrobot_user_rows"] is not None and stats["max_nonrobot_user_rows"] > USER_CAP:
         failures.append(f"non-robot user exceeds cap: {stats['max_nonrobot_user_rows']}")
-    if "excluded" in flag_filter:
-        pass
+    if stats["features_rows"] != stats["total_rows"]:
+        failures.append(f"features.parquet rows = {stats['features_rows']}, sample rows = {stats['total_rows']}")
     return failures
 
 
@@ -196,6 +225,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     ap.add_argument("--sample", type=Path, default=DEFAULT_SAMPLE)
+    ap.add_argument("--features", type=Path, default=DEFAULT_FEATURES)
     ap.add_argument("--baselines", type=Path, default=DEFAULT_BASELINES)
     ap.add_argument("--report", type=Path, default=DEFAULT_REPORT)
     ap.add_argument("--target", type=int, default=DEFAULT_TARGET)
@@ -212,27 +242,33 @@ def main() -> None:
 
     con = duckdb.connect(":memory:")
     con.execute("SET threads=8")
-    con.execute(f"SELECT setseed({args.seed})")
 
     print("computing tiers...")
     tiers = tiers_sql(args.input, flag_filter)
 
     print("sampling light users...")
-    light = prefix_users(con, f"({tiers})", "light", LIGHT_TARGET)
+    light = prefix_users(con, f"({tiers})", "light", LIGHT_TARGET, args.seed)
     light_rows = sum(r[1] for r in light)
 
     print("sampling normal users...")
-    fixed_rows = 240_158  # T1 (3,242) + T2 (236,916), validated
+    fixed_rows = con.execute(fixed_rows_sql(f"({tiers})", args.seed)).fetchone()[0]
     normal_target = args.target - fixed_rows - ROBOT_CAP - light_rows
-    normal = prefix_users(con, f"({tiers})", "normal", normal_target)
+    normal = prefix_users(con, f"({tiers})", "normal", normal_target, args.seed)
     normal_rows = sum(r[1] for r in normal)
 
-    print(f"light: {len(light)} users / ~{light_rows} rows; normal: {len(normal)} users / ~{normal_rows} rows")
-    build_sample(con, args.input, flag_filter, light, normal)
+    print(f"fixed (ato+heavy): {fixed_rows:,} rows; light: {len(light)} users / ~{light_rows:,} rows; "
+          f"normal: {len(normal)} users / ~{normal_rows:,} rows")
+    build_sample(con, args.input, flag_filter, light, normal, args.seed)
 
     args.sample.parent.mkdir(parents=True, exist_ok=True)
     con.execute(f"COPY (SELECT * FROM final_sample) TO '{args.sample}' (FORMAT PARQUET, COMPRESSION ZSTD)")
     print(f"wrote {args.sample}")
+
+    con.execute(f"""
+        COPY (SELECT * EXCLUDE (rn, is_robot_sampled) FROM final_sample)
+        TO '{args.features}' (FORMAT PARQUET, COMPRESSION ZSTD)
+    """)
+    print(f"wrote {args.features} (training table, artifacts dropped)")
 
     print("computing baselines over all rows...")
     compute_baselines(con, args.input, args.baselines)
@@ -244,11 +280,13 @@ def main() -> None:
     stats["light_rows"] = light_rows
     stats["normal_users"] = len(normal)
     stats["normal_rows"] = normal_rows
+    stats["fixed_rows"] = fixed_rows
     stats["baseline_users"] = baseline_users
+    stats["features_rows"] = con.execute(f"SELECT COUNT(*) FROM read_parquet('{args.features}')").fetchone()[0]
     stats["excluded_genbots"] = args.no_genbots
     stats["excluded_vlc"] = args.no_vlc
 
-    failures = run_gates(stats, baseline_users, flag_filter)
+    failures = run_gates(stats)
     stats["gates"] = "PASS" if not failures else failures
 
     print(f"{'check':<28}{'value':>12}")
@@ -261,6 +299,7 @@ def main() -> None:
     print(f"{'gold rows':<28}{stats['gold_rows']:>12,}")
     print(f"{'ATO rows/users':<28}{stats['ato_rows']:>12,}/{stats['ato_users']}")
     print(f"{'robot rows':<28}{stats['robot_rows']:>12,}")
+    print(f"{'features rows':<28}{stats['features_rows']:>12,}")
     print(f"{'baseline users':<28}{stats['baseline_users']:>12,}")
     print(f"gates: {stats['gates']}")
 

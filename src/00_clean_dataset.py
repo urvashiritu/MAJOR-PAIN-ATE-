@@ -4,11 +4,20 @@
 Fixes documented in dataset_scan_report.md (full-scan findings, Aug 2 2026):
   3.1 browser<->OS contradictions   -> os_family re-derived from User Agent
   3.2 mobile device, desktop marker -> device_type re-derived from User Agent
-  3.3 private IPs geo/label noise   -> is_private_ip + geo_unreliable flags
-  3.4 RTT 96% missing / outliers    -> rtt_missing + rtt_outlier flags
-  3.5 '-' vs NULL geo placeholders  -> unified to NULL
-  3.6 unknown/bot device            -> kept, preserved in device_raw
-  3.7 ATO label quirks              -> kept, documented
+   3.3 private IPs geo/label noise   -> is_private_ip flag + geo_unreliable flag
+        (geo_unreliable = private IP OR region/city NULL; a real, distinct
+        signal — it is NOT a duplicate of is_private_ip)
+   3.4 RTT 96% missing / outliers    -> rtt_missing + rtt_outlier flags
+   3.5 '-' vs NULL geo placeholders  -> unified to NULL
+   3.6 unknown/bot device            -> kept, preserved in device_raw
+   3.7 ATO label quirks              -> kept, documented
+   3.12 iOS-token substring false positives (AwarioSmartBot 'ioS',
+        CriOS-on-Android spoofs)     -> token-boundary iOS detection
+   3.13 'Mobile' substring in desktop UAs ('Mobile Safari' suffix)
+        -> token-boundary Mobile detection
+   3.14 device_raw 'unknown'/NULL short-circuit before UA checks
+        -> UA checks now run first; NULL device_raw -> 'unknown' (was 'desktop')
+   3.15 'Andorid' typo in MQQBrowser UAs -> mapped to Android
 
 Principles:
   - Raw values are always preserved (raw_* columns) for auditability.
@@ -83,18 +92,29 @@ SELECT
         -- KaiOS -> os_raw is authoritative, checked BEFORE the UA branches
         WHEN regexp_matches(os_raw, '(?i)KaiOS') OR regexp_matches(ua, '(?i)KaiOS') THEN 'KaiOS'
         WHEN regexp_matches(ua, '(?i)Windows Phone') THEN 'Windows Phone'
-        WHEN regexp_matches(ua, '(?i)iPhone|iPad|iPod|iOS') THEN 'iOS'
-        WHEN regexp_matches(ua, '(?i)Android([^@]|$)') THEN 'Android'
+        -- token-boundary iOS: bare substring matches poison the class
+        -- (AwarioSmartBot/1.0 contains 'ioS'); CriOS/EdgiOS/FxiOS are real
+        -- iOS-WebKit tokens but the generator injects them into Android and
+        -- Windows Phone UA templates, so the branch yields when the UA or
+        -- os_raw carries an Android/WP platform token (see scan 5 findings)
+        WHEN regexp_matches(ua, '(?i)CriOS|EdgiOS|FxiOS|(^|[^A-Za-z0-9])(iPhone|iPad|iPod|iOS)($|[^A-Za-z0-9])')
+             AND NOT regexp_matches(ua, '(?i)(Android|Andorid)([^@]|$)|Windows Phone')
+             AND NOT regexp_matches(os_raw, '(?i)(Android|Andorid)|Windows Phone') THEN 'iOS'
+        WHEN regexp_matches(ua, '(?i)(Android|Andorid)([^@]|$)') THEN 'Android'
         WHEN regexp_matches(ua, '(?i)Windows') THEN 'Windows'
         WHEN regexp_matches(ua, '(?i)X11; CrOS') THEN 'ChromeOS'
         WHEN regexp_matches(ua, '(?i)Mac OS X|Macintosh|Mac_PowerPC') THEN 'macOS'
         WHEN regexp_matches(ua, '(?i)Linux|X11') THEN 'Linux'
         -- UA silent on platform -> fall back to the OS column's keyword
         -- (KaiOS contains the substring 'iOS' -> must be checked BEFORE iOS)
+        -- generator-bot UAs are excluded: AwarioSmartBot etc. carry a
+        -- fabricated os_raw ('iOS 2.x' etc.) with no platform token in the UA
+        -- (scan 5: 1,993 rows were mislabeled iOS via this branch)
         WHEN regexp_matches(os_raw, '(?i)KaiOS') THEN 'KaiOS'
-        WHEN regexp_matches(os_raw, '(?i)iOS|iPhone|iPad|iPod') THEN 'iOS'
+        WHEN regexp_matches(os_raw, '(?i)CriOS|EdgiOS|FxiOS|(^|[^A-Za-z0-9])(iPhone|iPad|iPod|iOS)($|[^A-Za-z0-9])')
+             AND NOT regexp_matches(ua, '(?i)ZipppBot|startmebot|ZoomBot|MetaJobBot|das-group|AwarioSmartBot') THEN 'iOS'
         WHEN regexp_matches(os_raw, '(?i)Windows Phone') THEN 'Windows Phone'
-        WHEN regexp_matches(os_raw, '(?i)Android([^@]|$)') THEN 'Android'
+        WHEN regexp_matches(os_raw, '(?i)(Android|Andorid)([^@]|$)') THEN 'Android'
         WHEN regexp_matches(os_raw, '(?i)Windows') THEN 'Windows'
         WHEN regexp_matches(os_raw, '(?i)Mac OS X|macOS|Macintosh') THEN 'macOS'
         WHEN regexp_matches(os_raw, '(?i)Chrome ?OS') THEN 'ChromeOS'
@@ -116,30 +136,51 @@ SELECT
              AND NOT regexp_matches(x, '(?i)^variation/[0-9]+$')),
         ' ')                                                             AS browser_family,
     CASE
-        WHEN device_raw = 'bot' OR device_raw = 'unknown' THEN device_raw
+        WHEN device_raw = 'bot' THEN 'bot'
         WHEN regexp_matches(ua, '(?i)iPad')                THEN 'tablet'
         -- explicit tablet markers checked BEFORE Mobile (tablet UAs carry "Mobile")
         WHEN regexp_matches(ua, '(?i)Tablet|SM-T|Tab S|Tab A|Galaxy Tab|Nexus (7|9|10)|Xoom|KFAPWI|Lenovo TAB') THEN 'tablet'
-        WHEN regexp_matches(ua, '(?i)iPhone|iPod|Windows Phone|Android([^@]|$)|Mobile') THEN 'mobile'
+        -- token-boundary Mobile: the generator appends 'Mobile Safari/537.36'
+        -- to DESKTOP UAs too, so 'Mobile' counts only when the UA carries no
+        -- desktop-OS token (Mac/Windows/X11/CrOS)
+        -- (scan 5: the previous OR-group quoted this AND-clause inside the regex
+        --  string, making it dead text — Mobile never classified anything)
+        WHEN regexp_matches(ua, '(?i)iPhone|iPod|Windows Phone|(Android|Andorid)([^@]|$)')
+             OR (regexp_matches(ua, '(^|[^A-Za-z0-9])Mobile([^A-Za-z0-9]|$)')
+                 AND NOT regexp_matches(ua, '(?i)Mac OS X|Macintosh|Windows NT|X11;|CrOS')) THEN 'mobile'
         -- UA has no device marker -> trust the raw Device Type
-        WHEN device_raw IN ('mobile', 'tablet')            THEN device_raw
+        WHEN device_raw = 'tablet'                         THEN 'tablet'
+        WHEN device_raw = 'mobile'                         THEN 'mobile'
+        -- UA silent AND raw unknown/NULL -> genuinely unknown (was 'desktop' for NULL)
+        WHEN device_raw = 'unknown' OR device_raw IS NULL  THEN 'unknown'
         ELSE 'desktop'
     END                                                              AS device_type,
     -- 3.3: RFC1918 / loopback / link-local
     regexp_matches(ip, '^(10\\.|127\\.|192\\.168\\.|169\\.254\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.)') AS is_private_ip,
-    regexp_matches(ip, '^(10\\.|127\\.|192\\.168\\.|169\\.254\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.)') AS geo_unreliable,
+    -- 3.3 (revised): geo metadata (country/region/city) cannot be trusted when
+    -- the IP is private OR region/city are missing — a real, distinct signal,
+    -- NOT a duplicate of is_private_ip. NOTE: 'region'/'city' inside this
+    -- expression bind to the RAW columns (pre-NULLIF), so the NULLIF must be
+    -- repeated explicitly (verified against a minimal DuckDB repro).
+    is_private_ip
+        OR NULLIF(NULLIF(region, ''), '-') IS NULL
+        OR NULLIF(NULLIF(city, ''), '-') IS NULL                         AS geo_unreliable,
     -- 3.4: RTT flags (empty CSV cells arrive as NULL)
     rtt_str IS NULL                                                   AS rtt_missing,
     rtt_str IS NOT NULL AND try_cast(rtt_str AS DOUBLE) > 60000       AS rtt_outlier,
     -- 3.1: was the raw OS column contradicted by the UA?
+    -- (token-boundary iOS/Android, same as os_family; CriOS/EdgiOS/FxiOS are
+    --  honored only without an Android/WP platform token — see 3.12)
     CASE
-        WHEN regexp_matches(ua, '(?i)iPhone|iPad|iPod|iOS')
-             AND regexp_matches(os_raw, '(?i)Android') THEN TRUE
-        WHEN regexp_matches(ua, '(?i)Android')
-             AND regexp_matches(os_raw, '(?i)iPhone|iPad|iPod|iOS|Mac OS') THEN TRUE
+        WHEN regexp_matches(ua, '(?i)CriOS|EdgiOS|FxiOS|(^|[^A-Za-z0-9])(iPhone|iPad|iPod|iOS)($|[^A-Za-z0-9])')
+             AND NOT regexp_matches(ua, '(?i)(Android|Andorid)([^@]|$)|Windows Phone')
+             AND NOT regexp_matches(os_raw, '(?i)(Android|Andorid)|Windows Phone')
+             AND regexp_matches(os_raw, '(?i)(Android|Andorid)([^@]|$)') THEN TRUE
+        WHEN regexp_matches(ua, '(?i)(Android|Andorid)([^@]|$)')
+             AND regexp_matches(os_raw, '(?i)CriOS|EdgiOS|FxiOS|(^|[^A-Za-z0-9])(iPhone|iPad|iPod|iOS)($|[^A-Za-z0-9])|Mac OS') THEN TRUE
         WHEN regexp_matches(ua, '(?i)Windows')
-             AND regexp_matches(os_raw, '(?i)Android|iOS|Mac') THEN TRUE
-        WHEN regexp_matches(ua, '(?i)Android|iPhone|iPad')
+             AND regexp_matches(os_raw, '(?i)(Android|Andorid)([^@]|$)|CriOS|EdgiOS|FxiOS|(^|[^A-Za-z0-9])(iPhone|iPad|iPod|iOS)($|[^A-Za-z0-9])|Mac') THEN TRUE
+        WHEN regexp_matches(ua, '(?i)(Android|Andorid)([^@]|$)|(^|[^A-Za-z0-9])(iPhone|iPad|iPod|iOS)($|[^A-Za-z0-9])')
              AND regexp_matches(os_raw, '(?i)Windows') THEN TRUE
         ELSE FALSE
     END                                                              AS ua_os_conflict,
@@ -150,7 +191,9 @@ SELECT
              AND NOT regexp_matches(x, '(?i)^variation/[0-9]+$')),
         ' ')                                                       AS version_stripped,
     -- 3.9: the dataset generator's own traffic (UA carries its repo URL)
-    regexp_matches(ua, '(?i)ZipppBot|startmebot|ZoomBot|MetaJobBot|das-group') AS is_generator_bot,
+    -- 3.12: AwarioSmartBot (a Linux crawler whose name contains 'ioS',
+    --        previously mislabeled iOS)
+    regexp_matches(ua, '(?i)ZipppBot|startmebot|ZoomBot|MetaJobBot|das-group|AwarioSmartBot') AS is_generator_bot,
     -- 3.11: VLC media player rows (cannot do SSO -> synthetic noise)
     regexp_matches(ua, '(?i)VLC')                                    AS is_vlc
 FROM raw
@@ -194,6 +237,18 @@ CHECKS_CLEAN = {
     "null_device_rows": "COUNT(*) FILTER (WHERE device_raw IS NULL)",
     "other_os_unknown": "COUNT(*) FILTER (WHERE os_raw='Other ' AND os_family='unknown')",
     "legacy_os_rows": "COUNT(*) FILTER (WHERE os_family IN ('BlackBerry','MeeGo','Symbian','Roku','WebTV','Firefox OS'))",
+    "geo_unreliable_without_private": "COUNT(*) FILTER (WHERE geo_unreliable AND NOT is_private_ip)",
+    "genbot_as_ios": "COUNT(*) FILTER (WHERE os_family='iOS' AND ((regexp_matches(user_agent, '(?i)AwarioSmartBot') AND NOT regexp_matches(user_agent, '(?i)(^|[^A-Za-z0-9])(iPhone|iPad|iPod|iOS)($|[^A-Za-z0-9])|CriOS|EdgiOS|FxiOS')) OR (regexp_matches(user_agent, '(?i)CriOS') AND regexp_matches(os_raw, '(?i)Android'))))",
+    # 3.13 bug signature only (same definition as src/03_validate_contract.py):
+    # desktop rows reclassified mobile by a bare 'Mobile' token on a
+    # desktop-OS UA. Genuine mobile UAs (Android/iPhone/WP — e.g.
+    # YaApp_Android webviews send 'X11; Linux armv7l ... Mobile Safari')
+    # with a lying device_raw='desktop' column are CORRECT.
+    "desktop_reclass_mobile": "COUNT(*) FILTER (WHERE device_raw='desktop' AND device_type='mobile' "
+                               "AND regexp_matches(user_agent, '(?i)Mobile') "
+                               "AND regexp_matches(user_agent, '(?i)Mac OS X|Macintosh|Windows NT|X11;|CrOS') "
+                               "AND NOT regexp_matches(user_agent, '(?i)(Android|Andorid)([^@]|$)|iPhone|iPod|Windows Phone'))",
+    "null_device_unknown": "COUNT(*) FILTER (WHERE device_raw IS NULL AND device_type != 'unknown')",
 }
 
 
@@ -270,7 +325,8 @@ def main() -> None:
             print(f"{name:<22}{before[name]:>14,}{av}")
         for name in ("ua_os_conflict", "geo_null_now", "wp_as_ios", "kaios_as_ios",
                      "cros_as_android", "kaios_rows", "null_device_rows", "other_os_unknown",
-                     "legacy_os_rows"):
+                     "legacy_os_rows", "geo_unreliable_without_private", "genbot_as_ios",
+                     "desktop_reclass_mobile", "null_device_unknown"):
             if name in after:
                 print(f"{name:<22}{'-':>14}{after[name]:>14,}")
         return

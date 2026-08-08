@@ -18,19 +18,21 @@
 
 Since the Aug 1 update, the dataset has been cleaned, audited to completion, sampled, and featurized:
 
-- **Dataset audit-complete (Aug 2 → Aug 8):** three passes — full scan (12 issue classes), blind re-audit from raw CSV (8 new findings, all already handled), and an exhaustive coverage audit (`dataset_scan_report.md` §7–§8) that enumerated every column's formats, every mapping's coverage, and every cross-tab. One gap was found and fixed: 6 legacy OS families (BlackBerry, MeeGo, Roku, Symbian, WebTV, Firefox OS = 11,055 rows) now map instead of falling to `unknown`. Guard checks in `src/00_clean_dataset.py --verify` make regressions detectable.
-- **Phase 3 — Sampling done:** `src/01_load_and_sample.py` builds a 1,000,000-row whole-user stratified sample (never row-sampling): all 138 ATO users (141/141 rows), all 8,110 attack-heavy users, robot user capped at 50,000 with `is_robot_sampled` flag, random light/normal users with a 10K per-user cap. Gates PASS: attack share 24.70% (natural), 152,863 gold rows, all 4.3M users in `user_baselines.parquet` (full-dataset per-user history). The design was validated by two independent audit agents before implementation.
-- **Phase 4 — Features done:** `src/02_feature_engineering.py` implements one shared feature function (`feature_sql`) used by both offline and live paths, so values are identical by construction. Features: `hour`, `is_night`, `is_weekend`, `country_change`, `device_change`, `failed_before_success` (true 5-min window, strictly earlier events), `rapid_login_rate` (60 s), `login_frequency_today`. First-ever event → `country_change=0`/`device_change=0` by explicit policy. Per-event features never read `user_baselines` (that would leak future information); baselines serve only non-temporal user context. Counts match an independent validation agent exactly.
+- **Dataset audit-complete (Aug 2 → Aug 8):** three passes — full scan (12 issue classes), blind re-audit from raw CSV (8 new findings, all already handled), and an exhaustive coverage audit (`dataset_scan_report.md` §7–§8) that enumerated every column's formats, every mapping's coverage, and every cross-tab. One gap was found and fixed: 6 legacy OS families (BlackBerry 7,837 / MeeGo 3,110 / Roku 649 / Symbian 35 / WebTV 21 / Firefox OS 5 = 11,657 rows — scan-4's 11,055 under-counted version-suffixed `os_raw` values like `Roku 9.10`) now map instead of falling to `unknown`. Guard checks in `src/00_clean_dataset.py --verify` make regressions detectable.
+- **Phase 3 — Sampling done:** `src/01_load_and_sample.py` builds a 1,000,003-row whole-user stratified sample (never row-sampling): all 138 ATO users (141/141 rows), all 8,110 attack-heavy users, robot user capped at 50,000 with `is_robot_sampled` flag, random light/normal users with a 10K per-user cap. Gates PASS: attack share 24.76% (natural), 153,352 gold rows, all 4.3M users in `user_baselines.parquet` (full-dataset per-user history). The design was validated by two independent audit agents before implementation.
+- **Phase 4 — Features done:** `src/02_feature_engineering.py` implements one shared feature function (`feature_sql`) used by both offline and live paths, so values are identical by construction. Features: `hour`, `is_night`, `is_weekend`, `country_change`, `device_change`, `failed_recently` (a failed login within 5 min before the event — any event, success or failure; renamed from `failed_before_success`), `rapid_login_rate` (60 s), `login_frequency_today`. First-ever event → `country_change=0`/`device_change=0` by explicit policy. Per-event features never read `user_baselines` (that would leak future information); baselines serve only non-temporal user context. Features are computed over each user's **true full history** (a full-dataset pass → `rba_features.parquet`), then the sample is drawn from the featured table — this fixed the robot user's previously-wrong features (random 50K subset vs 14M-row true history).
+- **Audit-fix pass (Aug 8):** an independent agent audit of the cleaning/sampling/feature scripts found 10 issues — all fixed and regression-guarded by the new `src/03_validate_contract.py`: `geo_unreliable` was a byte-identical duplicate of `is_private_ip` (now `private IP OR missing region/city`); `(?i)iOS` substring mislabeled 134,393 AwarioSmartBot rows ("ioS" inside the name) + 26,263 CriOS-on-Android spoofs (token-boundary detection + `AwarioSmartBot` added to `is_generator_bot`, 140,993 rows); bare `Mobile` substring reclassified 3,402 desktop rows as mobile; `device_raw='unknown'`/NULL short-circuited UA checks (1,526 NULL-device rows became `desktop`); `Andorid` typo (242 rows); sampling is now deterministic (hash-based ordering — `random()` is not reproducible under `threads>1` even with `setseed`); `fixed_rows` computed at runtime instead of hardcoded (was wrong by 19,762 rows under `--no-genbots`); `prior_fail_ts` no longer leaks into the features output; `rn`/`is_robot_sampled` dropped from the training table. The contract validator fails on the pre-fix parquets (12,271,729 geo violations, 160,656 iOS spoofs, 3,402 desktop reclassifications, 1,526 null-device rows, forbidden columns) and passes on rebuilt ones. **Scan-5 follow-up (same day, validated by agent pre-flight):** the os_raw iOS fallback now excludes generator-bot UAs (1,993 rows with fabricated `os_raw='iOS 2.x'` → `unknown`); the dead `Mobile`-clause quoting bug on the device_type branch was repaired (the AND-clause had been embedded in the regex string); `desktop_reclass_mobile` was narrowed to the bare-`Mobile` bug signature — 19 legitimate Android/Windows-Phone reclassifications (lying `device_raw='desktop'` column) no longer fail the contract. Final: `contract: PASS`, `ua_os_conflict` 842,170.
 - **Next:** Phase 5 rule-based baseline (points tuned on validation data), then Phase 6 anomaly models with `contamination` set from the measured ratio — never hardcoded.
 
 ### Known issues to fix (learned since this doc was written)
 
-1. ~~**Attack-ratio collapse**~~ — **FIXED (Aug 8):** user-based sampling (keep all events of sampled users) yields 1M rows / 24.70% attack share; ATO rows all included.
+1. ~~**Attack-ratio collapse**~~ — **FIXED (Aug 8):** user-based sampling (keep all events of sampled users) yields 1,000,003 rows / 24.76% attack share; ATO rows all included.
 2. **Metrics in this document are NOT measured** — still true; the 94.2% / 91.7% / 88.3% claims are aspirational until Phase 6 measures and reports honestly.
-3. ~~**`failed_before_success` semantics**~~ — **FIXED (Aug 8):** the shared feature function counts failed logins in the 5 minutes before the event (strictly earlier), not failures since last success.
+3. ~~**`failed_before_success` semantics**~~ — **FIXED (Aug 8):** the shared feature function counts failed logins in the 5 minutes before the event (strictly earlier), not failures since last success. Renamed `failed_recently` in the audit-fix pass (the old name implied success-only events).
 4. ~~**`device_change` includes exact browser version**~~ — **FIXED (Aug 8):** features use version-stripped `browser_family` / `os_family` / `device_type`.
 5. ~~**First login per user → `country_change = 1`**~~ — **FIXED (Aug 8):** explicit policy — first-ever event gets `country_change = 0` and `device_change = 0`.
 6. **`contamination=0.05` was hardcoded** — **STILL OPEN:** Phase 6 must set it from the measured attack ratio of the training subset.
+7. ~~**Audit-fix issues (10)**~~ — **FIXED (Aug 8):** `geo_unreliable` duplicate, iOS/Mobile substring mislabels, device short-circuit, `Andorid` typo, non-deterministic sampling, hardcoded `fixed_rows`, `prior_fail_ts` leak, `failed_before_success` misnomer — see the audit-fix pass note above; guarded by `src/03_validate_contract.py`.
 
 ### Roadmap (next phases)
 
@@ -75,7 +77,7 @@ The previous `anomaly_detector.py` / `train_models.py` / `evaluate.py` were remo
 
 1. **Attack-ratio collapse**: the 50K stratified sample (10% attack) became 18,191 rows with **248 attacks (1.36%)**. Cause: row-level sampling + the "users with ≥3 events" filter — most sampled attack rows belonged to users with <3 sampled events and were deleted. Fix: **user-based sampling** (keep all events of sampled users; filter first, then balance).
 2. **Metrics in this document are NOT measured**: the 94.2% accuracy / 91.7% precision / 88.3% recall claims are not reproducible by any code that existed. The actual evaluation output was: at thr=30 → precision 0.0087, recall 0.0200, F1 0.0121; best F1 0.0185 at thr=35. Must be re-measured honestly after retraining.
-3. **`failed_before_success` semantics**: this doc says "failed attempts in the last 5 minutes" (§3); the implementation counted *consecutive failures since last success* with no time window. The intended 5-minute window must be implemented in the rewrite.
+3. **`failed_recently` semantics** (was `failed_before_success`): this doc says "failed attempts in the last 5 minutes" (§3); the implementation counted *consecutive failures since last success* with no time window. The intended 5-minute window must be implemented in the rewrite. *(Implemented Aug 8; renamed `failed_recently` because the feature applies to any event, success or failure.)*
 4. **`device_change` includes exact browser version** (`Firefox 20.0.0.1618` vs `.1619` = false change). Strip version numbers.
 5. **First login per user → `country_change = 1`** (no baseline exists). Consider `0` for a user's first-ever event.
 6. **`contamination=0.05` was hardcoded** in all 4 models regardless of the actual attack ratio.
@@ -203,9 +205,9 @@ We do NOT modify the 8.5GB CSV directly. Instead:
 ```
 Raw RBA CSV (8.5GB, unchanged)
     ↓ DuckDB query
-Sampled 500K rows
+Sampled 1,000,003 rows
     ↓ Feature engineering (compute 8 features per row, using user history)
-Training file (500K rows, 8 feature columns + 1 label column)
+Training file (1,000,003 rows, 8 feature columns + 1 label column)
 ```
 
 This is safer. One mistake in feature engineering corrupts the training file, not the original dataset.
@@ -242,13 +244,13 @@ These require looking at the user's past behavior. We process rows in chronologi
 |---|---|---|
 | **country_change** | Has this user ever logged in from this country before? If no → 1 | User from India suddenly logs in from Russia |
 | **device_change** | Has this user ever used this exact device+browser+OS combo before? If no → 1 | iPhone user suddenly using Android/Firefox |
-| **failed_before_success** | Look back 5 minutes. Were there failed attempts from this user before this success? If yes → 1 | Brute force: 12 failed attempts then 1 success |
+| **failed_recently** | Look back 5 minutes. Were there failed attempts from this user before this event? If yes → 1 | Brute force: 12 failed attempts then 1 success |
 | **rapid_login_rate** | Count logins from this user in the last 60 seconds | Automated script doing 100 logins per minute |
 | **login_frequency_today** | Count total logins from this user today so far | 50 logins today vs normal 5/day |
 
 ### Example — same user, 3 events processed chronologically
 
-| Timestamp | Country | Device | Success | hour | night | country_chg | device_chg | failed_before | rapid_rate | is_attack |
+| Timestamp | Country | Device | Success | hour | night | country_chg | device_chg | failed_recently | rapid_rate | is_attack |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 2020-02-03 12:43 | India | iPhone | ✓ | 12 | 0 | 0 | 0 | 0 | 1 | 0 |
 | 2020-02-03 02:15 | Russia | Android | ✓ | 2 | 1 | 1 | 1 | 12 | 45 | 1 |
@@ -265,7 +267,7 @@ These require looking at the user's past behavior. We process rows in chronologi
 - **What** (device_change — device, browser, OS combo)
 - **Where** (country_change)
 - **When** (hour, is_night, is_weekend)
-- **How** (failed_before_success, rapid_login_rate, login_frequency_today)
+- **How** (failed_recently, rapid_login_rate, login_frequency_today)
 
 RBA dataset has exactly these columns available. More features would require data we don't have (file access logs, network traffic, process execution). Fewer features would miss important attack patterns — using only country would miss same-country attacks.
 
@@ -284,7 +286,7 @@ Rules can't capture these nuanced interactions. ML does.
 
 ### Model descriptions
 
-| Model | Type | Training time (500K rows) | What it does |
+| Model | Type | Training time (1M rows) | What it does |
 |---|---|---|---|
 | **Isolation Forest** | Tree-based isolation | ~30 seconds | Randomly splits data into trees. Anomalies are isolated in fewer splits (they're "different") |
 | **One-Class SVM** | Boundary-based | ~5 minutes (slow) | Draws a boundary around normal data. Everything outside is anomaly |
@@ -320,7 +322,7 @@ Ensemble averaging reduces false positives. If 3 models say normal and 1 says an
 
 ### One-Class SVM limitation
 
-SVM doesn't scale to 500K rows (takes hours). We train it on a 50K subset. If it performs poorly, we drop it and ensemble the other 3. The project still works fine with 3 models.
+SVM doesn't scale to 1M rows (takes hours). We train it on a 50K subset. If it performs poorly, we drop it and ensemble the other 3. The project still works fine with 3 models.
 
 ---
 
@@ -334,7 +336,7 @@ SVM doesn't scale to 500K rows (takes hours). We train it on a 50K subset. If it
 - Account takeover (device change + country change)
 - Scripted attacks (rapid rate, night time, unusual frequency)
 
-**Is this real ML?** Yes. Models train on 500K real RBA events with real attack labels (Is Attack IP column). They learn patterns from genuine login behavior, not from our hardcoded rules.
+**Is this real ML?** Yes. Models train on 1M real RBA events with real attack labels (Is Attack IP column). They learn patterns from genuine login behavior, not from our hardcoded rules.
 
 ### Layer 2: Device Fingerprinting
 
@@ -448,7 +450,7 @@ Generate a fully synthetic dataset with realistic typing speeds, mouse movements
 | Device Type | Part of device_change (mobile/desktop/tablet) |
 | Browser Name + Version | Part of device_change |
 | OS Name + Version | Part of device_change |
-| Login Successful | Compute failed_before_success |
+| Login Successful | Compute failed_recently |
 | Is Attack IP | Training label (1 = attack, 0 = normal) |
 | Is Account Takeover | Secondary evaluation label (141 ATOs) |
 | User Agent String | Parsed to extract device_type + browser + OS |
@@ -463,7 +465,7 @@ Generate a fully synthetic dataset with realistic typing speeds, mouse movements
 | device_type | From user agent or config | device_change |
 | browser | From user agent | device_change |
 | os | `platform.system()` | device_change |
-| login_successful | True for normal, False→True for attack | failed_before_success |
+| login_successful | True for normal, False→True for attack | failed_recently |
 | MAC address | `uuid.getnode()` | Device fingerprint hash |
 | Hostname | `socket.gethostname()` | Device fingerprint hash |
 | CPU info | `platform.processor()` | Device fingerprint hash |
@@ -481,7 +483,7 @@ Generate a fully synthetic dataset with realistic typing speeds, mouse movements
 | is_weekend | ✓ (computed from date) | ✓ (computed from date) |
 | country_change | ✓ (compare to user's RBA history) | ✓ (compare to user's live + RBA history) |
 | device_change | ✓ (compare to user's RBA history) | ✓ (compare to user's live + RBA history) |
-| failed_before_success | ✓ (from RBA success column + 5min check) | ✓ (client sends True/False, server checks history) |
+| failed_recently | ✓ (from RBA success column + 5min check) | ✓ (client sends True/False, server checks history) |
 | rapid_login_rate | ✓ (from RBA timestamp + 60sec window) | ✓ (from client timestamps + 60sec window) |
 | login_frequency_today | ✓ (from RBA date + count) | ✓ (from client timestamps + today count) |
 | Device fingerprint | ✗ (RBA has no MAC/hostname) | ✓ (MAC + hostname + CPU → SHA256 hash) |
@@ -508,7 +510,7 @@ Full telemetry means analyzing every available metric for every event, not just 
 ```
 Event #152 | igris | India | Chrome/Win11 | 14:30
   ML Score:   country_change=0  device_change=0  night=0
-              failed_before=0   rapid_rate=1     freq=3
+              failed_recently=0  rapid_rate=1    freq=3
               → IF: 0.92(S)  SVM: 0.88(S)  LOF: 0.95(S)  EE: 0.91(S)
               → Ensemble: 0.09 → Score: 9/100  ✓
   Device:     Hash a3f2b8c1 = "igris-laptop" (known since Jul 26)  ✓
@@ -539,7 +541,7 @@ These would require invasive permissions and aren't appropriate for a college pr
 RBA Dataset (31.3M rows, 8.5GB CSV via DuckDB)
     │
     ▼
-DuckDB query → sample 500K rows (stratified:
+DuckDB query → sample 1,000,003 rows (stratified:
     includes all 141 ATOs + all Attack IP rows + random normal rows)
     │
     ▼
@@ -551,14 +553,14 @@ Feature Engineering (02_feature_engineering.py):
         3. Compute contextual features:
            country_change = has this country been seen for this user?
            device_change = has this device+browser+OS been seen?
-           failed_before_success = were there fails in last 5 min?
+           failed_recently = were there fails in last 5 min?
            rapid_login_rate = count logins in last 60 seconds
            login_frequency_today = count logins today
         4. Add this row to user's history
         5. Label: Is Attack IP column (1=attack, 0=normal)
     │
     ▼
-Training file (500K rows, 8 feature columns + 1 label column)
+Training file (1,000,003 rows, 8 feature columns + 1 label column)
     │
     ▼
 Train/Test Split (80% / 20%)
@@ -635,8 +637,8 @@ The training dataset and the live demo data are different. The connection is the
 The server computes features differently than during training:
 
 **During training (RBA):**
-- country_change: compare to ALL 500K rows of this user's RBA history
-- device_change: compare to ALL 500K rows of this user's RBA history
+- country_change: compare to ALL rows of this user's RBA history (full 31.3M-row feature pass)
+- device_change: compare to ALL rows of this user's RBA history (full 31.3M-row feature pass)
 
 **During live demo:**
 - country_change: compare to user's LIVE history (events seen during demo) + RBA history (if available)
@@ -742,13 +744,13 @@ After seeing multiple countries from the same device, the system learns "igris u
 | device_change | 0 | No history — can't compute |
 | rapid_login_rate | 1 | Only login so far |
 | login_frequency_today | 1 | Only login so far |
-| failed_before_success | 0 | No failures before |
+| failed_recently | 0 | No failures before |
 | hour | actual hour | Simple feature |
 | is_night | actual value | Simple feature |
 | is_weekend | actual value | Simple feature |
 | **Risk score** | **~5/100** | **Low — minimal context** |
 
-**How we handle it:** The ML models still work because they've seen 500K OTHER users. General patterns still apply — if the first login is at 3am from a known attacker IP, the model can flag it based on patterns learned from other users. But per-user features (country_change, device_change) only activate after 2+ logins.
+**How we handle it:** The ML models still work because they've seen 1M OTHER users. General patterns still apply — if the first login is at 3am from a known attacker IP, the model can flag it based on patterns learned from other users. But per-user features (country_change, device_change) only activate after 2+ logins.
 
 **This is documented as a "cold-start limitation."** Production systems handle this with IP reputation scoring, device reputation across the platform, and initial risk baselines. We can add simple versions of these if time permits.
 
@@ -970,7 +972,7 @@ There is a reference midkill project at `/home/igris/projects/identity-anomaly-d
 
 ```
 Reference midkill: hour, is_weekend, is_success, mfa_used, mfa_failed, is_vpn, is_tor, is_new_device
-Ours:              hour, is_night, is_weekend, country_change, device_change, failed_before_success,
+Ours:              hour, is_night, is_weekend, country_change, device_change, failed_recently,
                    rapid_login_rate, login_frequency_today
 ```
 
@@ -988,7 +990,7 @@ identity-anomaly-detection/
 │   └── processed/rba_clean.parquet # cleaned, normalized, flags (rebuilt by 00_clean_dataset.py)
 │
 ├── src/                           # All source code
-│   ├── 01_load_and_sample.py      # Load RBA via DuckDB, sample 500K rows, save as parquet
+│   ├── 01_load_and_sample.py      # Load RBA via DuckDB, sample 1,000,003 rows, save as parquet
 │   ├── 02_feature_engineering.py  # Compute 8 features using user history → training file
 │   ├── 03_train_models.py         # Train 4 models → .pkl files + metrics
 │   ├── 04_evaluate.py             # Test accuracy, precision, recall, F1, charts
@@ -1081,7 +1083,7 @@ Hemanth's output (training_data.parquet)
 | Tue | 01_load_and_sample.py — DuckDB query, sample 500K | Read sklearn docs for all 4 models | Dashboard skeleton — title, 3 tabs, layout | utils/device_fingerprint.py — hash generation |
 | Wed | 02_feature_engineering.py — simple features (hour, night, weekend) | Train Isolation Forest on sample | Tab 1: live feed with mock data | 05_server.py — /login endpoint, mock score |
 | Thu | Contextual features: country_change, device_change with user history | Train Elliptic Envelope + LOF | Tab 2: charts with mock data | 05_server.py — load .pkl, score real event |
-| Fri | Contextual features: failed_before_success, rapid_rate, frequency | Train One-Class SVM on 50K subset | Tab 3: device info, behavioral display | 06_client.py — sends POST with device info |
+| Fri | Contextual features: failed_recently, rapid_rate, frequency | Train One-Class SVM on 50K subset | Tab 3: device info, behavioral display | 06_client.py — sends POST with device info |
 | Sat | Debug + validate features with small sample | Compare 4 models, save best params | Connect dashboard to mock API | Test client→server communication |
 | Sun | **Training file ready. Hand off to Urvashi** | Review training file. Ready to train. | Dashboard skeleton ready | Server skeleton ready |
 
@@ -1142,7 +1144,7 @@ Hemanth's output (training_data.parquet)
 | 1:00-1:15 | Hemanth | Point to device fingerprint | "Device: igris-laptop ✓" | "Each laptop is fingerprinted using SHA256 hash of MAC, hostname, CPU, screen. This hash matches igris's known device — so it's trusted." |
 | 1:15-1:30 | Urvashi | Send night login (normal but unusual time) | Yellow: "igris | India | 11pm | Score: 28/100" | "Now igris logs in at 11pm. Hour feature fires, score rises to 28. But country and device match — so still low. System doesn't overreact to single changes." |
 | 1:30-2:00 | Urvashi | Switch to ATTACK MODE on Laptop 2 | **RED ALERT**: "igris | Russia | 3am | Score: 94/100 🚨" | "Now toggle to attack mode. Client sends Russia, 3am, Android device. Never seen before. Watch the alert appear with 94/100 risk." |
-| 2:00-2:30 | Urvashi | Expand alert details | Shows: country_change=1, device_change=1, night=1, failed_before_success=12, rapid_rate=34, device hash mismatch, typing 120 vs 62 wpm | "Breakdown: 4 models voted anomaly. Country changed to Russia, device to Android, 12 failed attempts before success, 34 rapid logins. Device hash is unknown. Typing speed 120 wpm vs normal 62." |
+| 2:00-2:30 | Urvashi | Expand alert details | Shows: country_change=1, device_change=1, night=1, failed_recently=12, rapid_rate=34, device hash mismatch, typing 120 vs 62 wpm | "Breakdown: 4 models voted anomaly. Country changed to Russia, device to Android, 12 failed attempts before success, 34 rapid logins. Device hash is unknown. Typing speed 120 wpm vs normal 62." |
 | 2:30-2:45 | Veenashree | Show model comparison chart | Bar chart: IF 0.92, SVM 0.88, LOF 0.79, EE 0.95, Ensemble 0.89 | "Each model scores independently. No single model trusted alone. Ensemble averages to give final confidence." |
 | 2:45-3:00 | Veenashree | Click "This was me" | Score drops. Device becomes known. | "If igris was actually traveling, click 'This was me.' System adds Russia + Android to known list. Future events from Russia won't trigger." |
 | 3:00-3:15 | Vishwanath | Send normal events again | Green: Score 5/100 | "Back to normal. System adapts. Real-time detection with false positive handling." |
@@ -1180,7 +1182,7 @@ Dashboard has "Simulate Events" button that replays pre-recorded events from tes
 │ │  │ country_change:   1 (≠ India)    IF:  0.92  🚨             │ ││
 │ │  │ device_change:    1 (≠ iPhone)   SVM: 0.88  🚨             │ ││
 │ │  │ night:            1 (3am)        LOF: 0.79  ⚠              │ ││
-│ │  │ failed_before:    12 attempts    EE:  0.95  🚨             │ ││
+│ │  │ failed_recently: 12 attempts   EE:   0.95  🚨             │ ││
 │ │  │ rapid_rate:       34/min         ─────────────────          │ ││
 │ │  │ frequency:        45 today       ENSEMBLE: 0.89 🚨         │ ││
 │ │  └────────────────────────────────────────────────────────────┘ ││
@@ -1225,16 +1227,16 @@ Dashboard has "Simulate Events" button that replays pre-recorded events from tes
 
 | ML Task | CPU (sklearn) | GPU (cuML/RAPIDS) | Our choice | Why |
 |---|---|---|---|---|
-| Isolation Forest (500K rows) | ~30 seconds | ~2 seconds | CPU | 30 seconds is fine for training once |
+| Isolation Forest (1M rows) | ~30 seconds | ~2 seconds | CPU | 30 seconds is fine for training once |
 | One-Class SVM (50K rows) | ~5 minutes | ~20 seconds | CPU | Training once, doesn't matter |
-| LOF (500K rows) | No training (lazy) | No training | CPU | No training needed |
-| Elliptic Envelope (500K rows) | ~10 seconds | ~1 second | CPU | Already fast |
-| **Full 31.3M training** | **Hours (won't work)** | **Minutes** | **Not needed** | We sample 500K |
+| LOF (1M rows) | No training (lazy) | No training | CPU | No training needed |
+| Elliptic Envelope (1M rows) | ~10 seconds | ~1 second | CPU | Already fast |
+| **Full 31.3M training** | **Hours (won't work)** | **Minutes** | **Not needed** | We sample 1,000,003 rows |
 | **Deep learning (autoencoder)** | Slow | Fast | **Not using** | Not enough attack data |
 
 ### Why we don't NEED the GPU for core project
 
-- sklearn handles 500K rows in 30 seconds per model
+- sklearn handles 1M rows in 30 seconds per model
 - Training happens once before the demo — speed doesn't matter
 - Inference is <1ms per event on CPU — no GPU needed for live scoring
 
