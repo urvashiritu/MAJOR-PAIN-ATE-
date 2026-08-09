@@ -5,75 +5,132 @@
 
 ## The project in one paragraph
 
-We are building a system that watches login events (like "someone logged in from India on an iPhone at 2pm") and flags the suspicious ones ("someone logged in from Russia at 3am on an Android — that's weird for this user"). We use 4 machine learning models trained on **31 million real login events** from a published academic dataset (RBA, Telenor Norway). During the demo, login events arrive live from a second laptop, get scored by the models, and show up on a dashboard as green (safe) or red (alert).
+We watch login events (someone logged in from India on an iPhone at 2pm) and flag the suspicious ones (someone logged in from Russia at 3am on an Android, for this user). We use 4 machine learning models plus an explainable rule score, all trained on **31 million login events** from a published academic dataset (RBA, Telenor Norway). During the demo, login events arrive live from a second laptop, get scored, and show up on a dashboard as green (safe) or red (alert).
+
+One finding shapes everything after Phase 4:
+
+- The dataset's main label (`is_attack_ip`) is an **IP blocklist**, not a behavior label. The same IP always gets the same value.
+- A model that studies behavior can never learn to predict a blocklist, and we measured that honestly.
+- The real behavioral signal is the `is_ato` label (account takeover, 141 rows).
+- Section [What the numbers mean](#what-the-numbers-mean) explains this in plain words.
+
+> **Dataset caveat:** the published RBA dataset (Zenodo 6782156) is **synthesized** — statistically reconstructed from real Telenor Norway login patterns (timestamps randomized, categorical distributions matched, IPs/ASNs reassigned). Per the authors, feature values are "totally artificial" and the dataset is **not for production systems**. It is used here as a benchmark for academic/demo purposes only; `Is Attack IP` is an IP-reputation (blocklist) label, while `Is Account Takeover` is the behavioral gold standard.
 
 ### Plain-English glossary
 
 | Word | What it means, simply |
 |---|---|
 | **Row / event** | One login attempt: who, when, from which country, on which device, did it succeed |
-| **Feature** | A single number we compute from a row (e.g. `hour`, `country_change`) |
+| **Feature** | A single number we compute from a row (e.g. `hour`, `country_change`, `ip_seen_before`) |
 | **Label** | The truth: is this row an attack (1) or not (0). The model tries to predict this |
-| **Anomaly** | Something unusual. A login from a new country at 3am is an anomaly |
-| **Sampling** | Picking a smaller, representative chunk out of the big dataset (we can't fit 31M rows in RAM) |
-| **Train/test split** | Train the model on part A, test it on part B it never saw. If it works on part B, it works on *new* events |
-| **Attack ratio** | What fraction of rows are attacks. If 10% of rows are attacks, ratio = 0.10 |
-| **ATO** | Account Takeover — a real account got hacked (the gold-standard label in our data) |
+| **Blocklist label** | A label decided per IP, not per behavior. `is_attack_ip` is one: the same IP is always 1 or always 0 |
+| **Gold label** | Our tuning target: `is_attack_ip` AND the login succeeded. A successful login from a blocked IP |
+| **ATO** | Account Takeover — a real account got hacked (141 rows in the data, the behavioral gold standard) |
+| **Sampling** | Picking a smaller, representative chunk out of the big dataset (31M rows do not fit in RAM) |
+| **Train/test split** | Train the model on part A, test it on part B it never saw. If it works on part B, it works on new events |
+| **FPR** | False positive rate: the fraction of normal events we wrongly flag |
+| **Replay** | "If we challenge the top X% most suspicious logins, how many attacks do we catch, and how many normal users do we bother?" |
+| **Challenge rate** | The fraction of events we pick for a second check (e.g. 10%) |
 
 ---
 
-## Current State (Aug 8, 2026)
+## The pipeline in one picture
 
-- **Dataset strategy: RBA-only.** The multi-source synthetic experiment (7 AI-generated log formats + parser.py) was prototyped, evaluated, and **removed** — the synthetic data was inconsistent and unlabelable (details in `COMPLETE_PROJECT_REFERENCE.md`).
-- **Repo contents:**
-  - `data/raw/rba-dataset.csv` — raw RBA dataset (8.5 GB, 31.3M events, Zenodo)
-  - `data/processed/rba_clean.parquet` — cleaned version (685 MB, 31,269,264 rows preserved, flags added, no deletions) + `cleaning_summary.json`
-  - `data/processed/rba_features.parquet` — the 8 behavioral features over **all** 31.3M rows (full-history, so sampled events carry exactly what the live system would have computed) + `features_report.json`
-  - `data/processed/sample.parquet` — stratified sample (1,000,003 rows, 192,649 users, features included) + `sampling_report.json`
-  - `data/processed/features.parquet` — final training table: the sample minus pipeline artifacts (`rn`, `is_robot_sampled`)
-  - `data/processed/user_baselines.parquet` — per-user history over all 31.3M rows (for contextual features)
-  - `src/00_clean_dataset.py` — cleaning script (full-file DuckDB, ~30 s)
-  - `src/01_load_and_sample.py` — whole-user stratified sampling + baselines (~2 min)
-  - `src/02_feature_engineering.py` — shared feature function (offline/live identical, full-dataset pass)
-  - `src/03_validate_contract.py` — **schema + cross-column invariant checks** over every artifact (fails on stale/regressed files)
-  - 4 docs (this README + 3 below, see reading order) + `LICENSE`
-- **Reclean done (Aug 5):** the cleaned parquet was rebuilt with two fixes — Android devices now default to `mobile` (only real tablet signatures become `tablet`), and ChromeOS detection no longer matches `SamsungBrowser/CrossApp`. Verified in `dataset_scan_report.md` §6 (`src/00_clean_dataset.py --verify`).
-- **Revalidation fixes (Aug 8):** rebuilt again with three more OS/device mislabel fixes (~164K rows) — Windows Phone no longer caught by the iOS spoof token, KaiOS no longer matched by the `iOS` fallback, and `android@` tokens no longer classify ChromeOS desktops as Android mobile. Verified: `wp_as_ios=0`, `kaios_as_ios=0`, `cros_as_android=0`; `ua_os_conflict` 1,223,315 → 842,170 (final, after the scan-5 iOS-fallback fix).
-- **Blind re-audit (Aug 8):** the full dataset was re-scanned from scratch (no doc context) — every documented number re-verified, plus 8 previously-missed issues found (KaiOS scale 339,945, `device=tablet` w/o marker 691,864, `os_raw="Other "` 2.88M, silent-UA rows 3.0M, etc.). Full findings: `dataset_scan_report.md` §7.
-- **Exhaustive coverage audit (Aug 8, `dataset_scan_report.md` §8):** the loop-closing pass — every column's formats, every mapping's coverage, every cross-tab enumerated. One gap found and fixed: 6 legacy OS families (BlackBerry 7,837 / MeeGo 3,110 / Roku 649 / Symbian 35 / WebTV 21 / Firefox OS 5 = 11,657 rows) were falling to `unknown`; `os_family` branches added, parquet rebuilt, guard `legacy_os_rows=11,657` (scan-4's 11,055 under-counted version-suffixed `os_raw` values like `Roku 9.10`). **Dataset declared audit-complete.**
-- **Pipeline rewrite started:** the broken pipeline scripts and the old 18K-row training file (248 attacks) were removed; the clean rewrite is now `src/00_clean_dataset.py` → `src/02_feature_engineering.py` → `src/01_load_and_sample.py` → `src/03_validate_contract.py` (roadmap in `COMPLETE_PROJECT_REFERENCE.md` status section).
-- **Sampling done (Aug 8, Phase 3):** whole-user stratified sampling to 1,000,003 rows — all 138 ATO users (141/141 rows), all 8,110 attack-heavy users, robot capped at 50,000 (flag `is_robot_sampled`), random light + normal users, 10K per-user cap. Gates all PASS: attack share 24.76% (natural, not forced), gold rows 153,352, all 4.3M users covered by full-dataset baselines. Design validated by two audit agents before implementation.
-- **Features done (Aug 8, Phase 4):** shared feature function (`feature_sql`) computes `hour`, `is_night`, `is_weekend`, `country_change`, `device_change`, `failed_recently` (a failed login within the 5 minutes before the event — any event, success or failure), `rapid_login_rate` (60 s), `login_frequency_today` — only strictly-earlier events per user, first-ever event → `country_change=0`/`device_change=0` by explicit policy. Features are computed over each user's **true full history** (all 31.3M rows), then the sample is drawn from the featured table — the robot user's features are therefore correct (they were previously computed on its random 50K-row subset: `rapid_login_rate` mean 0.118 vs true 34.0). No future leakage: per-event features never use `user_baselines`.
-- **Audit-fix pass (Aug 8, Phase 3.5):** an independent agent audit of the cleaning and feature scripts found 10 more issues, all fixed and regression-checked:
-  - `geo_unreliable` was a byte-identical duplicate of `is_private_ip` → now `private IP OR region/city missing` (12.27M rows distinct)
-  - `(?i)iOS` substring false positives: 134,393 AwarioSmartBot rows (the name contains "ioS") + 26,263 CriOS-on-Android spoofs were labeled iOS → token-boundary detection; `AwarioSmartBot` added to `is_generator_bot` (140,993 rows)
-  - bare `Mobile` substring reclassified 3,402 desktop rows as mobile (the generator appends "Mobile Safari/537.36" to desktop UAs) → token-boundary + desktop-OS guard
-  - `device_raw='unknown'`/NULL short-circuited UA checks (1,526 NULL-device rows became `desktop`) → UA checks run first, NULL → `unknown`
-  - `Andorid` typo (242 rows) now maps to Android
-  - sampling is now deterministic (hash-based ordering — `random()` is not reproducible under threads>1 even with `setseed`) and `fixed_rows` is computed at runtime instead of hardcoded (was wrong by 19,762 rows under `--no-genbots`)
-  - features output no longer leaks `prior_fail_ts`; `rn`/`is_robot_sampled` dropped from the training table; `failed_before_success` renamed to `failed_recently` (it flags any event, not just successes)
-  - new `src/03_validate_contract.py` catches all of the above on stale or regressed artifacts (verified: fails on the pre-fix parquets, passes on the rebuilt ones)
+```
+raw CSV  (31.3M events)
+   │  src/00_clean_dataset.py              ~30 s
+   ▼
+rba_clean.parquet  (cleaned, flags added)
+   │  src/02_feature_engineering.py        ~8 min over the FULL 31.3M rows
+   ▼
+rba_features.parquet  (21 features per event)
+   │  src/01_load_and_sample.py            ~2 min, samples from the featured table
+   ▼
+sample.parquet / features.parquet  (1M events, 192,649 users)
+   │  src/03_validate_contract.py          seconds, must print PASS
+   ▼
+src/04_rule_baseline.py    points system → rule_baseline_scores.parquet
+   │
+   ▼
+src/05_models_evaluation.py  models, thresholds, replay → reports/ + models/final_model.joblib
+```
+
+Two things to notice: features run before sampling (a sampled event carries the exact feature the live system would compute), and `02` runs before `01`. The order is `00 → 02 → 01 → 03 → 04 → 05`.
+
+---
+
+## Current state (Aug 9, 2026)
+
+Phases 0–6 are done. Every gate passes. The honest evaluation is in `reports/`.
+
+### What the numbers mean
+
+We tune everything on the **gold label** (successful login from a blocked IP) with a false-positive budget of 5%. Results on the test set (212,233 events the models never saw):
+
+| Model | Gold F1 | FPR | What it tells us |
+|---|---|---|---|
+| Rule baseline (10 rules) | 0.002 | 2.0% | Catches the takeover tail: 79% of ATO rows at 10% challenge, 11% of normal events re-challenged |
+| IP blocklist prior (no ML) | 0.747 | 9.3% | The ceiling. A per-IP lookup alone beats every behavior model, because the label is per-IP |
+| Isolation Forest | 0.006 | 5.0% | Weak, as expected |
+| **Local Outlier Factor (final)** | **0.110** | **5.0%** | Best behavior model, ROC-AUC 0.56 |
+| One-Class SVM | 0.001 | 5.0% | Weak, as expected |
+| Elliptic Envelope | skipped | — | Feature skew 24.85 > 2.0 limit |
+
+The honest one-liner:
+
+- **Behavior cannot predict a blocklist.** The IP prior scores 0.75 with zero machine learning; that gap is the label's fault, not the models'.
+- The behavioral value shows in the replay report (`reports/replay_analysis.csv`): at the 10% challenge rate, the rules flag ~79% of true account takeovers while re-challenging ~11% of normal events.
+- The rules are our demo workhorse; the models are the comparison.
+
+### What changed since the Aug 8 state
+
+- **6 new "seen-before" features** (`ip_seen_before`, `country_seen_before`, `asn_seen_before`, `device_seen_before`, `os_seen_before`, `browser_seen_before`) computed over full history — 21 features total. Full dataset rebuilt, re-sampled, contract PASS.
+- **Phase 5 done:** 10 rules with weights tuned against takeover behavior (new country +30, new IP +25, failed login +20, rapid activity +15, unusual hour +15, new ASN +15, device change +10, frequency +10, new OS +7, new browser +7). Risk levels kept at low <30 / medium 30–64 / high 65–89 / critical ≥90 — the gold-tuned optimum (score 77) was rejected because it tripled the false positive rate for +0.15% gold recall.
+- **Phase 6 done:** models train on clean rows only (590,491, attack rows excluded), contamination 0.10 as flag-rate intent, thresholds tuned on gold under a 5% FPR budget, an IP-prior baseline kept separate, replay + recall@k + user-level ATO detection reported.
+- **Label semantics documented:** `is_attack_ip` is a blocklist (12,583 always-attack IPs, 0 mixed, 229,326 distinct IPs); `is_ato` is the behavioral gold standard.
+
+### Repo contents
+
+- `data/raw/rba-dataset.csv` — raw RBA dataset (8.5 GB, 31.3M events, Zenodo)
+- `data/processed/rba_clean.parquet` — cleaned (685 MB, same row count, flags added)
+- `data/processed/rba_features.parquet` — 21 features over all 31.3M rows
+- `data/processed/sample.parquet` + `features.parquet` — 1M-row training table
+- `data/processed/user_baselines.parquet` — per-user history over all 31.3M rows
+- `src/00_clean_dataset.py` → `src/02_feature_engineering.py` → `src/01_load_and_sample.py` → `src/03_validate_contract.py` → `src/04_rule_baseline.py` → `src/05_models_evaluation.py`
+- `reports/` — rule scores, model comparison, threshold curves, confusion matrices, replay analysis, evaluation JSON
+- `models/final_model.joblib` — the trained Local Outlier Factor + scaler + threshold
+
+---
+
+## How to run everything
+
+```bash
+venv/bin/python src/00_clean_dataset.py          # ~30 s
+venv/bin/python src/02_feature_engineering.py    # ~8 min, full 31.3M pass
+venv/bin/python src/01_load_and_sample.py        # ~2 min
+venv/bin/python src/03_validate_contract.py      # must print PASS
+venv/bin/python src/04_rule_baseline.py          # ~1 min
+venv/bin/python src/05_models_evaluation.py      # ~3 min
+```
+
+Run them in that order. Each script writes a report next to its output (`cleaning_summary.json`, `features_report.json`, `sampling_report.json`, `rule_baseline_report.json`, `model_evaluation.json`). If `03` fails, the inputs are stale — rebuild.
 
 ## Docs
 
 | Doc | What it covers |
 |---|---|
-| `dataset_scan_report.md` | Full-scan quality report: every inconsistency found in all 31.3M rows + the cleaning solution + blind re-audit (§7) + exhaustive coverage audit (§8) |
-| `PROJECT_ROADMAP.md` | **Implementation source of truth** — phases 0–11, build order, definition of done |
-| `COMPLETE_PROJECT_REFERENCE.md` | Full project reference + **status update & roadmap** (read the status section first) |
+| `README.md` | This file: overview, pipeline picture, current state, run commands |
+| `dataset_scan_report.md` | Full-scan quality audit of all 31.3M rows + cleaning solution (§7–§8) |
+| `PROJECT_ROADMAP.md` | Implementation plan, phases 0–11, definition of done |
+| `COMPLETE_PROJECT_REFERENCE.md` | Deep design reference; read its STATUS UPDATE (Aug 9) section first |
 
-## How to read these docs (recommended order)
+Reading order: README → scan report (when you need the numbers) → roadmap → reference.
 
-1. `README.md` — this overview, current state, known issues
-2. `dataset_scan_report.md` — the full quality audit, when you need the numbers
-3. `PROJECT_ROADMAP.md` — the implementation plan (phases 0–11)
-4. `COMPLETE_PROJECT_REFERENCE.md` — the deep design reference; read its STATUS UPDATE section first
+## Known Issues
 
-## Known Issues (must fix in next phase)
-
-1. ~~Training data has only 248 attack examples (1.36%)~~ — **RESOLVED (Aug 8):** whole-user sampling now yields 1,000,003 rows with a 24.76% natural attack share.
-2. ~~Documented metrics (94.2%/91.7%/88.3%) are not reproducible — actual recall is ~2%~~ — **SUPERSEDED:** the old model artifacts were removed; honest metrics come from Phase 6 (models & evaluation) and will be reported as measured.
-3. ~~`failed_before_success` semantics: docs say "5-min window", implementation used "since last success"~~ — **RESOLVED (Aug 8):** the shared feature function uses a real 5-minute lookback (strictly earlier events only). Renamed `failed_recently` in the Aug 8 audit-fix pass.
-4. **Open:** `contamination` for the anomaly models (Phase 6) must be set from the measured attack ratio, never hardcoded.
-5. **Open:** rule-baseline point values (Phase 5) must be tuned on validation data, not presented as constants.
-6. **Resolved (Aug 8):** `geo_unreliable` duplicate, iOS/Mobile substring mislabels, device short-circuit, `Andorid` typo, non-deterministic sampling, hardcoded `fixed_rows`, `prior_fail_ts` leak, `failed_before_success` misnomer — all fixed in the audit-fix pass and guarded by `src/03_validate_contract.py`.
+1. ~~Training data has only 248 attack examples (1.36%)~~ — **RESOLVED (Aug 8):** whole-user sampling yields 1,000,003 rows with a 24.76% natural attack share.
+2. ~~Documented metrics (94.2%/91.7%/88.3%) are not reproducible~~ — **RESOLVED (Aug 9):** Phase 6 measures and reports honestly; the old claim is gone. See `reports/model_comparison.csv`.
+3. ~~`failed_before_success` semantics~~ — **RESOLVED (Aug 8):** real 5-minute lookback, renamed `failed_recently`.
+4. ~~`contamination` must not be hardcoded~~ — **RESOLVED (Aug 9):** models fit on clean rows only; contamination 0.10 is the flag-rate intent; the measured train attack share (0.2504) is reported alongside.
+5. ~~rule points must be tuned, not constants~~ — **RESOLVED (Aug 9):** weights follow the takeover-behavior ordering; level bounds were evaluated against gold and kept at 30/65/90 with the rationale in `src/04_rule_baseline.py`.
+6. **RESOLVED (Aug 8):** `geo_unreliable` duplicate, iOS/Mobile substring mislabels, device short-circuit, `Andorid` typo, non-deterministic sampling, hardcoded `fixed_rows`, `prior_fail_ts` leak, `failed_before_success` misnomer — all fixed and guarded by `src/03_validate_contract.py`.

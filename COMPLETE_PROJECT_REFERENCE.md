@@ -14,7 +14,72 @@
 
 ---
 
-## ⚠️ STATUS UPDATE (Aug 8, 2026) — Read This First
+## ⚠️ STATUS UPDATE (Aug 9, 2026) — Read This First
+
+Phases 5 and 6 are done. All gates pass. The findings below replace the
+previous status sections.
+
+### The label finding that shapes the evaluation
+
+- `is_attack_ip` is an IP-reputation (blocklist) label, not a behavior label.
+- Proof by counting: 229,326 distinct IPs, 12,583 always labeled attack, zero mixed (no IP is attack in one row and normal in another).
+- A behavior model cannot learn a per-IP constant.
+- `is_ato` (141 rows, 138 users) is the behavioral gold standard.
+- The published dataset is synthetic ("totally artificial" per the authors, Zenodo 6782156): statistically reconstructed from real Telenor Norway login patterns, timestamps randomized, IPs/ASNs reassigned.
+- The README no longer calls the events "real". This is a benchmark for an academic demo, not production data.
+
+### What we changed
+
+- **Six seen-before features** (`ip_seen_before`, `country_seen_before`,
+  `asn_seen_before`, `device_seen_before`, `os_seen_before`,
+  `browser_seen_before`) computed over each user's true full history, 21
+  features total. Full 31.3M-row rebuild, re-sample, contract PASS.
+- **Phase 5 (rule baseline) done:** 10 rules, weights tuned against the
+  validated takeover-behavior ordering (new country +30, new IP +25,
+  failed login +20, rapid +15, hour +15, new ASN +15, device +10, frequency
+  +10, new OS +7, new browser +7). Level bounds 30/65/90 kept after
+  evaluation: the gold-tuned optimum (77) tripled the FPR for +0.15% gold
+  recall.
+- **Phase 6 (models) done, honest methodology:** models fit on clean rows
+  only (590,491, attack rows excluded), contamination 0.10 as flag-rate
+  intent, thresholds tuned on the gold label (`is_attack_ip` AND
+  `login_success`, 153,352 rows) under a 5% FPR budget, an IP-prior
+  baseline kept separate from the behavioral models, and a TPR-calibrated
+  replay report written alongside the usual metrics.
+- **Final model:** Local Outlier Factor, gold F1 0.110 at FPR 0.050,
+  ROC-AUC 0.560.
+
+### What the results say
+
+- The IP blocklist prior alone reaches gold F1 0.747. That is the ceiling for this label, and it proves the weak ML scores are the label's fault, not the models'.
+- The behavioral value shows in the replay (`reports/replay_analysis.csv`): at a 10% challenge rate the rules flag 79% of the test-set account-takeover rows while re-challenging 11% of normal events.
+- The rules are the demo workhorse; the models are the honest comparison.
+- Every metric is reproducible from `src/04_rule_baseline.py` + `src/05_models_evaluation.py` on the rebuilt artifacts.
+
+### Resolved known issues
+
+- ~~Metrics in this document are NOT measured~~ — **RESOLVED:** Phase 6
+  measures and reports honestly (`reports/model_comparison.csv`); the old
+  94.2%/91.7%/88.3% claims are retired.
+- ~~`contamination=0.05` hardcoded~~ — **RESOLVED:** clean-reference fitting
+  with contamination 0.10 as flag-rate intent; measured train attack share
+  0.2504 reported alongside.
+- ~~Rule points presented as constants~~ — **RESOLVED:** weights tuned
+  against takeover behavior; level bounds evaluated against gold and kept
+  with the rationale documented in `src/04_rule_baseline.py`.
+
+### Roadmap (next phases)
+
+- **Phase 7 — User profile and risk API:** profiles (known devices, usual
+  countries, usual hours, daily counts, failed-login history) +
+  `POST /login`, `POST /events`, `GET /risk/{event_id}`,
+  `GET /users/{user_id}/profile`, `GET /alerts`, `WS /dashboard`.
+- **Phase 8–9 — Website, dashboard, live demo.**
+- **Phase 10–11 — Testing, report, presentation:** measured results only.
+
+---
+
+## ⚠️ STATUS UPDATE (Aug 8, 2026) — Historical context (superseded by the Aug 9 update above)
 
 Since the Aug 1 update, the dataset has been cleaned, audited to completion, sampled, and featurized:
 

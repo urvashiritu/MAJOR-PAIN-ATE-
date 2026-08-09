@@ -29,10 +29,22 @@ Features (validated against the full dataset, Aug 8 2026):
                           failures and flags all of them)
   rapid_login_rate      : count of this user's events in the prior 60 seconds
   login_frequency_today : count of this user's events earlier on the same day
+  ip_seen_before        : a strictly-earlier event exists from the same IP
+  country_seen_before   : a strictly-earlier event exists from the same country
+  asn_seen_before       : a strictly-earlier event exists with the same ASN
+  device_seen_before    : a strictly-earlier event exists with the same
+                          (device_type, os_family, browser_family) tuple
+  os_seen_before        : a strictly-earlier event exists with the same os_family
+  browser_seen_before   : a strictly-earlier event exists with the same
+                          browser_family
 
 Every historical feature uses only events strictly earlier than the current
 event, ordered by (ts, row_id) — ts is strictly increasing per user in the
 dataset (validated: 0 ties, 0 descents), so ordering is deterministic.
+The seen-before features are computed as "first occurrence of the value
+within the user's history" (ROW_NUMBER over the (user, value) partition),
+so a value that reappears non-consecutively still counts as seen before —
+unlike a pairwise LAG comparison.
 No feature reads user_baselines.parquet (that would leak future
 information); per-event features are history-only by construction.
 
@@ -93,7 +105,25 @@ def feature_sql(src: str) -> str:
             EXCLUDE CURRENT ROW) AS rapid_login_rate,
         ROW_NUMBER() OVER (
             PARTITION BY p.user_id, CAST(p.ts AS DATE)
-            ORDER BY p.ts, p.row_id) - 1 AS login_frequency_today
+            ORDER BY p.ts, p.row_id) - 1 AS login_frequency_today,
+        ROW_NUMBER() OVER (
+            PARTITION BY p.user_id, p.ip
+            ORDER BY p.ts, p.row_id) > 1 AS ip_seen_before,
+        ROW_NUMBER() OVER (
+            PARTITION BY p.user_id, p.country
+            ORDER BY p.ts, p.row_id) > 1 AS country_seen_before,
+        ROW_NUMBER() OVER (
+            PARTITION BY p.user_id, p.asn
+            ORDER BY p.ts, p.row_id) > 1 AS asn_seen_before,
+        ROW_NUMBER() OVER (
+            PARTITION BY p.user_id, p.device_type, p.os_family, p.browser_family
+            ORDER BY p.ts, p.row_id) > 1 AS device_seen_before,
+        ROW_NUMBER() OVER (
+            PARTITION BY p.user_id, p.os_family
+            ORDER BY p.ts, p.row_id) > 1 AS os_seen_before,
+        ROW_NUMBER() OVER (
+            PARTITION BY p.user_id, p.browser_family
+            ORDER BY p.ts, p.row_id) > 1 AS browser_seen_before
     FROM prior_fail p
     WINDOW w AS (PARTITION BY p.user_id ORDER BY p.ts, p.row_id)
     """
@@ -110,16 +140,36 @@ def run_gates(con: duckdb.DuckDBPyConnection, out: Path, expected_rows: int) -> 
                COUNT(*) FILTER (WHERE rn = 1 AND device_change) AS first_dc,
                COUNT(*) FILTER (WHERE failed_recently IS NULL) AS null_fr,
                COUNT(*) FILTER (WHERE rapid_login_rate IS NULL) AS null_rlr,
-               COUNT(*) FILTER (WHERE login_frequency_today IS NULL) AS null_lft
+               COUNT(*) FILTER (WHERE login_frequency_today IS NULL) AS null_lft,
+               COUNT(*) FILTER (WHERE ip_seen_before IS NULL) AS null_isb,
+               COUNT(*) FILTER (WHERE country_seen_before IS NULL) AS null_csb,
+               COUNT(*) FILTER (WHERE asn_seen_before IS NULL) AS null_ab,
+               COUNT(*) FILTER (WHERE device_seen_before IS NULL) AS null_dsb,
+               COUNT(*) FILTER (WHERE os_seen_before IS NULL) AS null_osb,
+               COUNT(*) FILTER (WHERE browser_seen_before IS NULL) AS null_bsb,
+               COUNT(*) FILTER (WHERE rn = 1 AND ip_seen_before) AS first_isb,
+               COUNT(*) FILTER (WHERE rn = 1 AND country_seen_before) AS first_csb,
+               COUNT(*) FILTER (WHERE rn = 1 AND asn_seen_before) AS first_ab,
+               COUNT(*) FILTER (WHERE rn = 1 AND device_seen_before) AS first_dsb,
+               COUNT(*) FILTER (WHERE rn = 1 AND os_seen_before) AS first_osb,
+               COUNT(*) FILTER (WHERE rn = 1 AND browser_seen_before) AS first_bsb
         FROM read_parquet('{out}')
     """).fetchone()
-    n, null_hour, null_cc, null_dc, first_cc, first_dc, null_fr, null_rlr, null_lft = row
+    (n, null_hour, null_cc, null_dc, first_cc, first_dc, null_fr, null_rlr, null_lft,
+     null_isb, null_csb, null_ab, null_dsb, null_osb, null_bsb,
+     first_isb, first_csb, first_ab, first_dsb, first_osb, first_bsb) = row
     if n != expected_rows:
         failures.append(f"rows = {n}, expected {expected_rows}")
-    if null_hour or null_cc or null_dc or null_fr or null_rlr or null_lft:
-        failures.append(f"NULLs: hour={null_hour} cc={null_cc} dc={null_dc} fr={null_fr} rlr={null_rlr} lft={null_lft}")
-    if first_cc or first_dc:
-        failures.append(f"first events flagged: country_change={first_cc} device_change={first_dc}")
+    if (null_hour or null_cc or null_dc or null_fr or null_rlr or null_lft
+            or null_isb or null_csb or null_ab or null_dsb or null_osb or null_bsb):
+        failures.append(f"NULLs: hour={null_hour} cc={null_cc} dc={null_dc} fr={null_fr} "
+                        f"rlr={null_rlr} lft={null_lft} isb={null_isb} csb={null_csb} "
+                        f"ab={null_ab} dsb={null_dsb} osb={null_osb} bsb={null_bsb}")
+    if first_cc or first_dc or first_isb or first_csb or first_ab or first_dsb or first_osb or first_bsb:
+        failures.append(f"first events flagged: country_change={first_cc} device_change={first_dc} "
+                        f"ip_seen_before={first_isb} country_seen_before={first_csb} "
+                        f"asn_seen_before={first_ab} device_seen_before={first_dsb} "
+                        f"os_seen_before={first_osb} browser_seen_before={first_bsb}")
     return failures
 
 
@@ -131,7 +181,9 @@ def check_columns(con: duckdb.DuckDBPyConnection, out: Path) -> list:
         if forbidden in cols:
             failures.append(f"forbidden column present: {forbidden}")
     for required in ("failed_recently", "hour", "is_night", "is_weekend", "country_change",
-                     "device_change", "rapid_login_rate", "login_frequency_today"):
+                     "device_change", "rapid_login_rate", "login_frequency_today",
+                     "ip_seen_before", "country_seen_before", "asn_seen_before",
+                     "device_seen_before", "os_seen_before", "browser_seen_before"):
         if required not in cols:
             failures.append(f"required feature column missing: {required}")
     return failures
@@ -149,6 +201,18 @@ def feature_report(con: duckdb.DuckDBPyConnection, out: Path) -> dict:
         SELECT 'is_night', COUNT(*) FILTER (WHERE is_night), COUNT(*), MIN(is_night), MAX(is_night) FROM read_parquet('{out}')
         UNION ALL
         SELECT 'is_weekend', COUNT(*) FILTER (WHERE is_weekend), COUNT(*), MIN(is_weekend), MAX(is_weekend) FROM read_parquet('{out}')
+        UNION ALL
+        SELECT 'ip_seen_before', COUNT(*) FILTER (WHERE ip_seen_before), COUNT(*), MIN(ip_seen_before), MAX(ip_seen_before) FROM read_parquet('{out}')
+        UNION ALL
+        SELECT 'country_seen_before', COUNT(*) FILTER (WHERE country_seen_before), COUNT(*), MIN(country_seen_before), MAX(country_seen_before) FROM read_parquet('{out}')
+        UNION ALL
+        SELECT 'asn_seen_before', COUNT(*) FILTER (WHERE asn_seen_before), COUNT(*), MIN(asn_seen_before), MAX(asn_seen_before) FROM read_parquet('{out}')
+        UNION ALL
+        SELECT 'device_seen_before', COUNT(*) FILTER (WHERE device_seen_before), COUNT(*), MIN(device_seen_before), MAX(device_seen_before) FROM read_parquet('{out}')
+        UNION ALL
+        SELECT 'os_seen_before', COUNT(*) FILTER (WHERE os_seen_before), COUNT(*), MIN(os_seen_before), MAX(os_seen_before) FROM read_parquet('{out}')
+        UNION ALL
+        SELECT 'browser_seen_before', COUNT(*) FILTER (WHERE browser_seen_before), COUNT(*), MIN(browser_seen_before), MAX(browser_seen_before) FROM read_parquet('{out}')
     """).fetchall()
     num = con.execute(f"""
         SELECT 'hour', MIN(hour), MEDIAN(hour), MAX(hour) FROM read_parquet('{out}')

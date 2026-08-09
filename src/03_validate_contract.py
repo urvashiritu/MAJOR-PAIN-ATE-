@@ -46,6 +46,8 @@ CLEAN_COLS = [
 FEATURE_COLS = [
     "hour", "is_night", "is_weekend", "country_change", "device_change",
     "failed_recently", "rapid_login_rate", "login_frequency_today",
+    "ip_seen_before", "country_seen_before", "asn_seen_before",
+    "device_seen_before", "os_seen_before", "browser_seen_before",
 ]
 ARTIFACT_COLS = ["rn", "is_robot_sampled"]
 FORBIDDEN_COLS = ["prior_fail_ts", "failed_before_success"]

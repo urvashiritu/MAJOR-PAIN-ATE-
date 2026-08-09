@@ -3,6 +3,7 @@ data/raw/rba-dataset.csv
 
 # Derived / generated artifacts
 models/
+reports/
 outputs/
 data/processed/
 data/raw/rba.duckdb

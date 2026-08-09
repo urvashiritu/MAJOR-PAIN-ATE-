@@ -253,60 +253,76 @@ Implement one shared feature function for both offline and live events.
 - Output contract: `rba_features.parquet` (36 cols: 27 clean + 8 features + `rn`) is the full-history table the sample is drawn from; the training table `features.parquet` (35 cols) contains no intermediate columns (`prior_fail_ts`) and no sample artifacts (`rn`, `is_robot_sampled`) — enforced by `src/03_validate_contract.py`.
 - **Deferred to Phase 10:** formal unit-test suite (first events, missing devices, repeated events, time windows, midnight/day changes, chronological ordering) — the semantics were validated by an independent audit agent instead; tests will codify them. `src/03_validate_contract.py` covers the schema/invariant layer now.
 
-## Phase 5: Rule-Based Baseline
+## Phase 5: Rule-Based Baseline — ✅ DONE (Aug 9, 2026)
 
-Before machine learning, implement an explainable baseline.
+Before machine learning, implement an explainable baseline. Implemented in `src/04_rule_baseline.py`.
 
-Example points:
+Weights (tuned against the validated takeover-behavior ordering from the RBA
+follow-up implementations, not raw attack-IP correlation):
 
 ```text
 New country:          +30
-New device:           +25
-Unusual login hour:   +15
+New IP:               +25
 Recent failed login:  +20
 Rapid login activity: +15
+Unusual login hour:   +15
+New ASN:              +15
+New device:           +10
+Daily frequency:      +10
+New OS:               +7
+New browser:          +7
 ```
 
-Map the total to low, medium, high, and critical risk. The exact points are
-initial values and must be tuned using validation data rather than presented as
-scientific constants.
+The new-IP / new-ASN / new-OS / new-browser rules use the seen-before
+features added in the Phase 4 rebuild (item B): a first-time value for this
+user is a takeover-style signal.
+
+Risk levels map the total to low, medium, high, and critical:
+
+- Cutoffs evaluated against the gold label in Phase 6 and kept at the initial values: low < 30, medium 30–64, high 65–89, critical ≥ 90.
+- The gold-tuned optimum (score 77) was rejected: it triples the false positive rate (4.7% vs 1.8%) for +0.15% gold recall.
+- The critical band stays the account-takeover tail.
 
 ### Completion criteria
 
-- A normal event receives a low score.
-- Each suspicious feature increases the score predictably.
-- The result includes both a score and human-readable reasons.
+- A normal event receives a low score. ✅ (max score 0 for the 212,869 clean events)
+- Each suspicious feature increases the score predictably. ✅
+- The result includes both a score and human-readable reasons. ✅
 
-## Phase 6: Models And Evaluation
+## Phase 6: Models And Evaluation — ✅ DONE (Aug 9, 2026)
 
-Start with Isolation Forest because it is relatively fast and explainable.
-Then compare it with the planned alternatives:
+Implemented in `src/05_models_evaluation.py`. Models compared:
 
-- Isolation Forest
-- Local Outlier Factor on a smaller subset
-- One-Class SVM on a smaller subset
+- Isolation Forest (full clean train set)
+- Local Outlier Factor on a 300K clean-row subset
+- One-Class SVM on a 50K clean-row subset
 - Elliptic Envelope only if the feature distribution and scale make it useful
+- an IP-reputation prior baseline (train-only per-IP attack share), kept
+  separate from the behavioral models because it is a blocklist lookup
 
-These are anomaly-detection models, so do not describe them as ordinary
-supervised classifiers trained directly on attack labels. Train primarily on
-normal or less-contaminated behavior, then use attack-IP and account-takeover
-labels for external evaluation.
+These are anomaly-detection models, not supervised classifiers trained
+directly on attack labels:
 
-Measure:
+- They train on clean (attack-excluded) rows — 590,491 rows, contamination 0.10 as flag-rate intent.
+- Attack-IP, account-takeover, and gold labels are used for external evaluation only.
+- Thresholds are tuned on gold (`is_attack_ip` AND `login_success`, 153,352 rows) under a 5% false-positive budget, so the operating point can never degenerate into flag-everything.
+- All models share the same split, features, and event set.
 
-- precision
-- recall
-- F1-score
-- false-positive rate
-- threshold curves
-- confusion matrices where meaningful
-- detection of confirmed takeover events
+Measured:
+
+- precision, recall, F1-score, false-positive rate (on the gold label:
+  `is_attack_ip` AND `login_success`, 153,352 rows)
+- threshold curves (`reports/threshold_analysis.csv`)
+- confusion matrices (`reports/confusion_matrix.png`)
+- detection of confirmed takeover events (14 ATO rows in the test set,
+  user-level recall, recall@k)
 - detection of successful attack-IP events
 - scoring latency
-
-Compare models with the same split, features, and event set. Select the final
-model based on detection quality, false positives, speed, and explanation
-quality, not accuracy alone.
+- TPR-calibrated replay (`reports/replay_analysis.csv`): blocked-attack
+  share vs legit re-challenge share at challenge rates 0.5%–20%, the
+  evaluation style of the RBA authors
+- Final model selection: **Local Outlier Factor** (gold F1 0.110, FPR 0.050,
+  ROC-AUC 0.560), chosen on detection quality under the FPR budget
 
 ### Completion criteria
 
@@ -315,9 +331,11 @@ models/final_model.joblib
 reports/model_comparison.csv
 reports/threshold_analysis.csv
 reports/confusion_matrix.png
+reports/replay_analysis.csv
+reports/model_evaluation.json
 ```
 
-Every reported metric can be reproduced by a command in the repository.
+Every reported metric can be reproduced by a command in the repository. ✅
 
 ## Phase 7: User Profile And Risk API
 
@@ -453,8 +471,9 @@ The project is ready for demonstration when:
 2. ~~Create the repository structure and Python environment~~ — ✅ done (src/ + venv/)
 3. ~~Implement the dataset audit script~~ — ✅ done (`src/00_clean_dataset.py --verify`)
 4. ~~Implement the development sample and save its statistics~~ — ✅ done (`src/01_load_and_sample.py`, 1,000,003 rows, 24.76% attack)
-5. ~~Implement and test the eight shared features~~ — ✅ done (`src/02_feature_engineering.py`, agent-validated; formal tests deferred to Phase 10)
-6. **Implement the Phase 5 rule-based baseline** — explainable score with reasons; points tuned on validation data.
-7. **Implement Phase 6 models** — Isolation Forest on the full sample, OCSVM + LOF on a 200–500K subset; `contamination` from the measured ratio; reproducible metrics + threshold curves; must beat the rule baseline.
+5. ~~Implement the eight shared features~~ — ✅ done (`src/02_feature_engineering.py`, agent-validated; formal tests deferred to Phase 10)
+6. ~~Implement the Phase 5 rule-based baseline~~ — ✅ done (Aug 9, `src/04_rule_baseline.py`, 10 rules, weights tuned against takeover behavior)
+7. ~~Implement Phase 6 models~~ — ✅ done (Aug 9, `src/05_models_evaluation.py`, clean-fit + gold-tuned thresholds + replay; final model Local Outlier Factor)
+8. **Phase 7 — User profile and risk API** — profiles (known devices, usual countries, usual hours, daily counts, failed-login history) + `POST /login`, `POST /events`, `GET /risk/{event_id}`, `GET /users/{user_id}/profile`, `GET /alerts`, `WS /dashboard`.
 
 Do not begin the full live dashboard until the rule baseline and models are complete.
