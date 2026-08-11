@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin — MAJOR-PAIN</title>
+<style>
+  :root { --bg:#0f1115; --card:#171a21; --line:#262b36; --text:#e6e9ef; --muted:#8b93a3; --green:#34d399; --amber:#fbbf24; --red:#f87171; --blue:#60a5fa; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, sans-serif; }
+  .wrap { max-width:1100px; margin:0 auto; padding:32px 20px; }
+  .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
+  h1 { font-size:22px; margin:0; }
+  a { color:var(--blue); text-decoration:none; }
+  h2 { font-size:16px; margin:28px 0 12px; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding:8px 10px; font-size:13px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; }
+  .ok { color:var(--green); font-weight:700; }
+  .warn { color:var(--amber); font-weight:700; }
+  .bad { color:var(--red); font-weight:700; }
+  .tag { display:inline-block; border:1px solid var(--line); border-radius:20px; padding:0 8px; font-size:12px; margin:1px 2px 1px 0; }
+  .tag.normal { color:var(--green); }
+  .tag.attacker { color:var(--red); border-color:var(--red); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>Admin — live security dashboard</h1>
+    <a href="/">← demo</a>
+  </div>
+
+  <h2>Alerts ({{ alerts|length }})</h2>
+  {% if alerts %}
+  <table>
+    <tr><th>#</th><th>user</th><th>time</th><th>level</th><th>rule</th><th>ml</th><th>decision</th><th>reasons</th></tr>
+    {% for a in alerts %}
+    <tr>
+      <td>{{ a.alert_id }}</td><td>{{ a.user_id }}</td><td>{{ a.ts }}</td>
+      <td class="{{ 'bad' if a.level in ('critical','high') else 'warn' }}">{{ a.level }}</td>
+      <td>{{ a.rule_score }}</td><td>{{ '%.3f' % a.ml_score if a.ml_score is not none else '-' }}</td>
+      <td class="{{ 'bad' if a.decision=='block' else 'warn' }}">{{ a.decision }}</td>
+      <td>{{ a.reasons or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p style="color:var(--muted)">No alerts yet — try a rapid burst as the attacker.</p>
+  {% endif %}
+
+  <h2>Recent events</h2>
+  <table>
+    <tr><th>#</th><th>user</th><th>time</th><th>ip</th><th>country</th><th>device</th><th>os</th><th>success</th><th>rule</th><th>ml</th><th>level</th><th>decision</th><th>reasons</th></tr>
+    {% for e in events %}
+    <tr>
+      <td>{{ e.row_id }}</td>
+      <td>{{ e.name }} <span class="tag {{ e.persona }}">{{ e.persona }}</span></td>
+      <td>{{ e.ts }}</td><td>{{ e.ip }}</td><td>{{ e.country }}</td>
+      <td>{{ e.device_type }}</td><td>{{ e.os_family }}</td>
+      <td class="{{ 'ok' if e.login_success else 'bad' }}">{{ '✓' if e.login_success else '✗' }}</td>
+      <td>{{ e.rule_score }}</td><td>{{ '%.3f' % e.ml_score if e.ml_score is not none else '-' }}</td>
+      <td>{{ e.risk_level }}</td>
+      <td class="{{ 'bad' if e.decision=='block' else 'warn' if e.decision=='flag' else 'ok' }}">{{ e.decision }}</td>
+      <td>{{ e.reasons or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+</body>
+</html>

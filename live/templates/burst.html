@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Burst — MAJOR-PAIN</title>
+<style>
+  :root { --bg:#0f1115; --card:#171a21; --line:#262b36; --text:#e6e9ef; --muted:#8b93a3; --green:#34d399; --amber:#fbbf24; --red:#f87171; --blue:#60a5fa; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, sans-serif; }
+  .wrap { max-width:680px; margin:0 auto; padding:32px 20px; }
+  a { color:var(--blue); text-decoration:none; }
+  .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
+  h1 { font-size:22px; margin:0; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding:10px 12px; font-size:13px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; }
+  .ok { color:var(--green); font-weight:700; }
+  .warn { color:var(--amber); font-weight:700; }
+  .bad { color:var(--red); font-weight:700; }
+  .actions { display:flex; gap:12px; margin-top:20px; }
+  .btn { background:var(--blue); color:#08131f; border:0; border-radius:6px; padding:9px 16px; font-weight:600; cursor:pointer; text-decoration:none; display:inline-block; }
+  .btn.grey { background:var(--line); color:var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>Rapid burst — <b>{{ user.name }}</b></h1>
+    <a href="/">← back</a>
+  </div>
+
+  <p class="kv" style="color:var(--muted)">5 attempts ~1s apart. Watch
+    <b>failed_recently</b> and <b>rapid_login_rate</b> push the rule score up.</p>
+
+  <table>
+    <tr><th>#</th><th>decision</th><th>rule</th><th>ml</th><th>level</th><th>reasons</th></tr>
+    {% for r in results %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td class="{{ 'bad' if r.decision=='block' else 'warn' if r.decision=='flag' else 'ok' }}">{{ r.decision }}</td>
+      <td>{{ r.rule_score }}</td>
+      <td>{{ '%.3f' % r.ml_score }}</td>
+      <td>{{ r.risk_level }}</td>
+      <td>{{ r.reasons or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <div class="actions">
+    <a class="btn" href="/">back to demo</a>
+    <a class="btn grey" href="/admin">admin dashboard</a>
+  </div>
+</div>
+</body>
+</html>

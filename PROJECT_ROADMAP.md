@@ -12,7 +12,7 @@ We build a login-security system that:
 
 Two connected parts:
 - **Offline**: a data + machine-learning pipeline built on the RBA dataset (done, phases 0–6).
-- **Live**: website, risk API, user profiles, dashboard for the demo (phases 7–11, next).
+- **Live**: website, risk API, user profiles, dashboard for the demo (phases 7–11, next; partial demo built Aug 11).
 
 This project is specifically about **login identity anomalies** — not a full insider-threat
 or post-login monitoring system.
@@ -41,8 +41,8 @@ or post-login monitoring system.
 | 5 | Rule baseline | Bouncer checklist: new country +30, new IP +25, recent failure +20, ... → low/medium/high/critical with reasons | ✅ (Aug 9) |
 | 6 | Models and evaluation | 4 anomaly models compared honestly; LOF won (gold F1 0.110 @ 5% FPR) | ✅ (Aug 9) |
 | 6+ | Supervised extension | Trained on the gold label itself → HGB gold F1 0.287, a 2.6× improvement | ✅ (Aug 11) |
-| 7 | User profile and risk API | Per-user profile (known devices, usual countries/hours, failure history) + `/login`, `/events`, `/risk`, `/profile`, `/alerts`, WS `/dashboard` | ⏳ next |
-| 8 | Website and dashboard | Login page, home, verification, blocked pages; live dashboard with events, scores, reasons, alerts | ⏳ |
+| 7 | Live scoring engine (user profile + risk API) | DuckDB live DB (`users`/`events`/`alerts`), `live/scoring.py` reusing the exact `feature_sql`/`score_sql` + HGB model, personas seeded from real sample data, `POST /login` verdict page, `POST /burst` attack sim | 🟡 partial — profile table, JSON API, WS `/dashboard` not built |
+| 8 | Website and dashboard | Login form + persona cards, verdict page (allow/flag/block + reasons), admin dashboard (events + alerts) | 🟡 partial — challenge flow page, blocked page, live-push missing |
 | 9 | Live demonstration | Laptop 1 = dashboard, Laptop 2 = website. Scripted scenarios: normal login → allow; new country → challenge; failed attempts → alert | ⏳ |
 | 10 | Testing | Data, feature, model, and app tests | ⏳ |
 | 11 | Report and presentation | Final report with only measured results | ⏳ |
@@ -85,14 +85,35 @@ or post-login monitoring system.
 - Artifacts: `src/06_supervised_model.py`, `reports/supervised_evaluation.json`,
   `reports/supervised_replay.csv`. No Phase 6 files were touched.
 
+## Phase 7+ build notes (live demo, Aug 11)
+
+- Built as a single Flask app (merged simplified Phase 7 + 8): `live/db.py`,
+  `live/scoring.py`, `live/seed_demo.py`, `live/app.py` + `live/templates/`.
+- Scoring reuses the **exact training SQL** — `feature_sql` (src/02) and
+  `score_sql` (src/04) are imported as-is and run over the user's stored
+  history + the new event, so live features cannot drift from offline ones.
+  ML = HGB `predict_proba` on the 21 FEATURE_COLS vs the tuned threshold.
+- Decision policy (demo defaults): blocklist IP → block · rule_score ≥ 65 →
+  block · ml_score ≥ threshold → flag · otherwise → allow.
+- Seeded from `data/processed/sample.parquet`: 3 normal personas (alice, bob,
+  carol) with 177 real history events, plus a fresh attacker persona with a
+  blocklisted IP (5.180.170.85) and no history.
+- Verified end-to-end: alice from her typical profile → ALLOW (rule 0);
+  attacker → BLOCK/critical; `POST /burst` ×5 escalates with "recent failed
+  login"/"rapid login activity"; admin shows alerts (7 during the demo run).
+- Honest caveats: no explicit `user_profile` table yet (the profile is
+  implicit in the event history), no JSON API or WS `/dashboard`, admin is
+  refresh-based, and the attacker persona hard-codes `is_attack_ip`.
+
 ## Immediate next task
 
-**Phase 7 — User profile and risk API**: profiles (known devices, usual countries, usual
-hours, daily counts, failed-login history) + `POST /login`, `POST /events`,
-`GET /risk/{event_id}`, `GET /users/{user_id}/profile`, `GET /alerts`, `WS /dashboard`.
+**Phase 7 completion — profiles + risk API**: `user_profile` table (known
+devices, usual countries/hours, daily counts, failed-login history) updated
+only after an accepted normal event; JSON API endpoints (`POST /events`,
+`GET /risk/{event_id}`, `GET /users/{user_id}/profile`, `GET /alerts`); then
+WS `/dashboard` for the live push (Phase 8).
 
-The login flow: receive event → compute live features → load user profile → run rules +
-model → combine scores → allow/challenge/block → publish to dashboard → update profile
-(only after an accepted normal event). Use fake accounts; never store real passwords.
-
-Do not begin the full live dashboard until the rule baseline and models are complete.
+The login flow: receive event → compute live features → load user profile →
+run rules + model → combine scores → allow/challenge/block → publish to
+dashboard → update profile (only after an accepted normal event). Use fake
+accounts; never store real passwords.

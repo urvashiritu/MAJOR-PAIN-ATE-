@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MAJOR-PAIN — login demo</title>
+<style>
+  :root { --bg:#0f1115; --card:#171a21; --line:#262b36; --text:#e6e9ef; --muted:#8b93a3; --green:#34d399; --amber:#fbbf24; --red:#f87171; --blue:#60a5fa; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, sans-serif; }
+  .wrap { max-width:900px; margin:0 auto; padding:32px 20px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin-bottom:24px; }
+  a { color:var(--blue); text-decoration:none; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card h2 { font-size:16px; margin:0 0 2px; }
+  .card .persona { font-size:12px; color:var(--muted); margin-bottom:10px; }
+  .card .persona.attacker { color:var(--red); }
+  .meta { font-size:12px; color:var(--muted); margin-bottom:12px; word-break:break-all; }
+  button { background:var(--blue); color:#08131f; border:0; border-radius:6px; padding:8px 14px; font-weight:600; cursor:pointer; }
+  button.attacker { background:var(--red); color:#1a0606; }
+  button:hover { filter:brightness(1.1); }
+  form.inline { display:inline; }
+  .custom { margin-top:24px; }
+  .custom label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+  .custom input, .custom select { width:100%; background:#0f1115; border:1px solid var(--line); color:var(--text); border-radius:6px; padding:8px 10px; }
+  .custom .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .custom .wide { grid-column:1 / -1; }
+  .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div>
+      <h1>MAJOR-PAIN — login demo</h1>
+      <div class="sub">Rule engine + HGB model score every login in real time</div>
+    </div>
+    <a href="/admin">admin dashboard →</a>
+  </div>
+
+  <div class="grid">
+    {% for u in users %}
+    <div class="card">
+      <h2>{{ u.name }}</h2>
+      <div class="persona {{ u.persona }}">{{ u.persona }}</div>
+      <div class="meta">
+        {{ u.country }} · {{ u.device_type }} · {{ u.os_family }}<br>
+        {{ u.ip }}<br>{{ u.asn }}
+      </div>
+      <form class="inline" method="post" action="/login">
+        <input type="hidden" name="user_id" value="{{ u.user_id }}">
+        <input type="hidden" name="login_success" value="1">
+        <button type="submit" class="{{ 'attacker' if u.persona == 'attacker' }}">simulate login</button>
+      </form>
+      {% if u.persona == 'attacker' %}
+      <form class="inline" method="post" action="/burst">
+        <button type="submit" class="attacker">rapid burst ×5</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <form class="custom" method="post" action="/login">
+    <h2>Custom event</h2>
+    <input type="hidden" name="user_id" value="{{ users[0].user_id }}">
+    <div class="row">
+      <div>
+        <label>Country</label>
+        <input name="country" placeholder="FR">
+      </div>
+      <div>
+        <label>IP</label>
+        <input name="ip" placeholder="82.64.9.11">
+      </div>
+      <div>
+        <label>Device</label>
+        <select name="device_type"><option>desktop</option><option>mobile</option><option>tablet</option><option>bot</option></select>
+      </div>
+      <div>
+        <label>OS</label>
+        <select name="os_family"><option>Windows</option><option>macOS</option><option>Linux</option><option>Android</option><option>iOS</option></select>
+      </div>
+      <div>
+        <label>Browser</label>
+        <select name="browser_family"><option>Chrome</option><option>Firefox</option><option>Safari</option><option>Edge</option><option>HeadlessChrome</option></select>
+      </div>
+      <div>
+        <label>ASN</label>
+        <input name="asn" placeholder="AS1234">
+      </div>
+      <div class="wide">
+        <label>Login outcome</label>
+        <select name="login_success"><option value="1">success</option><option value="0">failure</option></select>
+      </div>
+    </div>
+    <p><button type="submit">score custom event</button></p>
+  </form>
+</div>
+</body>
+</html>
