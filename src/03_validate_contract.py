@@ -25,6 +25,8 @@ from pathlib import Path
 
 import duckdb
 
+from _ua_patterns import IOS_WEBKIT, IOS_TOKEN, ANDROID_TOKEN, DESKTOP_OS_MARKER
+
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CLEAN = ROOT / "data" / "processed" / "rba_clean.parquet"
 DEFAULT_FEATURES_FULL = ROOT / "data" / "processed" / "rba_features.parquet"
@@ -85,18 +87,18 @@ def failures_run(con: duckdb.DuckDBPyConnection, paths: dict, report: dict) -> l
     for name, where in (
         ("geo_private_contradiction", "geo_unreliable AND NOT is_private_ip AND region IS NOT NULL AND city IS NOT NULL"),
         ("rtt_both_flags", "rtt_missing AND rtt_outlier"),
-        ("ios_spoof_label", "os_family='iOS' AND ((regexp_matches(user_agent, '(?i)AwarioSmartBot') AND NOT regexp_matches(user_agent, '(?i)(^|[^A-Za-z0-9])(iPhone|iPad|iPod|iOS)($|[^A-Za-z0-9])|CriOS|EdgiOS|FxiOS')) "
-                             "OR (regexp_matches(user_agent, '(?i)CriOS') AND regexp_matches(os_raw, '(?i)Android')))"),
+        ("ios_spoof_label", f"os_family='iOS' AND ((regexp_matches(user_agent, '(?i)AwarioSmartBot') AND NOT regexp_matches(user_agent, '(?i){IOS_TOKEN}|{IOS_WEBKIT}')) "
+                             f"OR (regexp_matches(user_agent, '(?i)CriOS') AND regexp_matches(os_raw, '(?i)Android')))"),
         # 3.12 bug signature only: desktop rows reclassified mobile by a bare
         #    'Mobile' token on a desktop-OS UA. A desktop platform marker +
         #    mobile classification is only legitimate when the UA carries a
         #    genuine mobile token (Android/iPhone/WP — e.g. YaApp_Android
         #    webviews send 'X11; Linux armv7l ... Mobile Safari'); those rows
         #    have a lying device_raw='desktop' column and are CORRECT.
-        ("desktop_reclass_mobile", "device_raw='desktop' AND device_type='mobile' "
-         "AND regexp_matches(user_agent, '(?i)Mobile') "
-         "AND regexp_matches(user_agent, '(?i)Mac OS X|Macintosh|Windows NT|X11;|CrOS') "
-         "AND NOT regexp_matches(user_agent, '(?i)(Android|Andorid)([^@]|$)|iPhone|iPod|Windows Phone')"),
+        ("desktop_reclass_mobile", f"device_raw='desktop' AND device_type='mobile' "
+         f"AND regexp_matches(user_agent, '(?i)Mobile') "
+         f"AND regexp_matches(user_agent, '(?i){DESKTOP_OS_MARKER}') "
+         f"AND NOT regexp_matches(user_agent, '(?i){ANDROID_TOKEN}|iPhone|iPod|Windows Phone')"),
         ("null_device_desktop", "device_raw IS NULL AND device_type='desktop'"),
     ):
         n = count(paths["clean"], where)

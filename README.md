@@ -139,6 +139,7 @@ The honest one-liner:
 - `src/00_clean_dataset.py` → `src/02_feature_engineering.py` → `src/01_load_and_sample.py` → `src/03_validate_contract.py` → `src/04_rule_baseline.py` → `src/05_models_evaluation.py` → `src/06_supervised_model.py`
 - `reports/` — rule scores, model comparison, threshold curves, replay analysis, evaluation JSONs
 - `models/final_model.joblib` — the Phase 6 Local Outlier Factor + scaler + threshold
+- `models/supervised_hgb.joblib` — the Phase 6+ supervised HGB + scaler + threshold (gold F1 0.287, the winner)
 
 ---
 
@@ -154,8 +155,17 @@ venv/bin/python src/05_models_evaluation.py      # ~3 min
 venv/bin/python src/06_supervised_model.py       # ~1 min
 ```
 
-Run them in that order. Each script writes a report next to its output. If `03` fails,
+Run them in that order (note: the file numbers are phase numbers — `01` runs
+*third*). Each script writes a report next to its output. If `03` fails,
 the inputs are stale — rebuild.
+
+Or use the Makefile, which encodes the order for you (each target rebuilds
+its inputs only when they are stale):
+
+```bash
+make all          # full pipeline 00 -> 02 -> 01 -> 03 -> 04 -> 05 -> 06
+make clean features sample validate rules models supervised   # any stage
+```
 
 ## Docs
 
