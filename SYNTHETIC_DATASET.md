@@ -159,3 +159,9 @@ Each dataset follows the structure and field names commonly used by the respecti
 
 ---
 
+# Progress 
+
+Created all datasets each with 100k lines or rows 
+
+---
+
