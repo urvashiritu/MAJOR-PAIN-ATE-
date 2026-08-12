@@ -165,6 +165,11 @@ def _publish(c, result: dict) -> None:
 
 @app.route("/")
 def index():
+    return send_from_directory(WEB, "index.html")
+
+
+@app.route("/demo")
+def demo():
     c = con()
     return render_template("login.html", users=_users(c))
 
@@ -175,7 +180,7 @@ def login():
     user = c.execute("SELECT * FROM users WHERE user_id = ?",
                      [request.form["user_id"]]).fetchone()
     if user is None:
-        return redirect(url_for("index"))
+        return redirect(url_for("demo"))
     user = dict(zip([d[0] for d in c.description], user))
     ev = _event_from_form(user, request.form, _login_success(request.form))
     with _con_lock:
@@ -214,7 +219,7 @@ def blocked(event_id: int):
         WHERE e.row_id = ?
     """, [event_id]).fetchone()
     if row is None:
-        return redirect(url_for("index"))
+        return redirect(url_for("demo"))
     return render_template("blocked.html", event=dict(zip([d[0] for d in c.description], row)))
 
 
@@ -228,7 +233,7 @@ def challenge(event_id: int):
         WHERE e.row_id = ?
     """, [event_id]).fetchone()
     if row is None:
-        return redirect(url_for("index"))
+        return redirect(url_for("demo"))
     event = dict(zip([d[0] for d in c.description], row))
     verified = request.method == "POST"
     return render_template("challenge.html", event=event, verified=verified)

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Search, Database, ChevronLeft, ChevronRight } from 'lucide-react'
-import GlassCard from '../components/glass/GlassCard'
+import GlassCard from '../components/GlassCard'
 import SeverityBadge from '../components/common/SeverityBadge'
 import { getDatasetSummary, getDatasetRows } from '../hooks/useApi'
 
@@ -46,7 +46,7 @@ export default function DatasetPage() {
         <div className="flex items-center justify-between mb-5">
           <div>
             <h1 className="text-lg font-semibold text-white flex items-center gap-2">
-              <Database size={18} className="text-blue-400" /> Dataset
+              <Database size={18} className="text-info" /> Dataset
             </h1>
             <p className="text-sm text-white/50">Login events flagged by the anomaly engine — {summary ? summary.total.toLocaleString() : '…'} rows, {summary ? summary.flagged.toLocaleString() : '…'} flagged</p>
           </div>
@@ -68,7 +68,7 @@ export default function DatasetPage() {
             { label: 'Attack Share', value: summary ? `${summary.attackShare}%` : '…' },
             { label: 'Risk Critical', value: summary?.riskDist?.critical ? summary.riskDist.critical.toLocaleString() : '…' },
           ].map((stat, i) => (
-            <motion.div key={stat.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="glass-card-sm p-4">
+            <motion.div key={stat.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="panel-inset p-4">
               <p className="text-xs text-white/40 mb-1">{stat.label}</p>
               <p className="text-2xl font-semibold text-white">{stat.value}</p>
             </motion.div>
@@ -105,8 +105,8 @@ export default function DatasetPage() {
                   <td className="hidden md:table-cell text-xs text-white/50">{row.device_type}</td>
                   <td className="hidden md:table-cell text-xs text-white/50">{row.os_family}</td>
                   <td className="text-xs">{row.login_success
-                    ? <span className="text-green-400">yes</span>
-                    : <span className="text-red-400">no</span>}</td>
+                    ? <span className="text-low">yes</span>
+                    : <span className="text-critical">no</span>}</td>
                   <td className="font-mono text-xs">{row.rule_score}</td>
                   <td className="font-mono text-xs">{fmtScore(row.ml_score)}</td>
                   <td><SeverityBadge severity={row.risk_level} /></td>
@@ -121,7 +121,7 @@ export default function DatasetPage() {
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                className="px-2.5 py-1 text-xs rounded-lg bg-white/5 text-white/45 hover:bg-white/10 disabled:opacity-30 transition-all"
+                className="px-2.5 py-1 text-xs rounded-sm bg-white/5 text-white/45 hover:bg-white/10 disabled:opacity-30 transition-all"
               >
                 <ChevronLeft size={12} /> Prev
               </button>
@@ -129,7 +129,7 @@ export default function DatasetPage() {
               <button
                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
-                className="px-2.5 py-1 text-xs rounded-lg bg-white/5 text-white/45 hover:bg-white/10 disabled:opacity-30 transition-all"
+                className="px-2.5 py-1 text-xs rounded-sm bg-white/5 text-white/45 hover:bg-white/10 disabled:opacity-30 transition-all"
               >
                 Next <ChevronRight size={12} />
               </button>

@@ -1,6 +1,6 @@
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
 
-export default function Sparkline({ data = [], color = '#3b82f6', height = 40 }) {
+export default function Sparkline({ data = [], color = '#6ea8e8', height = 40 }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data}>

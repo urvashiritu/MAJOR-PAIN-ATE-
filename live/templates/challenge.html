@@ -13,7 +13,7 @@
       <h1>Extra verification</h1>
       <div class="sub">event #{{ event.row_id }} · {{ event.ts|fmt }}</div>
     </div>
-    <a class="plug" href="/">back</a>
+    <a class="plug" href="/demo">back</a>
   </div>
 
   {% if verified %}
@@ -41,7 +41,7 @@
       <div class="otp"><input name="otp" inputmode="numeric" maxlength="6" placeholder="------" required></div>
       <div class="actions" style="margin-top:16px">
         <button type="submit">verify identity</button>
-        <a class="btn grey" href="/">cancel</a>
+        <a class="btn grey" href="/demo">cancel</a>
       </div>
     </form>
   </div>

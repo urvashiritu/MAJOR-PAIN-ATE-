@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { Clock, ExternalLink, CheckCircle, XCircle } from 'lucide-react'
-import GlassCard from '../glass/GlassCard'
+import GlassCard from '../GlassCard'
 import SeverityBadge from '../common/SeverityBadge'
 
 function formatTime(ts) {
@@ -25,11 +25,11 @@ export default function AlertFeed({ alerts, onAlertClick }) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold text-white/80">Recent Alerts</h3>
-          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-400">
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-sm bg-critical/10 text-critical">
             {newCount} new
           </span>
         </div>
-        <button className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+        <button className="text-xs text-info hover:text-info transition-colors">
           View All
         </button>
       </div>
@@ -45,12 +45,12 @@ export default function AlertFeed({ alerts, onAlertClick }) {
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.025, duration: 0.25 }}
               onClick={() => onAlertClick?.(alert)}
-              className="group flex items-start gap-3 p-3 rounded-xl hover:bg-white/[0.03] cursor-pointer transition-all"
+              className="group flex items-start gap-3 p-3 rounded-sm hover:bg-white/[0.03] cursor-pointer transition-all"
             >
               <div className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${
-                alert.severity === 'critical' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' :
-                alert.severity === 'high' ? 'bg-red-400' :
-                alert.severity === 'medium' ? 'bg-amber-400' : 'bg-green-400'
+                alert.severity === 'critical' ? 'bg-critical' :
+                alert.severity === 'high' ? 'bg-critical' :
+                alert.severity === 'medium' ? 'bg-ochre' : 'bg-low'
               }`} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
@@ -66,7 +66,7 @@ export default function AlertFeed({ alerts, onAlertClick }) {
                   </span>
                   <span className="text-[11px] font-mono text-white/25">{alert.mitreId || alert.mitre_id}</span>
                   {alert.status === 'acknowledged' && (
-                    <span className="text-[10px] flex items-center gap-0.5 text-blue-400">
+                    <span className="text-[10px] flex items-center gap-0.5 text-info">
                       <CheckCircle size={10} /> Acked
                     </span>
                   )}
@@ -79,8 +79,8 @@ export default function AlertFeed({ alerts, onAlertClick }) {
               </div>
               <div className="text-right flex-shrink-0">
                 <span className={`text-sm font-bold ${
-                  (alert.riskScore || alert.risk_score) >= 70 ? 'text-red-400' :
-                  (alert.riskScore || alert.risk_score) >= 40 ? 'text-amber-400' : 'text-green-400'
+                  (alert.riskScore || alert.risk_score) >= 70 ? 'text-critical' :
+                  (alert.riskScore || alert.risk_score) >= 40 ? 'text-ochre' : 'text-low'
                 }`}>
                   {alert.riskScore || alert.risk_score}
                 </span>

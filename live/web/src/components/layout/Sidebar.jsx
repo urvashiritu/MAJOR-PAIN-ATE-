@@ -40,16 +40,16 @@ export default function Sidebar({ collapsed, setCollapsed, activePage, setActive
               exit={{ opacity: 0 }}
               className="flex items-center gap-2"
             >
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                <Shield size={14} className="text-white" />
+              <div className="w-7 h-7 border border-ochre/60 flex items-center justify-center">
+                <Shield size={13} className="text-ochre" />
               </div>
-              <span className="font-semibold text-sm text-white/90">Sentinel</span>
+              <span className="font-semibold text-sm text-ink/90 tracking-wider">SENTINEL</span>
             </motion.div>
           )}
         </AnimatePresence>
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="p-1.5 rounded-lg hover:bg-white/5 text-white/40 hover:text-white/70 transition-all"
+          className="p-1.5 rounded-sm hover:bg-white/5 text-white/40 hover:text-white/70 transition-all"
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
@@ -78,7 +78,7 @@ export default function Sidebar({ collapsed, setCollapsed, activePage, setActive
               )}
             </AnimatePresence>
             {!collapsed && (newAlerts > 0) && (
-              <span className="text-[11px] font-semibold bg-red-500/15 text-red-400 px-1.5 py-0.5 rounded-full">
+              <span className="text-[11px] font-semibold bg-critical/10 text-critical px-1.5 py-0.5 rounded-full">
                 {newAlerts}
               </span>
             )}
@@ -102,14 +102,14 @@ export default function Sidebar({ collapsed, setCollapsed, activePage, setActive
         ))}
 
         {!collapsed && (
-          <div className="mt-4 px-3 py-3 rounded-xl bg-white/[0.03] space-y-2.5">
+          <div className="mt-4 px-3 py-3 rounded-sm bg-white/[0.03] space-y-2.5">
             <div className="flex items-center gap-2 mb-2.5">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-[10px] font-semibold text-white">
+              <div className="w-7 h-7 border border-ink/25 flex items-center justify-center text-[10px] font-semibold text-ink/70">
                 OP
               </div>
               <div>
-                <p className="text-sm font-medium text-white/80">Operator</p>
-                <p className="text-xs text-white/40">Analyst</p>
+                <p className="text-sm font-medium text-ink/80">Operator</p>
+                <p className="text-xs text-ink/faint">SOC · Analyst</p>
               </div>
             </div>
             <div className="text-[10px] font-semibold text-white/40 uppercase tracking-wider">Current Dataset</div>
@@ -138,7 +138,7 @@ export default function Sidebar({ collapsed, setCollapsed, activePage, setActive
             <div className="pt-2 mt-1 border-t border-white/[0.06] space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-white/40">Avg ML Score</span>
-                <span className="text-[10px] text-green-400 font-mono">{summary ? summary.avgMl.toFixed(3) : '…'}</span>
+                <span className="text-[10px] text-low font-mono">{summary ? summary.avgMl.toFixed(3) : '…'}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-white/40">Rule Threshold</span>
@@ -146,7 +146,7 @@ export default function Sidebar({ collapsed, setCollapsed, activePage, setActive
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-white/40">ATO Score</span>
-                <span className="text-[10px] text-green-400 font-mono">{summary ? summary.ato : '…'}</span>
+                <span className="text-[10px] text-low font-mono">{summary ? summary.ato : '…'}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-white/40">Success Rate</span>

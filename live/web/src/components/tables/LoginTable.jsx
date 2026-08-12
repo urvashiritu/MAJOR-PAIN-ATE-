@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Search, ChevronDown } from 'lucide-react'
-import GlassCard from '../glass/GlassCard'
+import GlassCard from '../GlassCard'
 import SeverityBadge from '../common/SeverityBadge'
 
 const statusConfig = {
@@ -92,7 +92,7 @@ export default function LoginTable({ logins, onRowClick }) {
                 <td className="text-xs text-white/50">{row.device || 'Unknown'}</td>
                 <td className="text-xs text-white/50">{row.os || 'Unknown'}</td>
                 <td>
-                  <span className={`font-bold text-sm ${row.riskScore >= 70 ? 'text-red-400' : row.riskScore >= 40 ? 'text-amber-400' : 'text-green-400'}`}>
+                  <span className={`font-bold text-sm ${row.riskScore >= 70 ? 'text-critical' : row.riskScore >= 40 ? 'text-ochre' : 'text-low'}`}>
                     {row.riskScore}
                   </span>
                 </td>
@@ -110,9 +110,9 @@ export default function LoginTable({ logins, onRowClick }) {
       <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.04]">
         <span className="text-xs text-white/35">{sorted.length} results</span>
         <div className="flex gap-1">
-          <button className="px-2.5 py-1 text-xs rounded-lg bg-white/5 text-white/45 hover:bg-white/10 transition-all">Previous</button>
-          <button className="px-2.5 py-1 text-xs rounded-lg bg-blue-500/15 text-blue-400">1</button>
-          <button className="px-2.5 py-1 text-xs rounded-lg bg-white/5 text-white/45 hover:bg-white/10 transition-all">Next</button>
+          <button className="px-2.5 py-1 text-xs rounded-sm bg-white/5 text-white/45 hover:bg-white/10 transition-all">Previous</button>
+          <button className="px-2.5 py-1 text-xs rounded-sm bg-info/10 text-info">1</button>
+          <button className="px-2.5 py-1 text-xs rounded-sm bg-white/5 text-white/45 hover:bg-white/10 transition-all">Next</button>
         </div>
       </div>
     </GlassCard>

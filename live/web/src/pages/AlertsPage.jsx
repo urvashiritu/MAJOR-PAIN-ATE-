@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Filter, Clock, CheckCircle } from 'lucide-react'
-import GlassCard from '../components/glass/GlassCard'
+import GlassCard from '../components/GlassCard'
 import SeverityBadge from '../components/common/SeverityBadge'
 import { getAlerts, acknowledgeAlert } from '../hooks/useApi'
 
@@ -66,7 +66,7 @@ export default function AlertsPage() {
             <button
               key={f}
               onClick={() => setActiveFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-sm text-xs font-medium transition-all ${
                 activeFilter === f ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white/70 hover:bg-white/5'
               }`}
             >
@@ -107,7 +107,7 @@ export default function AlertsPage() {
                   <td><span className="text-white/70">{alert.type}</span></td>
                   <td className="hidden md:table-cell text-white/50 max-w-[200px] truncate">{alert.description}</td>
                   <td>
-                    <span className={`font-bold text-sm ${alert.riskScore >= 70 ? 'text-red-400' : alert.riskScore >= 40 ? 'text-amber-400' : 'text-green-400'}`}>
+                    <span className={`font-bold text-sm ${alert.riskScore >= 70 ? 'text-critical' : alert.riskScore >= 40 ? 'text-ochre' : 'text-low'}`}>
                       {alert.riskScore}
                     </span>
                   </td>
@@ -125,7 +125,7 @@ export default function AlertsPage() {
                     {alert.status === 'new' && (
                       <button
                         onClick={() => handleAck(alert)}
-                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-500/10 text-blue-400 text-xs hover:bg-blue-500/20 transition-all"
+                        className="flex items-center gap-1 px-2 py-1 rounded-sm bg-info/10 text-info text-xs hover:bg-blue-500/20 transition-all"
                       >
                         <CheckCircle size={11} /> Ack
                       </button>

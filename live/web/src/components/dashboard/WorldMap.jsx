@@ -4,7 +4,7 @@ import {
   ComposableMap, Geographies, Geography, Marker, useMapContext,
 } from 'react-simple-maps'
 import { getMapData } from '../../hooks/useApi'
-import GlassCard from '../glass/GlassCard'
+import GlassCard from '../GlassCard'
 import worldTopology from '../../data/countries-50m.json'
 
 const geoUrl = worldTopology
@@ -38,7 +38,7 @@ function ArcsLayer({ paths, onHover, hovered }) {
               stroke="url(#travelGrad)"
               strokeWidth={2.5}
               strokeLinecap="round"
-              style={{ filter: 'drop-shadow(0 0 5px rgba(239,68,68,0.35))' }}
+              
               initial={{ pathLength: 0 }}
               animate={{ pathLength: 1 }}
               transition={{ duration: 2, delay: 0.5, ease: 'easeInOut' }}
@@ -55,7 +55,7 @@ function ArcsLayer({ paths, onHover, hovered }) {
               animate={{ pathLength: 1 }}
               transition={{ duration: 2, delay: 0.5, ease: 'easeInOut' }}
             />
-            <circle r={3.5} fill="#ef4444" style={{ filter: 'drop-shadow(0 0 4px rgba(239,68,68,0.7))' }}>
+            <circle r={3.5} fill="#e5484d" >
               <animateMotion dur="3.5s" repeatCount="indefinite" path={d} />
             </circle>
           </g>
@@ -116,9 +116,9 @@ export default function WorldMap() {
           <span className="live-dot" />
         </div>
         <div className="flex items-center gap-3 text-[10px] text-white/35">
-          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-500" /> Attack Path</span>
-          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Flagged</span>
-          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-400" /> Normal</span>
+          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-critical" /> Attack Path</span>
+          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-ochre" /> Flagged</span>
+          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-info" /> Normal</span>
         </div>
       </div>
 
@@ -160,37 +160,30 @@ export default function WorldMap() {
                 >
                   <circle
                     r={loc.severity === 'critical' ? 6 : loc.severity === 'high' ? 4.5 : 3.5}
-                    fill={loc.severity === 'critical' ? '#ef4444' : loc.severity === 'high' ? '#f59e0b' : '#3b82f6'}
+                    fill={loc.severity === 'critical' ? '#e5484d' : loc.severity === 'high' ? '#ff9b9e' : '#6ea8e8'}
                     opacity={isDimmed ? dimOpacity : 0.95}
-                    style={{
-                      filter: !isDimmed && loc.severity === 'critical'
-                        ? 'drop-shadow(0 0 8px rgba(239,68,68,0.6))'
-                        : !isDimmed && loc.severity === 'high'
-                        ? 'drop-shadow(0 0 5px rgba(245,158,11,0.4))'
-                        : undefined,
-                      transition: 'opacity 0.3s',
-                    }}
+                    style={{ transition: 'opacity 0.3s' }}
                   />
                   {!isDimmed && (
                     <circle
                       r={loc.severity === 'critical' ? 8 : loc.severity === 'high' ? 6 : 4}
                       fill="none"
-                      stroke={loc.severity === 'critical' ? '#ef4444' : loc.severity === 'high' ? '#f59e0b' : '#3b82f6'}
+                      stroke={loc.severity === 'critical' ? '#e5484d' : loc.severity === 'high' ? '#ff9b9e' : '#6ea8e8'}
                       strokeWidth={1.5}
                       opacity={0.3}
-                      className="animate-ping"
+                      className="map-pulse"
                       style={{ animationDuration: '2.5s' }}
                     />
                   )}
                   {loc.severity === 'critical' && !isDimmed && (
-                    <motion.circle
+<motion.circle
                       r={14}
                       fill="none"
-                      stroke="#ef4444"
+                      stroke="#e5484d"
                       strokeWidth={1}
-                      initial={{ opacity: 0.4, scale: 1 }}
-                      animate={{ opacity: 0, scale: 2 }}
-                      transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
+                      initial={{ opacity: 0.35, scale: 1 }}
+                      animate={{ opacity: 0, scale: 1.8 }}
+                      transition={{ duration: 2.2, repeat: Infinity, ease: 'easeOut' }}
                     />
                   )}
                 </g>
@@ -202,9 +195,9 @@ export default function WorldMap() {
         <svg style={{ position: 'absolute', width: 0, height: 0 }}>
           <defs>
             <linearGradient id="travelGrad" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#3b82f6" />
-              <stop offset="50%" stopColor="#f59e0b" />
-              <stop offset="100%" stopColor="#ef4444" />
+              <stop offset="0%" stopColor="#6ea8e8" />
+              <stop offset="50%" stopColor="#e8a33d" />
+              <stop offset="100%" stopColor="#e5484d" />
             </linearGradient>
           </defs>
         </svg>
@@ -222,13 +215,13 @@ export default function WorldMap() {
                 className="absolute top-2 right-2 chart-tooltip !p-2.5 !min-w-[180px]"
               >
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  <span className="w-2 h-2 rounded-full bg-critical" />
                   <span className="text-xs font-semibold text-white/90">{p.type}</span>
                 </div>
                 <p className="text-xs text-white/70">
-                  <span className="text-blue-400">{p.from.name}</span>
+                  <span className="text-info">{p.from.name}</span>
                   <span className="px-1">→</span>
-                  <span className="text-red-400">{p.to.name}</span>
+                  <span className="text-critical">{p.to.name}</span>
                 </p>
                 <p className="text-xs text-white/50 mt-0.5">{p.user} · {p.distance} · {p.timeGap}</p>
               </motion.div>
@@ -249,7 +242,7 @@ export default function WorldMap() {
                 <p className="text-xs font-semibold text-white/90">{loc.user}</p>
                 <p className="text-xs text-white/60">{loc.name}, {loc.country}</p>
                 <span className="text-[10px] font-bold" style={{
-                  color: loc.severity === 'critical' ? '#ef4444' : loc.severity === 'high' ? '#f59e0b' : '#4ade80'
+                  color: loc.severity === 'critical' ? '#e5484d' : loc.severity === 'high' ? '#ff9b9e' : '#57b06c'
                 }}>
                   Risk: {loc.risk}
                 </span>

@@ -9,10 +9,10 @@ import { getInvestigation, acknowledgeAlert } from '../../hooks/useApi'
 
 function EventTimeline({ timeline }) {
   const iconMap = {
-    x: { icon: X, color: '#ef4444', bg: 'bg-red-500/10' },
-    check: { icon: CheckCircle, color: '#22c55e', bg: 'bg-green-500/10' },
-    shield: { icon: Shield, color: '#f59e0b', bg: 'bg-amber-500/10' },
-    file: { icon: FileText, color: '#ef4444', bg: 'bg-red-500/10' },
+    x: { icon: X, color: '#e5484d', bg: 'bg-critical/10' },
+    check: { icon: CheckCircle, color: '#57b06c', bg: 'bg-low/10' },
+    shield: { icon: Shield, color: '#e8a33d', bg: 'bg-ochre/10' },
+    file: { icon: FileText, color: '#e5484d', bg: 'bg-critical/10' },
   }
 
   return (
@@ -89,7 +89,7 @@ function AIExplanation({ explanation, confidence }) {
   return (
     <div>
       <h4 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">AI Analysis</h4>
-      <div className="glass-card-sm p-4">
+      <div className="panel-inset p-4">
         <div className="flex items-center justify-between mb-3">
           <span className="text-xs font-medium text-white/50">Ensemble Confidence</span>
           <div className="flex items-center gap-2">
@@ -116,7 +116,7 @@ function UserBaseline({ baseline }) {
   return (
     <div>
       <h4 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">User Baseline Profile</h4>
-      <div className="glass-card-sm p-4">
+      <div className="panel-inset p-4">
         <div className="grid grid-cols-2 gap-3">
           {[
             { label: 'Avg Login', value: baseline.avgLoginHour },
@@ -153,13 +153,13 @@ function MitreCard({ mitreId, mitreName, mitreDescription }) {
   return (
     <div>
       <h4 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">MITRE ATT&CK</h4>
-      <div className="glass-card-sm p-4">
+      <div className="panel-inset p-4">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-red-500/10 text-red-400">{mitreId}</span>
+          <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-critical/10 text-critical">{mitreId}</span>
           <span className="text-sm font-medium text-white/80">{mitreName}</span>
         </div>
         <p className="text-xs text-white/50 leading-relaxed">{mitreDescription}</p>
-        <button className="mt-2 text-xs text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1">
+        <button className="mt-2 text-xs text-info hover:text-info transition-colors flex items-center gap-1">
           View in MITRE ATT&CK <ArrowUpRight size={10} />
         </button>
       </div>
@@ -215,22 +215,22 @@ export default function InvestigationDrawer({ isOpen, onClose, alert }) {
             className="fixed right-0 top-0 h-full w-full max-w-lg z-50 overflow-y-auto"
             style={{ borderLeft: '1px solid rgba(255,255,255,0.06)' }}
           >
-            <div className="min-h-full glass-floating p-5">
+            <div className="min-h-full panel p-5">
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-base font-semibold text-white">Investigation</h2>
-                <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-white/5 text-white/40 hover:text-white/70 transition-all">
+                <button onClick={onClose} className="p-1.5 rounded-sm hover:bg-white/5 text-white/40 hover:text-white/70 transition-all">
                   <X size={16} />
                 </button>
               </div>
-              <div className="glass-card-sm p-4 mb-4">
+              <div className="panel-inset p-4 mb-4">
                 <div className="flex items-center gap-2">
                   {overlay && <SeverityBadge severity={overlay.severity} pulse />}
                   <span className="text-sm text-white/70">{overlay?.displayName || overlay?.user}</span>
                   <span className="text-xs text-white/40">{overlay?.type}</span>
                 </div>
-                <p className="text-xs text-red-400/80 mt-2">Investigation data unavailable: {loadError || 'unknown error'}</p>
+                <p className="text-xs text-critical/80 mt-2">Investigation data unavailable: {loadError || 'unknown error'}</p>
               </div>
-              <button onClick={onClose} className="w-full px-3 py-2.5 rounded-xl bg-white/5 text-white/60 text-sm font-medium hover:bg-white/10 transition-all">
+              <button onClick={onClose} className="w-full px-3 py-2.5 rounded-sm bg-white/5 text-white/60 text-sm font-medium hover:bg-white/10 transition-all">
                 Close
               </button>
             </div>
@@ -259,17 +259,17 @@ export default function InvestigationDrawer({ isOpen, onClose, alert }) {
             className="fixed right-0 top-0 h-full w-full max-w-lg z-50 overflow-y-auto"
             style={{ borderLeft: '1px solid rgba(255,255,255,0.06)' }}
           >
-            <div className="min-h-full glass-floating p-5">
+            <div className="min-h-full panel p-5">
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-base font-semibold text-white">Investigation</h2>
-                <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-white/5 text-white/40 hover:text-white/70 transition-all">
+                <button onClick={onClose} className="p-1.5 rounded-sm hover:bg-white/5 text-white/40 hover:text-white/70 transition-all">
                   <X size={16} />
                 </button>
               </div>
               <div className="space-y-3">
-                <div className="h-20 rounded-xl bg-white/[0.03] animate-pulse" />
-                <div className="h-40 rounded-xl bg-white/[0.03] animate-pulse" />
-                <div className="h-40 rounded-xl bg-white/[0.03] animate-pulse" />
+                <div className="h-20 rounded-sm bg-white/[0.03] animate-pulse" />
+                <div className="h-40 rounded-sm bg-white/[0.03] animate-pulse" />
+                <div className="h-40 rounded-sm bg-white/[0.03] animate-pulse" />
               </div>
             </div>
           </motion.div>
@@ -300,17 +300,17 @@ export default function InvestigationDrawer({ isOpen, onClose, alert }) {
             className="fixed right-0 top-0 h-full w-full max-w-lg z-50 overflow-y-auto"
             style={{ borderLeft: '1px solid rgba(255,255,255,0.06)' }}
           >
-            <div className="min-h-full glass-floating p-5">
+            <div className="min-h-full panel p-5">
               {/* Header */}
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-base font-semibold text-white">Investigation</h2>
-                <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-white/5 text-white/40 hover:text-white/70 transition-all">
+                <button onClick={onClose} className="p-1.5 rounded-sm hover:bg-white/5 text-white/40 hover:text-white/70 transition-all">
                   <X size={16} />
                 </button>
               </div>
 
               {/* Summary Card */}
-              <div className="glass-card-sm p-4 mb-4">
+              <div className="panel-inset p-4 mb-4">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <SeverityBadge severity={overlay?.severity || d.severity} pulse />
@@ -319,7 +319,7 @@ export default function InvestigationDrawer({ isOpen, onClose, alert }) {
                   </div>
                   <div className="text-right">
                     <motion.span
-                      className={`text-3xl font-bold ${riskScore >= 70 ? 'text-red-400' : riskScore >= 40 ? 'text-amber-400' : 'text-green-400'}`}
+                      className={`text-3xl font-bold ${riskScore >= 70 ? 'text-critical' : riskScore >= 40 ? 'text-ochre' : 'text-low'}`}
                       initial={{ scale: 0 }}
                       animate={{ scale: 1 }}
                       transition={{ type: 'spring', damping: 10 }}
@@ -346,17 +346,17 @@ export default function InvestigationDrawer({ isOpen, onClose, alert }) {
                 <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-xs">
                   <div><p className="text-white/40">IP</p><p className="font-mono text-white/80">{d.ip}</p></div>
                   <div><p className="text-white/40">ASN</p><p className="text-white/80">{d.asn}</p></div>
-                  <div><p className="text-white/40">Country</p><p className="text-red-400 font-medium">{d.country}</p></div>
+                  <div><p className="text-white/40">Country</p><p className="text-critical font-medium">{d.country}</p></div>
                   <div><p className="text-white/40">Previous</p><p className="text-white/80">{d.previousCountry}</p></div>
                   <div><p className="text-white/40">Device</p><p className="text-white/80">{d.device}</p></div>
                   <div><p className="text-white/40">Browser</p><p className="text-white/80">{d.browser}</p></div>
                   <div><p className="text-white/40">OS</p><p className="text-white/80">{d.os}</p></div>
-                  <div><p className="text-white/40">Distance</p><p className="text-red-400 font-medium">{d.distanceKm.toLocaleString()} km</p></div>
+                  <div><p className="text-white/40">Distance</p><p className="text-critical font-medium">{d.distanceKm.toLocaleString()} km</p></div>
                 </div>
 
                 <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/[0.04] text-sm">
-                  <AlertTriangle size={13} className="text-red-400 flex-shrink-0" />
-                  <span className="text-red-400 font-medium">{d.type}</span>
+                  <AlertTriangle size={13} className="text-critical flex-shrink-0" />
+                  <span className="text-critical font-medium">{d.type}</span>
                   <span className="text-white/50">— {d.previousCity} → {d.city} in {d.timeSincePreviousLogin}</span>
                 </div>
               </div>
@@ -395,10 +395,10 @@ export default function InvestigationDrawer({ isOpen, onClose, alert }) {
                         className="glass-input w-full mt-2 p-2.5 text-xs resize-none"
                       />
                       <div className="flex gap-2 mt-2">
-                        <button className="px-3 py-1.5 text-xs rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-all">
+                        <button className="px-3 py-1.5 text-xs rounded-sm bg-info/10 text-info hover:bg-info/20 transition-all">
                           Save Note
                         </button>
-                        <button onClick={() => { setShowNoteInput(false); setNoteText('') }} className="px-3 py-1.5 text-xs rounded-lg bg-white/5 text-white/50 hover:bg-white/10 transition-all">
+                        <button onClick={() => { setShowNoteInput(false); setNoteText('') }} className="px-3 py-1.5 text-xs rounded-sm bg-white/5 text-white/50 hover:bg-white/10 transition-all">
                           Cancel
                         </button>
                       </div>
@@ -411,24 +411,24 @@ export default function InvestigationDrawer({ isOpen, onClose, alert }) {
               <div className="flex gap-2 mt-5 pt-4 border-t border-white/[0.04]">
                 <button
                   onClick={handleAck}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-sm text-sm font-medium transition-all ${
                     alertAcked
-                      ? 'bg-green-500/15 text-green-400'
-                      : 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'
+                      ? 'bg-low/10 text-low'
+                      : 'bg-info/10 text-info hover:bg-info/20'
                   }`}
                 >
                   <CheckCircle size={14} />
                   {alertAcked ? 'Acknowledged' : 'Acknowledge'}
                 </button>
-                <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-red-500/15 text-red-400 text-sm font-medium hover:bg-red-500/25 transition-all">
+                <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-sm bg-critical/10 text-critical text-sm font-medium hover:bg-critical/20 transition-all">
                   <Ban size={14} />
                   Contain
                 </button>
-                <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-amber-500/15 text-amber-400 text-sm font-medium hover:bg-amber-500/25 transition-all">
+                <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-sm bg-ochre/10 text-ochre text-sm font-medium hover:bg-ochre/20 transition-all">
                   <Flag size={14} />
                   Escalate
                 </button>
-                <button className="px-3 py-2.5 rounded-xl bg-white/5 text-white/50 hover:bg-white/10 transition-all" title="Export Report">
+                <button className="px-3 py-2.5 rounded-sm bg-white/5 text-white/50 hover:bg-white/10 transition-all" title="Export Report">
                   <Download size={14} />
                 </button>
               </div>

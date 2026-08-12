@@ -88,8 +88,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-navy-950 bg-ambient">
-      <div className="relative z-10 min-h-screen bg-grid bg-radial-glow">
+    <div className="min-h-screen bg-paper">
+      <div className="relative z-10 min-h-screen bg-grid">
         <Sidebar
           collapsed={sidebarCollapsed}
           setCollapsed={setSidebarCollapsed}
@@ -105,7 +105,7 @@ export default function App() {
           <TopNavbar />
 
           {error && (
-            <div className="mx-5 mt-3 px-4 py-2 rounded-xl bg-red-500/10 text-red-400 text-sm border border-red-500/20">
+            <div className="mx-5 mt-3 px-4 py-2 rounded-sm bg-critical/10 text-critical text-sm border border-red-500/20">
               Backend offline: {error}
             </div>
           )}

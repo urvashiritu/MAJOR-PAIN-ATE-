@@ -15,14 +15,14 @@ export default function TopNavbar() {
       initial={{ y: -20, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
-      className="glass sticky top-0 z-40 mx-4 mt-4 px-4 py-2.5 flex items-center gap-4"
-      style={{ borderRadius: '16px' }}
+      className="panel sticky top-0 z-40 mx-4 mt-4 px-4 py-2.5 flex items-center gap-4"
+      style={{ background: 'rgba(11,14,20,0.92)' }}
     >
       <div className="relative flex-1 max-w-md">
         <Search
           size={16}
           className={`absolute left-3 top-1/2 -translate-y-1/2 transition-colors ${
-            searchFocused ? 'text-blue-400' : 'text-white/30'
+            searchFocused ? 'text-ochre' : 'text-ink/faint'
           }`}
         />
         <input
@@ -54,13 +54,13 @@ export default function TopNavbar() {
             <motion.div
               initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
-              className="absolute right-0 top-full mt-1 z-20 glass-card-sm min-w-[180px] p-1"
+              className="absolute right-0 top-full mt-1 z-20 panel-inset min-w-[180px] p-1"
             >
               {timeRanges.map((range) => (
                 <button
                   key={range}
                   onClick={() => { setSelectedRange(range); setShowRangeDropdown(false) }}
-                  className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${
+                  className={`w-full text-left px-3 py-2 text-sm rounded-sm transition-colors ${
                     selectedRange === range ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white/80 hover:bg-white/5'
                   }`}
                 >
@@ -74,22 +74,22 @@ export default function TopNavbar() {
 
       <button
         onClick={() => setAutoRefresh(!autoRefresh)}
-        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-all ${
-          autoRefresh ? 'bg-blue-500/10 text-blue-400' : 'text-white/40 hover:text-white/60'
+        className={`flex items-center gap-1.5 px-3 py-2 rounded-sm text-sm transition-all ${
+          autoRefresh ? 'bg-ochre/10 text-ochre' : 'text-white/40 hover:text-white/60'
         }`}
       >
-        <RefreshCw size={14} className={autoRefresh ? 'animate-spin-slow' : ''} />
+        <RefreshCw size={14} className={autoRefresh ? 'animate-spin' : ''} />
         <span className="hidden sm:inline">Auto</span>
       </button>
 
       <div className="relative">
-        <button className="p-2 rounded-xl hover:bg-white/5 text-white/40 hover:text-white/70 transition-all relative">
+        <button className="p-2 rounded-sm hover:bg-white/5 text-white/40 hover:text-white/70 transition-all relative">
           <Bell size={18} />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" style={{ boxShadow: '0 0 6px rgba(239,68,68,0.6)' }} />
+          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-critical" />
         </button>
       </div>
 
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-xs font-semibold text-white cursor-pointer">
+      <div className="w-8 h-8 border border-ink/25 flex items-center justify-center text-[11px] font-semibold text-ink/70 cursor-pointer">
         OP
       </div>
     </motion.header>

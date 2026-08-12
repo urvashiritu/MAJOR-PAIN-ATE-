@@ -4,7 +4,7 @@ import { Search, Shield, AlertTriangle, MoreHorizontal } from 'lucide-react'
 import { getUsers } from '../hooks/useApi'
 
 function riskColor(risk) {
-  return risk >= 70 ? 'text-red-400' : risk >= 40 ? 'text-amber-400' : 'text-green-400'
+  return risk >= 70 ? 'text-critical' : risk >= 40 ? 'text-ochre' : 'text-low'
 }
 
 export default function UsersPage() {
@@ -42,11 +42,11 @@ export default function UsersPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
           {[
             { label: 'Total Users', value: users.length, change: 'monitored personas', color: 'text-white' },
-            { label: 'Flagged', value: flagged.length, change: 'with active flags', color: 'text-red-400' },
-            { label: 'Attacker', value: users.filter(u => u.persona === 'attacker').length, change: 'known attacker', color: 'text-amber-400' },
-            { label: 'Avg Max Rule', value: users.length ? Math.round(users.reduce((s, u) => s + (u.max_rule || 0), 0) / users.length) : 0, change: 'anomaly rule score', color: 'text-green-400' },
+            { label: 'Flagged', value: flagged.length, change: 'with active flags', color: 'text-critical' },
+            { label: 'Attacker', value: users.filter(u => u.persona === 'attacker').length, change: 'known attacker', color: 'text-ochre' },
+            { label: 'Avg Max Rule', value: users.length ? Math.round(users.reduce((s, u) => s + (u.max_rule || 0), 0) / users.length) : 0, change: 'anomaly rule score', color: 'text-low' },
           ].map((stat, i) => (
-            <motion.div key={stat.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="glass-card-sm p-4">
+            <motion.div key={stat.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="panel-inset p-4">
               <p className="text-xs text-white/40 mb-1">{stat.label}</p>
               <p className={`text-2xl font-semibold ${stat.color}`}>{stat.value}</p>
               <p className="text-[10px] text-white/30 mt-0.5">{stat.change}</p>
@@ -54,7 +54,7 @@ export default function UsersPage() {
           ))}
         </div>
 
-        <div className="glass-card-sm overflow-hidden">
+        <div className="panel-inset overflow-hidden">
           <table className="table-glass w-full">
             <thead>
               <tr>
@@ -73,7 +73,7 @@ export default function UsersPage() {
                 <motion.tr key={u.user_id || u.name} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.02 }}>
                   <td>
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-[10px] font-semibold text-white">
+                      <div className="w-7 h-7 border border-ink/25 flex items-center justify-center text-[10px] font-semibold text-ink/70">
                         {(u.name || u.persona).slice(0, 2).toUpperCase()}
                       </div>
                       <div>
