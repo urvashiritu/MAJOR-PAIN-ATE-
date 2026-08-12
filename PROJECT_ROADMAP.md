@@ -41,8 +41,8 @@ or post-login monitoring system.
 | 5 | Rule baseline | Bouncer checklist: new country +30, new IP +25, recent failure +20, ... → low/medium/high/critical with reasons | ✅ (Aug 9) |
 | 6 | Models and evaluation | 4 anomaly models compared honestly; LOF won (gold F1 0.110 @ 5% FPR) | ✅ (Aug 9) |
 | 6+ | Supervised extension | Trained on the gold label itself → HGB gold F1 0.287, a 2.6× improvement | ✅ (Aug 11) |
-| 7 | Live scoring engine (user profile + risk API) | DuckDB live DB (`users`/`events`/`alerts`), `live/scoring.py` reusing the exact `feature_sql`/`score_sql` + HGB model, personas seeded from real sample data, `POST /login` verdict page, `POST /burst` attack sim | 🟡 partial — profile table, JSON API, WS `/dashboard` not built |
-| 8 | Website and dashboard | Login form + persona cards, verdict page (allow/flag/block + reasons), admin dashboard (events + alerts) | 🟡 partial — challenge flow page, blocked page, live-push missing |
+| 7 | Live scoring engine (user profile + risk API) | DuckDB live DB (`users`/`events`/`alerts`/`user_profile`), `live/scoring.py` reusing the exact `feature_sql`/`score_sql` + HGB model, personas seeded from real sample data, `POST /login` verdict flow, `POST /burst` attack sim, `user_profile` refreshed only after accepted (allow) events, JSON API (`POST /events`, `GET /risk/{id}`, `GET /users/{id}/profile`, `GET /alerts`) | ✅ (Aug 12) |
+| 8 | Website and dashboard | Login form + persona cards, verdict/blocked/challenge flow pages, admin dashboard (events + alerts) with live push via SSE `GET /events/stream` | ✅ (Aug 12) — SSE chosen over WS: one-way push, zero new dependencies |
 | 9 | Live demonstration | Laptop 1 = dashboard, Laptop 2 = website. Scripted scenarios: normal login → allow; new country → challenge; failed attempts → alert | ⏳ |
 | 10 | Testing | Data, feature, model, and app tests | ⏳ |
 | 11 | Report and presentation | Final report with only measured results | ⏳ |
@@ -85,9 +85,9 @@ or post-login monitoring system.
 - Artifacts: `src/06_supervised_model.py`, `reports/supervised_evaluation.json`,
   `reports/supervised_replay.csv`. No Phase 6 files were touched.
 
-## Phase 7+ build notes (live demo, Aug 11)
+## Phase 7/8 build notes (live demo, Aug 11–12)
 
-- Built as a single Flask app (merged simplified Phase 7 + 8): `live/db.py`,
+- Built as a single Flask app (merged Phase 7 + 8): `live/db.py`,
   `live/scoring.py`, `live/seed_demo.py`, `live/app.py` + `live/templates/`.
 - Scoring reuses the **exact training SQL** — `feature_sql` (src/02) and
   `score_sql` (src/04) are imported as-is and run over the user's stored
@@ -98,22 +98,31 @@ or post-login monitoring system.
 - Seeded from `data/processed/sample.parquet`: 3 normal personas (alice, bob,
   carol) with 177 real history events, plus a fresh attacker persona with a
   blocklisted IP (5.180.170.85) and no history.
-- Verified end-to-end: alice from her typical profile → ALLOW (rule 0);
-  attacker → BLOCK/critical; `POST /burst` ×5 escalates with "recent failed
-  login"/"rapid login activity"; admin shows alerts (7 during the demo run).
-- Honest caveats: no explicit `user_profile` table yet (the profile is
-  implicit in the event history), no JSON API or WS `/dashboard`, admin is
-  refresh-based, and the attacker persona hard-codes `is_attack_ip`.
+- **`user_profile` (Aug 12):** per-user row with the usual country/device/
+  os/browser/ip/asn (mode over successful logins), top-3 hour buckets,
+  avg logins per active day, and failed logins in the last 24h. Rebuilt by
+  `refresh_profile()` **only after an accepted (allow) event** — attacker
+  attempts can never pollute it. Seeded alongside the history.
+- **JSON API (Aug 12):** `POST /events` (score one event → verdict JSON),
+  `GET /risk/{event_id}`, `GET /users/{user_id}/profile`, `GET /alerts`.
+  Negative user ids (seeded sample ids are negative) need a signed-int URL
+  converter (`<sint:user_id>`), since werkzeug's `<int:>` matches digits
+  only.
+- **Live push (Aug 12):** `GET /events/stream` is a Server-Sent Events
+  endpoint; the admin dashboard subscribes via `EventSource` and prepends
+  rows in real time (no page refresh). SSE was chosen over WebSocket
+  because the push is one-way and it needs zero extra dependencies.
+- **Flow pages (Aug 12):** decision = block → `/blocked/{id}` (denied page
+  with reasons); decision = flag → `/challenge/{id}` (demo OTP step —
+  any code verifies; the event decision is not changed in the DB).
+- Verified end-to-end (Aug 12): attacker → BLOCK/critical → blocked page;
+  alice from her typical profile → ALLOW (rule 0); `POST /burst` ×5
+  escalates; `POST /events` allow/flag/block all returned; profile updates
+  only on allow; SSE pushed every scored event to the dashboard.
 
 ## Immediate next task
 
-**Phase 7 completion — profiles + risk API**: `user_profile` table (known
-devices, usual countries/hours, daily counts, failed-login history) updated
-only after an accepted normal event; JSON API endpoints (`POST /events`,
-`GET /risk/{event_id}`, `GET /users/{user_id}/profile`, `GET /alerts`); then
-WS `/dashboard` for the live push (Phase 8).
-
-The login flow: receive event → compute live features → load user profile →
-run rules + model → combine scores → allow/challenge/block → publish to
-dashboard → update profile (only after an accepted normal event). Use fake
-accounts; never store real passwords.
+**Phase 9 — live demonstration.** Laptop 1 = dashboard (`/admin`), Laptop 2 =
+website (`/`). Scripted scenarios: normal login → allow; new country/device →
+flag → challenge step; attacker or rapid burst → block; watch alerts appear
+live on the dashboard. Then Phase 10 (tests) and Phase 11 (report).

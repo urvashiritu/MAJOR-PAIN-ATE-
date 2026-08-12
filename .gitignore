@@ -22,3 +22,6 @@ venv/
 
 # OS
 .DS_Store
+
+# Frontend deps
+live/web/node_modules/

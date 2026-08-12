@@ -89,7 +89,8 @@ feature the live system would compute), and `02` runs before `01`. The order is
 
 ## Current state (Aug 11, 2026)
 
-Phases 0–6 are done. Every gate passes. The honest evaluation is in `reports/`.
+Phases 0–8 are done (the live demo app shipped Aug 11–12). Every gate passes.
+The honest evaluation is in `reports/`.
 
 ### What the numbers mean (in plain words)
 
@@ -128,6 +129,7 @@ The honest one-liner:
 | 5 | Rule baseline | A bouncer's checklist: new country +30, new IP +25, recent failure +20, ... → low / medium / high / critical, with written reasons |
 | 6 | Anomaly models | 4 models that learn "what is normal" and flag the unusual — compared honestly; LOF won at 0.110 |
 | 6+ | Supervised models | The same features, but trained *with* the gold label as the answer key → 0.287, a 2.6× improvement |
+| 7–8 | Live demo app | Flask app + DuckDB: personas seeded from the real sample, every login scored live by the exact training SQL + HGB model, verdict/blocked/challenge pages, admin dashboard with live push, user profiles + JSON API |
 
 ### Repo contents
 
@@ -136,7 +138,9 @@ The honest one-liner:
 - `data/processed/rba_features.parquet` — features over all 31.3M rows
 - `data/processed/sample.parquet` + `features.parquet` — 1M-row training table
 - `data/processed/user_baselines.parquet` — per-user history over all 31.3M rows
+- `data/live.duckdb` — live demo DB (users, events, alerts, user_profile)
 - `src/00_clean_dataset.py` → `src/02_feature_engineering.py` → `src/01_load_and_sample.py` → `src/03_validate_contract.py` → `src/04_rule_baseline.py` → `src/05_models_evaluation.py` → `src/06_supervised_model.py`
+- `live/` — Flask demo: `app.py` (web + JSON API + SSE), `db.py` (schema + profiles), `scoring.py` (shared SQL + HGB), `seed_demo.py` (personas), `templates/`
 - `reports/` — rule scores, model comparison, threshold curves, replay analysis, evaluation JSONs
 - `models/final_model.joblib` — the Phase 6 Local Outlier Factor + scaler + threshold
 - `models/supervised_hgb.joblib` — the Phase 6+ supervised HGB + scaler + threshold (gold F1 0.287, the winner)
@@ -166,6 +170,19 @@ its inputs only when they are stale):
 make all          # full pipeline 00 -> 02 -> 01 -> 03 -> 04 -> 05 -> 06
 make clean features sample validate rules models supervised   # any stage
 ```
+
+## Running the live demo
+
+```bash
+venv/bin/python live/seed_demo.py   # (re)create data/live.duckdb with persona history
+venv/bin/python live/app.py         # http://127.0.0.1:5000
+```
+
+- `/` login form (persona cards + custom event) · `/admin` dashboard
+- score a login from another machine (demo): `POST /events` with JSON
+  `{"user_id": <id>, "country": "FR", ...}` — all endpoints return JSON:
+  `GET /risk/<event_id>` · `GET /users/<user_id>/profile` · `GET /alerts`
+- the dashboard updates live over SSE (`GET /events/stream`) — no refresh
 
 ## Docs
 

@@ -126,6 +126,9 @@ def main() -> None:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'history')
         """, (i, *row))
 
+    for uid in users + [-1]:
+        db.refresh_profile(con, uid)
+
     n_events = con.execute("SELECT COUNT(*) FROM events").fetchone()[0]
     print(f"seeded {DB_PATH}: {len(PERSONAS)} users, {n_events} history events, "
           f"attacker ip={attack_ip}")

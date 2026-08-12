@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Challenge — MAJOR-PAIN</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap narrow">
+  <div class="topbar">
+    <div>
+      <h1>Extra verification</h1>
+      <div class="sub">event #{{ event.row_id }} · {{ event.ts|fmt }}</div>
+    </div>
+    <a class="plug" href="/">back</a>
+  </div>
+
+  {% if verified %}
+  <div class="stamp allow">
+    <div class="verdict">Identity verified — login granted</div>
+    <div class="meta">demo step only: the OTP is accepted as-is; the saved decision for event #{{ event.row_id }} stays flag</div>
+  </div>
+  {% else %}
+  <div class="stamp flag">
+    <div class="verdict">FLAG — extra verification required</div>
+    <div class="meta">login for <b>{{ event.name }}</b> looked unusual · rule {{ event.rule_score }}/100</div>
+  </div>
+
+  {% if event.reasons %}
+  <div class="card">
+    <h3>Why we're asking</h3>
+    <div>{% for r in event.reasons.split(', ') %}<span class="chip">{{ r }}</span>{% endfor %}</div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3>Confirm it's you</h3>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 14px">We sent a one-time code to your registered contact. Enter it to continue. (Demo: any 6-digit code works; the event decision is not changed in the database.)</p>
+    <form method="post" action="/challenge/{{ event.row_id }}">
+      <div class="otp"><input name="otp" inputmode="numeric" maxlength="6" placeholder="------" required></div>
+      <div class="actions" style="margin-top:16px">
+        <button type="submit">verify identity</button>
+        <a class="btn grey" href="/">cancel</a>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3>Event</h3>
+    <div class="kv">
+      ip <b>{{ event.ip }}</b> · country <b>{{ event.country }}</b> · device <b>{{ event.device_type }}</b><br>
+      os <b>{{ event.os_family }}</b> · browser <b>{{ event.browser_family }}</b><br>
+      rule score <b>{{ event.rule_score }}</b> · ml score <b>{{ '%.3f' % event.ml_score if event.ml_score is not none else '-' }}</b> · risk <b>{{ event.risk_level }}</b>
+    </div>
+  </div>
+
+  <div class="actions">
+    <a class="btn grey" href="/admin">admin dashboard</a>
+  </div>
+</div>
+</body>
+</html>

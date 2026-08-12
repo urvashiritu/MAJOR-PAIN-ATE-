@@ -45,6 +45,8 @@ feature_sql = _feat.feature_sql
 score_sql = _rule.score_sql
 LEVEL_BOUNDS = _rule.LEVEL_BOUNDS
 
+from db import refresh_profile  # noqa: E402
+
 MODEL_PATH = ROOT / "models" / "supervised_hgb.joblib"
 
 _model = None
@@ -129,6 +131,8 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (alert_id, row_id, ev["user_id"], ev["ts"], level,
               int(row["rule_score"]), ml_score, reasons, decision))
+    elif decision == "allow":
+        refresh_profile(con, ev["user_id"])
 
     return {
         "row_id": row_id, "user_id": ev["user_id"], "ts": ev["ts"],
