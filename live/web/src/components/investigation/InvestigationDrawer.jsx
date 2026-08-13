@@ -5,6 +5,7 @@ import {
   Ban, Flag, ArrowUpRight, Download, MessageSquare,
 } from 'lucide-react'
 import SeverityBadge from '../common/SeverityBadge'
+import BehavioralIndicators from './BehavioralIndicators'
 import { getInvestigation, acknowledgeAlert } from '../../hooks/useApi'
 
 function EventTimeline({ timeline }) {
@@ -182,7 +183,7 @@ export default function InvestigationDrawer({ isOpen, onClose, alert }) {
     setData(null)
     setLoadError(null)
     setLoading(true)
-    getInvestigation(alert?.id)
+    getInvestigation(alert?.eventId ?? alert?.id)
       .then(d => { if (mounted) { setData(d); setLoading(false); setAlertAcked(alert?.status === 'acknowledged') } })
       .catch(e => { if (mounted) { setLoadError(e.message); setLoading(false) } })
     return () => { mounted = false }
@@ -365,6 +366,7 @@ export default function InvestigationDrawer({ isOpen, onClose, alert }) {
               <div className="space-y-5">
                 <EventTimeline timeline={d.timeline} />
                 <FeatureContributions contributions={d.featureContributions} />
+                <BehavioralIndicators baseline={d.baseline} />
                 <MitreCard mitreId={d.mitreId} mitreName={d.mitreName} mitreDescription={d.mitreDescription} />
                 <AIExplanation explanation={d.aiExplanation} confidence={d.confidence} />
                 <UserBaseline baseline={d.baseline} />

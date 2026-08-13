@@ -31,7 +31,9 @@
         <form method="post" action="/login">
           <input type="hidden" name="user_id" value="{{ u.user_id }}">
           <input type="hidden" name="login_success" value="1">
-          <button type="submit" class="{{ 'attacker' if u.persona == 'attacker' }}">simulate login</button>
+          <input type="password" name="password" placeholder="type password" autocomplete="off"
+                 style="width:100%;margin-bottom:6px;padding:6px 8px;background:transparent;border:1px solid rgba(255,255,255,.18);border-radius:4px;color:inherit;font-family:monospace;font-size:12px">
+          <button type="submit" class="{{ 'attacker' if u.persona == 'attacker' }}" style="width:100%">simulate login</button>
         </form>
         {% if u.persona == 'attacker' %}
         <form method="post" action="/burst">
@@ -69,5 +71,6 @@
     </div>
   </form>
 </div>
+<script src="/static/behavioral.js"></script>
 </body>
 </html>

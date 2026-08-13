@@ -122,6 +122,33 @@ def _jdict(d: dict) -> dict:
     return out
 
 
+BEHAVIORAL_FIELDS = ("fp_hash", "key_hold_median", "key_gap_median", "wpm", "typing_n")
+
+
+def _num(value):
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _persist_behavioral(c, row_id: int, payload: dict) -> None:
+    """Store the client-computed behavioral overlay on the scored event.
+
+    Kept in app.py (not scoring.py) so the shared scoring path stays
+    untouched; the overlay is additive and never feeds features/scores.
+    """
+    c.execute("""
+        UPDATE events SET fp_hash = ?, key_hold_median = ?, key_gap_median = ?,
+            wpm = ?, typing_n = ?
+        WHERE row_id = ?
+    """, (payload.get("fp_hash") or None, _num(payload.get("key_hold_median")),
+          _num(payload.get("key_gap_median")), _num(payload.get("wpm")),
+          _num(payload.get("typing_n")), row_id))
+
+
 @app.template_filter("fmt")
 def _fmt_ts(ts) -> str:
     """Human timestamp: '12 Aug 2026, 14:32:07' (local time)."""
@@ -185,6 +212,7 @@ def login():
     ev = _event_from_form(user, request.form, _login_success(request.form))
     with _con_lock:
         result = score_event(c, ev)
+        _persist_behavioral(c, result["row_id"], request.form)
     _publish(c, result)
     if result["decision"] == "block":
         return redirect(url_for("blocked", event_id=result["row_id"]))
@@ -277,6 +305,7 @@ def api_events():
     ev = _event_from_form(user, payload, _login_success(payload))
     with _con_lock:
         result = score_event(c, ev)
+        _persist_behavioral(c, result["row_id"], payload)
     _publish(c, result)
     return jsonify(_jdict(result))
 
@@ -593,6 +622,63 @@ def api_investigation(event_id: int):
     top_hours = (e.get("top_hours") or "0").split(",")[0]
     threshold = float(load_model()["threshold"])
 
+    prev = c.execute("""
+        SELECT fp_hash, key_hold_median, key_gap_median, wpm FROM events
+        WHERE user_id = ? AND decision = 'allow' AND login_success
+          AND fp_hash IS NOT NULL AND row_id < ?
+        ORDER BY row_id DESC LIMIT 20
+    """, [e["user_id"], event_id]).fetchall()
+
+    known = []
+    holds, gaps, wpms = [], [], []
+    for fp, hold, gap, wpm in prev:
+        if fp and fp not in known:
+            known.append(fp)
+        if hold is not None:
+            holds.append(hold)
+        if gap is not None:
+            gaps.append(gap)
+        if wpm is not None:
+            wpms.append(wpm)
+
+    fp_hash = e.get("fp_hash")
+    if not fp_hash:
+        fingerprint = "unknown"
+    elif fp_hash in known:
+        fingerprint = "match"
+    elif known:
+        fingerprint = "new"
+    else:
+        fingerprint = "unknown"
+
+    def stats(a):
+        if not a:
+            return (None, None)
+        m = sum(a) / len(a)
+        v = sum((x - m) ** 2 for x in a) / len(a)
+        return (m, v ** 0.5)
+
+    hm, hs = stats(holds)
+    gm, gs = stats(gaps)
+    wm, ws = stats(wpms)
+
+    def zscore(val, mean, std):
+        if val is None or mean is None or std is None or std == 0:
+            return None
+        return (val - mean) / std
+
+    zs = [z for z in (
+        zscore(e.get("key_hold_median"), hm, hs),
+        zscore(e.get("key_gap_median"), gm, gs),
+        zscore(e.get("wpm"), wm, ws),
+    ) if z is not None]
+    typing_pct = None
+    if zs:
+        avg_z = sum(abs(z) for z in zs) / len(zs)
+        typing_pct = int(max(0, min(100, round(100 * (1 - avg_z / 3)))))
+    typing = "match" if typing_pct is not None and typing_pct >= 70 else \
+             "mismatch" if typing_pct is not None else "unknown"
+
     return jsonify({
         "displayName": e.get("name") or e["user_id"], "user": e["user_id"],
         "severity": e.get("risk_level") or "low",
@@ -621,6 +707,9 @@ def api_investigation(event_id: int):
             "mfaEnabled": False,
             "countries": [e.get("usual_country")] if e.get("usual_country") else [],
             "devices": [e.get("usual_device_type")] if e.get("usual_device_type") else [],
+            "fingerprint": fingerprint,
+            "typingMatch": typing,
+            "typingPct": typing_pct,
         },
     })
 
@@ -737,4 +826,4 @@ def spa_files(path: str):
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True, threaded=True)
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

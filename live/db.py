@@ -53,6 +53,11 @@ CREATE TABLE IF NOT EXISTS events (
     risk_level VARCHAR,
     reasons VARCHAR,
     decision VARCHAR,                 -- 'allow' | 'flag' | 'block' | 'history'
+    fp_hash VARCHAR,
+    key_hold_median DOUBLE,
+    key_gap_median DOUBLE,
+    wpm DOUBLE,
+    typing_n INTEGER,
     PRIMARY KEY (row_id)
 );
 
@@ -95,6 +100,10 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(SCHEMA_SQL)
     con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS asn TEXT")
     con.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS acked_at TIMESTAMP")
+    for col, typ in (("fp_hash", "VARCHAR"), ("key_hold_median", "DOUBLE"),
+                     ("key_gap_median", "DOUBLE"), ("wpm", "DOUBLE"),
+                     ("typing_n", "INTEGER")):
+        con.execute(f"ALTER TABLE events ADD COLUMN IF NOT EXISTS {col} {typ}")
 
 
 def next_event_id(con: duckdb.DuckDBPyConnection) -> int:

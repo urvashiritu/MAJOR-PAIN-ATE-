@@ -25,3 +25,9 @@ venv/
 
 # Frontend deps
 live/web/node_modules/
+
+# Playwright test artifacts
+.playwright-mcp/
+
+# E2E demo data (regenerated on seed)
+logs-lab/
