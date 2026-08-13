@@ -4,7 +4,7 @@ DATA := data/processed
 # Pipeline order: 00 -> 02 -> 01 -> 03 -> 04 -> 05 -> 06
 # (file numbers are phase numbers, not execution order; see README)
 
-.PHONY: all clean features sample validate rules models supervised logs-lab-train logs-lab-train-bg
+.PHONY: all clean features sample validate rules models supervised logs-lab-prepare logs-lab-train logs-lab-train-bg logs-lab-ui logs-lab-ui-bg
 
 all: supervised
 
@@ -41,6 +41,18 @@ supervised: reports/model_comparison.csv
 
 logs-lab-train:
 	$(PY) logs-lab/train_models.py
+
+logs-lab-prepare:
+	$(PY) logs-lab/parse_logs.py
+	$(PY) logs-lab/train_models.py
+
+logs-lab-ui:
+	$(PY) logs-lab/ui/app.py
+
+logs-lab-ui-bg:
+	mkdir -p logs-lab/runs
+	nohup $(PY) logs-lab/ui/app.py > logs-lab/runs/ui-$$(date +%F-%H%M%S).log 2>&1 &
+	@echo "logs-lab UI running at http://127.0.0.1:5001 (log: logs-lab/runs/ui-*.log)"
 
 logs-lab-train-bg:
 	mkdir -p logs-lab/runs

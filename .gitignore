@@ -30,4 +30,13 @@ live/web/node_modules/
 .playwright-mcp/
 
 # E2E demo data (regenerated on seed)
-logs-lab/
+logs-lab/raw/
+logs-lab/events.parquet
+logs-lab/featured_events.parquet
+logs-lab/models/
+logs-lab/reports/
+logs-lab/runs/
+logs-lab/backup-*/
+
+# Logs-Lab UI test screenshots
+logs-lab-ui-*.png

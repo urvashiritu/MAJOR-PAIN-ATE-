@@ -53,7 +53,8 @@ DEFAULT_COMPARISON = DEFAULT_REPORT_DIR / "model_comparison.csv"
 DEFAULT_REPORT = DEFAULT_REPORT_DIR / "evaluation.json"
 DEFAULT_MODEL = DEFAULT_MODEL_DIR / "best_model.joblib"
 
-SPLIT_RATIO = 0.7
+SPLIT_TRAIN_RATIO = 0.55
+SPLIT_VAL_RATIO = 0.15
 FPR_BUDGET = 0.05
 SEED = 42
 
@@ -222,7 +223,11 @@ def split_sql(feature_path: Path) -> str:
         FROM read_parquet('{feature_path}')
     )
     SELECT row_id,
-           CASE WHEN rn <= CEIL({SPLIT_RATIO} * n_events) THEN 'train' ELSE 'test' END AS split
+           CASE
+               WHEN rn <= CEIL({SPLIT_TRAIN_RATIO} * n_events) THEN 'train'
+               WHEN rn <= CEIL(({SPLIT_TRAIN_RATIO} + {SPLIT_VAL_RATIO}) * n_events) THEN 'val'
+               ELSE 'test'
+           END AS split
     FROM ev
     """
 
@@ -287,17 +292,20 @@ def build_supervised_pipeline(estimator) -> Pipeline:
     return Pipeline([("pre", pre), ("model", estimator)])
 
 
-def evaluate_supervised(name: str, pipeline: Pipeline, train: pd.DataFrame, test: pd.DataFrame) -> tuple[dict, dict]:
+def evaluate_supervised(name: str, pipeline: Pipeline, train: pd.DataFrame, val: pd.DataFrame, test: pd.DataFrame) -> tuple[dict, dict]:
     X_train = train[FEATURE_COLS]
+    X_val = val[FEATURE_COLS]
     X_test = test[FEATURE_COLS]
     y_train = (~train["success"]).to_numpy(dtype=bool)
+    y_val = (~val["success"]).to_numpy(dtype=bool)
     y_test = (~test["success"]).to_numpy(dtype=bool)
 
     t0 = time.time()
     pipeline.fit(X_train, y_train)
     fit_s = time.time() - t0
+    val_scores = pipeline.predict_proba(X_val)[:, 1]
+    threshold, within_budget = tune_threshold(y_val, val_scores)
     scores = pipeline.predict_proba(X_test)[:, 1]
-    threshold, within_budget = tune_threshold(y_test, scores)
     metrics = metrics_at(y_test, scores, threshold)
     result = {
         "model": name,
@@ -311,7 +319,7 @@ def evaluate_supervised(name: str, pipeline: Pipeline, train: pd.DataFrame, test
         "roc_auc": float(roc_auc_score(y_test, scores)),
         "pr_auc": float(average_precision_score(y_test, scores)),
         "fit_seconds": fit_s,
-        "note": "supervised failed-login classifier on chronological holdout",
+        "note": "supervised failed-login classifier; threshold tuned on val, metrics on test",
     }
     artifact = {
         "pipeline": pipeline,
@@ -323,7 +331,7 @@ def evaluate_supervised(name: str, pipeline: Pipeline, train: pd.DataFrame, test
     return result, artifact
 
 
-def evaluate_isolation_forest(train: pd.DataFrame, test: pd.DataFrame) -> tuple[dict, dict]:
+def evaluate_isolation_forest(train: pd.DataFrame, val: pd.DataFrame, test: pd.DataFrame) -> tuple[dict, dict]:
     normal_train = train[train["success"]].reset_index(drop=True)
     base_pre = ColumnTransformer(
         transformers=[
@@ -339,15 +347,18 @@ def evaluate_isolation_forest(train: pd.DataFrame, test: pd.DataFrame) -> tuple[
         ]
     )
     X_fit = base_pre.fit_transform(normal_train[FEATURE_COLS])
+    X_val = base_pre.transform(val[FEATURE_COLS])
     X_test = base_pre.transform(test[FEATURE_COLS])
+    y_val = (~val["success"]).to_numpy(dtype=bool)
     y_test = (~test["success"]).to_numpy(dtype=bool)
 
     model = IsolationForest(contamination=0.10, random_state=SEED, n_jobs=-1)
     t0 = time.time()
     model.fit(X_fit)
     fit_s = time.time() - t0
+    val_scores = -model.decision_function(X_val)
+    threshold, within_budget = tune_threshold(y_val, val_scores)
     scores = -model.decision_function(X_test)
-    threshold, within_budget = tune_threshold(y_test, scores)
     metrics = metrics_at(y_test, scores, threshold)
     result = {
         "model": "isolation_forest",
@@ -361,7 +372,7 @@ def evaluate_isolation_forest(train: pd.DataFrame, test: pd.DataFrame) -> tuple[
         "roc_auc": float(roc_auc_score(y_test, scores)),
         "pr_auc": float(average_precision_score(y_test, scores)),
         "fit_seconds": fit_s,
-        "note": "fit on successful train events only; anomaly score = -decision_function",
+        "note": "fit on successful train events only; threshold tuned on val, metrics on test",
     }
     artifact = {
         "preprocessor": base_pre,
@@ -407,16 +418,20 @@ def main() -> None:
     cols = ", ".join(FEATURE_COLS + ["success", "row_id", "user_id", "source"])
     split_cte = split_sql(args.features)
     train_sql = f"WITH sp AS ({split_cte}) SELECT {cols} FROM read_parquet('{args.features}') t JOIN sp s USING(row_id) WHERE s.split='train'"
+    val_sql = f"WITH sp AS ({split_cte}) SELECT {cols} FROM read_parquet('{args.features}') t JOIN sp s USING(row_id) WHERE s.split='val'"
     test_sql = f"WITH sp AS ({split_cte}) SELECT {cols} FROM read_parquet('{args.features}') t JOIN sp s USING(row_id) WHERE s.split='test'"
 
     print("loading train split ...", flush=True)
     train = con.execute(train_sql).df()
+    print("loading val split ...", flush=True)
+    val = con.execute(val_sql).df()
     print("loading test split ...", flush=True)
     test = con.execute(test_sql).df()
     y_train = ~train["success"]
+    y_val = ~val["success"]
     y_test = ~test["success"]
-    print(f"split: train {len(train):,} / test {len(test):,}", flush=True)
-    print(f"failure share: train {y_train.mean():.4f} / test {y_test.mean():.4f}", flush=True)
+    print(f"split: train {len(train):,} / val {len(val):,} / test {len(test):,}", flush=True)
+    print(f"failure share: train {y_train.mean():.4f} / val {y_val.mean():.4f} / test {y_test.mean():.4f}", flush=True)
 
     comparisons: list[dict] = []
     artifacts: dict[str, dict] = {}
@@ -441,7 +456,7 @@ def main() -> None:
 
     for name, pipeline in supervised.items():
         print(f"training {name} ...", flush=True)
-        result, artifact = evaluate_supervised(name, pipeline, train, test)
+        result, artifact = evaluate_supervised(name, pipeline, train, val, test)
         comparisons.append(result)
         artifacts[name] = artifact
         print(
@@ -452,7 +467,7 @@ def main() -> None:
         )
 
     print("training isolation_forest ...", flush=True)
-    result, artifact = evaluate_isolation_forest(train, test)
+    result, artifact = evaluate_isolation_forest(train, val, test)
     comparisons.append(result)
     artifacts["isolation_forest"] = artifact
     print(
@@ -472,7 +487,7 @@ def main() -> None:
     joblib.dump(artifacts[best_name], args.model)
     print(f"wrote {args.model} ({best_name})", flush=True)
 
-    total_rows = len(train) + len(test)
+    total_rows = len(train) + len(val) + len(test)
     all_users = sorted(set(train["user_id"].unique()) | set(test["user_id"].unique()))
     all_sources = sorted(set(train["source"].unique()) | set(test["source"].unique()))
     report = {
@@ -486,13 +501,16 @@ def main() -> None:
         "label": {
             "target": "not success",
             "train_failure_share": round(float(y_train.mean()), 4),
+            "val_failure_share": round(float(y_val.mean()), 4),
             "test_failure_share": round(float(y_test.mean()), 4),
             "caveat": "This sidequest evaluates failed-login detection on unified auth logs, not attack/ATO labels.",
         },
         "split": {
-            "rule": f"first ceil({SPLIT_RATIO}*n) events per user by (ts, row_id) -> train",
+            "rule": f"first ceil({SPLIT_TRAIN_RATIO}*n) -> train, next ceil({SPLIT_VAL_RATIO}*n) -> val, rest -> test, per user by (ts, row_id)",
             "train_rows": len(train),
+            "val_rows": len(val),
             "test_rows": len(test),
+            "threshold_tuning": "threshold tuned on val split; precision/recall/f1/fpr reported on test split",
         },
         "features": {
             "numeric": NUMERIC_COLS,

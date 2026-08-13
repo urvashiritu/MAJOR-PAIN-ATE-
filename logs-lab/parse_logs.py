@@ -189,7 +189,7 @@ def parse_windows(path):
 
 _SSH = re.compile(
     r"^(?:\w{3} +\d+ \d\d:\d\d:\d\d) \S+ \w+\[\d+\]: (Accepted|Failed password)"
-    r"(?: publickey| password)? for(?: invalid)? user (\S+).* from ([0-9.]+)")
+    r"(?: publickey| password)? for (?:invalid user )?(\S+).* from ([0-9.]+)")
 
 
 def parse_ssh(path):
@@ -266,15 +266,65 @@ PARSERS = {
 }
 
 
+def raw_event_count(src, fname):
+    """Count login-relevant records in a raw file WITHOUT parsing it."""
+    path = RAW / fname
+    if src == "ssh":
+        n = 0
+        for line in open(path, encoding="utf-8", errors="replace"):
+            if "Accepted" in line or "Failed password" in line:
+                n += 1
+        return n
+    if src == "windows":
+        n = 0
+        for event, ev in ET.iterparse(path, events=("end",)):
+            if not ev.tag.endswith("Event"):
+                continue
+            eid = None
+            for sub in ev.iter():
+                if sub.tag.rsplit("}", 1)[-1] == "EventID":
+                    eid = int(sub.text or 0)
+                    break
+            if eid in (4624, 4625):
+                n += 1
+            ev.clear()
+        return n
+    if src == "web":
+        return sum(1 for _ in open(path, encoding="utf-8"))
+    d = json.load(open(path))
+    if isinstance(d, dict):
+        d = d.get("Records", [])
+    if src == "mysql":
+        return sum(1 for r in d if r.get("event") == "connect")
+    return len(d)
+
+
 def main():
     frames, report = [], {}
+    print("verifying raw vs parsed counts per source (parse ratio gate):")
     for src, (fname, fn) in PARSERS.items():
         path = RAW / fname
         print(f"parsing {src} ...")
         df = fn(path)
         frames.append(df)
-        report[src] = {"rows": int(len(df)), "success": int(df["success"].sum())}
-        print(f"  {src}: {len(df):,} events, {report[src]['success']:,} success")
+        raw_n = raw_event_count(src, fname)
+        parsed_n = int(len(df))
+        ok = raw_n == parsed_n
+        report[src] = {
+            "raw": raw_n,
+            "parsed": parsed_n,
+            "success": int(df["success"].sum()),
+            "match": ok,
+        }
+        print(f"  {src}: raw={raw_n:,} parsed={parsed_n:,} "
+              f"success={report[src]['success']:,} match={ok}")
+        if not ok:
+            raise SystemExit(
+                f"FATAL: {src} parse ratio != 100% "
+                f"(raw {raw_n:,} vs parsed {parsed_n:,}); not writing {OUT}"
+            )
+    if not all(r["match"] for r in report.values()):
+        raise SystemExit(f"FATAL: parse-ratio gate failed; not writing {OUT}")
 
     ev = pd.concat(frames, ignore_index=True)
     ev = ev.sort_values(["user", "ts"]).drop_duplicates(subset=["ts", "source", "user", "ip"])
