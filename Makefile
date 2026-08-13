@@ -4,7 +4,7 @@ DATA := data/processed
 # Pipeline order: 00 -> 02 -> 01 -> 03 -> 04 -> 05 -> 06
 # (file numbers are phase numbers, not execution order; see README)
 
-.PHONY: all clean features sample validate rules models supervised
+.PHONY: all clean features sample validate rules models supervised logs-lab-train logs-lab-train-bg
 
 all: supervised
 
@@ -38,3 +38,10 @@ reports/model_comparison.csv: reports/rule_baseline_scores.parquet
 
 supervised: reports/model_comparison.csv
 	$(PY) src/06_supervised_model.py
+
+logs-lab-train:
+	$(PY) logs-lab/train_models.py
+
+logs-lab-train-bg:
+	mkdir -p logs-lab/runs
+	nohup $(PY) logs-lab/train_models.py > logs-lab/runs/train-$$(date +%F-%H%M%S).log &
