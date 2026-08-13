@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Search, Bell, RefreshCw, ChevronDown } from 'lucide-react'
+import { Bell, RefreshCw, ChevronDown } from 'lucide-react'
+import CommandPalette from './CommandPalette'
+import StatusIndicator from '../common/StatusIndicator'
 
 const timeRanges = ['Last 24 Hours', 'Last 7 Days', 'Last 30 Days', 'Custom']
 
-export default function TopNavbar() {
-  const [searchFocused, setSearchFocused] = useState(false)
+export default function TopNavbar({ onNavigate }) {
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [selectedRange, setSelectedRange] = useState('Last 24 Hours')
   const [showRangeDropdown, setShowRangeDropdown] = useState(false)
@@ -18,26 +19,8 @@ export default function TopNavbar() {
       className="panel sticky top-0 z-40 mx-4 mt-4 px-4 py-2.5 flex items-center gap-4"
       style={{ background: 'rgba(11,14,20,0.92)' }}
     >
-      <div className="relative flex-1 max-w-md">
-        <Search
-          size={16}
-          className={`absolute left-3 top-1/2 -translate-y-1/2 transition-colors ${
-            searchFocused ? 'text-ochre' : 'text-ink/faint'
-          }`}
-        />
-        <input
-          type="text"
-          placeholder="Search users, IPs, devices..."
-          onFocus={() => setSearchFocused(true)}
-          onBlur={() => setSearchFocused(false)}
-          className="glass-input w-full pl-9 pr-3 py-2 text-sm"
-          aria-label="Global search"
-        />
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-          <kbd className="hidden sm:inline-flex text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-white/30 font-mono">
-            ⌘K
-          </kbd>
-        </div>
+      <div className="flex-1 flex justify-start">
+        <CommandPalette onNavigate={onNavigate} />
       </div>
 
       <div className="relative">
@@ -81,6 +64,8 @@ export default function TopNavbar() {
         <RefreshCw size={14} className={autoRefresh ? 'animate-spin' : ''} />
         <span className="hidden sm:inline">Auto</span>
       </button>
+
+      <StatusIndicator state="active" label="Live" size="sm" className="hidden lg:flex" labelClassName="text-[11px] text-low font-semibold uppercase tracking-wider" />
 
       <div className="relative">
         <button className="p-2 rounded-sm hover:bg-white/5 text-white/40 hover:text-white/70 transition-all relative">

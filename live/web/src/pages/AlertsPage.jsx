@@ -1,11 +1,19 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Filter, Clock, CheckCircle } from 'lucide-react'
+import { Clock } from 'lucide-react'
 import GlassCard from '../components/GlassCard'
 import SeverityBadge from '../components/common/SeverityBadge'
+import SeverityTabs from '../components/common/SeverityTabs'
 import { getAlerts, acknowledgeAlert } from '../hooks/useApi'
 
-const filters = ['All', 'Critical', 'High', 'Medium', 'Low', 'Acknowledged']
+const filterTabs = [
+  { id: 'all', label: 'All' },
+  { id: 'critical', label: 'Critical' },
+  { id: 'high', label: 'High' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'low', label: 'Low' },
+  { id: 'acknowledged', label: 'Acknowledged' },
+]
 
 function formatTime(ts) {
   const d = new Date(ts)
@@ -17,7 +25,7 @@ function formatTime(ts) {
 }
 
 export default function AlertsPage() {
-  const [activeFilter, setActiveFilter] = useState('All')
+  const [activeFilter, setActiveFilter] = useState('all')
   const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -30,9 +38,9 @@ export default function AlertsPage() {
 
   useEffect(() => { loadAlerts() }, [])
 
-  const filtered = activeFilter === 'All'
+  const filtered = activeFilter === 'all'
     ? alerts
-    : activeFilter === 'Acknowledged'
+    : activeFilter === 'acknowledged'
     ? alerts.filter(a => a.status === 'acknowledged')
     : alerts.filter(a => a.severity === activeFilter.toLowerCase())
 
@@ -55,24 +63,15 @@ export default function AlertsPage() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-white/40 flex items-center gap-1"><Clock size={12} /> Last 24 hours</span>
-            <button className="glass-input flex items-center gap-1.5 px-3 py-1.5 text-xs text-white/60">
-              <Filter size={12} /> Filter
-            </button>
           </div>
         </div>
 
         <div className="flex items-center gap-2 mb-5">
-          {filters.map(f => (
-            <button
-              key={f}
-              onClick={() => setActiveFilter(f)}
-              className={`px-3 py-1.5 rounded-sm text-xs font-medium transition-all ${
-                activeFilter === f ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white/70 hover:bg-white/5'
-              }`}
-            >
-              {f}
-            </button>
-          ))}
+          <SeverityTabs
+            tabs={filterTabs}
+            defaultActiveId="all"
+            onChange={setActiveFilter}
+          />
         </div>
 
         <GlassCard className="overflow-hidden">
@@ -86,13 +85,12 @@ export default function AlertsPage() {
                 <th>Risk</th>
                 <th>Time</th>
                 <th>Status</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="text-center text-sm text-white/40 py-8">No alerts</td>
+                  <td colSpan={7} className="text-center text-sm text-white/40 py-8">No alerts</td>
                 </tr>
               )}
               {filtered.map((alert, i) => (
@@ -113,23 +111,15 @@ export default function AlertsPage() {
                   </td>
                   <td className="text-xs text-white/40">{formatTime(alert.timestamp)}</td>
                   <td>
-                    {alert.status === 'new' ? (
-                      <span className="badge badge-new">New</span>
-                    ) : alert.status === 'acknowledged' ? (
-                      <span className="badge badge-info">Acked</span>
-                    ) : (
-                      <span className="badge badge-low">Dismissed</span>
-                    )}
-                  </td>
-                  <td>
-                    {alert.status === 'new' && (
-                      <button
-                        onClick={() => handleAck(alert)}
-                        className="flex items-center gap-1 px-2 py-1 rounded-sm bg-info/10 text-info text-xs hover:bg-blue-500/20 transition-all"
-                      >
-                        <CheckCircle size={11} /> Ack
-                      </button>
-                    )}
+                    <select
+                      value={alert.status === 'acknowledged' ? 'acknowledged' : 'new'}
+                      onChange={(e) => { if (e.target.value === 'acknowledged') handleAck(alert) }}
+                      className="glass-input px-2 py-1 text-xs text-white/70 cursor-pointer"
+                      aria-label={`Status for ${alert.displayName}`}
+                    >
+                      <option value="new">New</option>
+                      <option value="acknowledged">Acknowledged</option>
+                    </select>
                   </td>
                 </motion.tr>
               ))}

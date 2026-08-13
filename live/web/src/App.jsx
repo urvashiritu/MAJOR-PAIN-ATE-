@@ -102,7 +102,7 @@ export default function App() {
           className="transition-all duration-300 min-h-screen"
           style={{ marginLeft: sidebarCollapsed ? 72 : 256 }}
         >
-          <TopNavbar />
+          <TopNavbar onNavigate={setActivePage} />
 
           {error && (
             <div className="mx-5 mt-3 px-4 py-2 rounded-sm bg-critical/10 text-critical text-sm border border-red-500/20">

@@ -2,6 +2,16 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Search, Shield, AlertTriangle, MoreHorizontal } from 'lucide-react'
 import { getUsers } from '../hooks/useApi'
+import ColumnToggle from '../components/common/ColumnToggle'
+
+const ALL_COLUMNS = [
+  { key: 'persona', label: 'Persona' },
+  { key: 'country', label: 'Country' },
+  { key: 'ip', label: 'IP' },
+  { key: 'flags', label: 'Flags' },
+  { key: 'maxRule', label: 'Max Rule' },
+  { key: 'liveEvents', label: 'Live Events' },
+]
 
 function riskColor(risk) {
   return risk >= 70 ? 'text-critical' : risk >= 40 ? 'text-ochre' : 'text-low'
@@ -10,6 +20,7 @@ function riskColor(risk) {
 export default function UsersPage() {
   const [users, setUsers] = useState([])
   const [query, setQuery] = useState('')
+  const [visibleCols, setVisibleCols] = useState(ALL_COLUMNS.map(c => c.key))
 
   useEffect(() => {
     getUsers()
@@ -33,9 +44,12 @@ export default function UsersPage() {
             <h1 className="text-lg font-semibold text-white">Users</h1>
             <p className="text-sm text-white/50">{users.length} users monitored</p>
           </div>
-          <div className="relative max-w-xs w-full">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search users..." className="glass-input w-full pl-9 pr-3 py-2 text-sm" />
+          <div className="flex items-center gap-2">
+            <div className="relative max-w-xs w-full">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search users..." className="glass-input w-full pl-9 pr-3 py-2 text-sm" />
+            </div>
+            <ColumnToggle columns={ALL_COLUMNS} visible={visibleCols} onChange={setVisibleCols} />
           </div>
         </div>
 
@@ -59,12 +73,12 @@ export default function UsersPage() {
             <thead>
               <tr>
                 <th>User</th>
-                <th>Persona</th>
-                <th>Country</th>
-                <th>IP</th>
-                <th>Flags</th>
-                <th>Max Rule</th>
-                <th>Live Events</th>
+                {visibleCols.includes('persona') && <th>Persona</th>}
+                {visibleCols.includes('country') && <th>Country</th>}
+                {visibleCols.includes('ip') && <th>IP</th>}
+                {visibleCols.includes('flags') && <th>Flags</th>}
+                {visibleCols.includes('maxRule') && <th>Max Rule</th>}
+                {visibleCols.includes('liveEvents') && <th>Live Events</th>}
                 <th></th>
               </tr>
             </thead>
@@ -82,22 +96,26 @@ export default function UsersPage() {
                       </div>
                     </div>
                   </td>
-                  <td className="text-sm text-white/60">{u.persona}</td>
-                  <td className="text-sm text-white/60">{u.country}</td>
-                  <td className="font-mono text-xs text-white/50">{u.ip}</td>
-                  <td>
-                    {u.flags > 0 ? (
-                      <span className="badge badge-critical flex items-center gap-0.5"><AlertTriangle size={10} /> {u.flags}</span>
-                    ) : (
-                      <span className="text-white/30 text-xs">—</span>
-                    )}
-                  </td>
-                  <td>
-                    <span className={`font-bold text-sm ${riskColor(u.max_rule || 0)}`}>
-                      {u.max_rule ?? '—'}
-                    </span>
-                  </td>
-                  <td className="text-sm text-white/60">{u.live_events}</td>
+                  {visibleCols.includes('persona') && <td className="text-sm text-white/60">{u.persona}</td>}
+                  {visibleCols.includes('country') && <td className="text-sm text-white/60">{u.country}</td>}
+                  {visibleCols.includes('ip') && <td className="font-mono text-xs text-white/50">{u.ip}</td>}
+                  {visibleCols.includes('flags') && (
+                    <td>
+                      {u.flags > 0 ? (
+                        <span className="badge badge-critical flex items-center gap-0.5"><AlertTriangle size={10} /> {u.flags}</span>
+                      ) : (
+                        <span className="text-white/30 text-xs">—</span>
+                      )}
+                    </td>
+                  )}
+                  {visibleCols.includes('maxRule') && (
+                    <td>
+                      <span className={`font-bold text-sm ${riskColor(u.max_rule || 0)}`}>
+                        {u.max_rule ?? '—'}
+                      </span>
+                    </td>
+                  )}
+                  {visibleCols.includes('liveEvents') && <td className="text-sm text-white/60">{u.live_events}</td>}
                   <td><MoreHorizontal size={14} className="text-white/20 hover:text-white/50 cursor-pointer" /></td>
                 </motion.tr>
               ))}

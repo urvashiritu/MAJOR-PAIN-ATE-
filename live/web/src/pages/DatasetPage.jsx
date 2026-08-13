@@ -3,9 +3,19 @@ import { motion } from 'framer-motion'
 import { Search, Database, ChevronLeft, ChevronRight } from 'lucide-react'
 import GlassCard from '../components/GlassCard'
 import SeverityBadge from '../components/common/SeverityBadge'
+import ColumnToggle from '../components/common/ColumnToggle'
 import { getDatasetSummary, getDatasetRows } from '../hooks/useApi'
 
 const PER_PAGE = 25
+
+const ALL_COLUMNS = [
+  { key: 'country', label: 'Country' },
+  { key: 'device', label: 'Device' },
+  { key: 'os', label: 'OS' },
+  { key: 'success', label: 'Success' },
+  { key: 'rule', label: 'Rule' },
+  { key: 'ml', label: 'ML' },
+]
 
 function fmtScore(v) {
   if (v === null || v === undefined) return '—'
@@ -19,6 +29,7 @@ export default function DatasetPage() {
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
+  const [visibleCols, setVisibleCols] = useState(ALL_COLUMNS.map(c => c.key))
 
   useEffect(() => {
     getDatasetSummary().then(setSummary).catch(() => {})
@@ -50,14 +61,17 @@ export default function DatasetPage() {
             </h1>
             <p className="text-sm text-white/50">Login events flagged by the anomaly engine — {summary ? summary.total.toLocaleString() : '…'} rows, {summary ? summary.flagged.toLocaleString() : '…'} flagged</p>
           </div>
-          <div className="relative max-w-xs w-full">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-            <input
-              value={query}
-              onChange={e => { setQuery(e.target.value); setPage(1) }}
-              placeholder="Search (user id, ip, country...)"
-              className="glass-input w-full pl-9 pr-3 py-2 text-sm"
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative max-w-xs w-full">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+              <input
+                value={query}
+                onChange={e => { setQuery(e.target.value); setPage(1) }}
+                placeholder="Search (user id, ip, country...)"
+                className="glass-input w-full pl-9 pr-3 py-2 text-sm"
+              />
+            </div>
+            <ColumnToggle columns={ALL_COLUMNS} visible={visibleCols} onChange={setVisibleCols} />
           </div>
         </div>
 
@@ -81,12 +95,12 @@ export default function DatasetPage() {
               <tr>
                 <th>Time</th>
                 <th>User</th>
-                <th>Country</th>
-                <th className="hidden md:table-cell">Device</th>
-                <th className="hidden md:table-cell">OS</th>
-                <th>Success</th>
-                <th>Rule</th>
-                <th>ML</th>
+                {visibleCols.includes('country') && <th>Country</th>}
+                {visibleCols.includes('device') && <th className="hidden md:table-cell">Device</th>}
+                {visibleCols.includes('os') && <th className="hidden md:table-cell">OS</th>}
+                {visibleCols.includes('success') && <th>Success</th>}
+                {visibleCols.includes('rule') && <th>Rule</th>}
+                {visibleCols.includes('ml') && <th>ML</th>}
                 <th>Risk</th>
               </tr>
             </thead>
@@ -101,14 +115,14 @@ export default function DatasetPage() {
                 <motion.tr key={row.row_id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
                   <td className="text-xs text-white/50 font-mono">{row.ts.replace('T', ' ').slice(0, 19)}</td>
                   <td className="font-mono text-xs text-white/70">{row.user_id}</td>
-                  <td className="text-xs">{row.country}</td>
-                  <td className="hidden md:table-cell text-xs text-white/50">{row.device_type}</td>
-                  <td className="hidden md:table-cell text-xs text-white/50">{row.os_family}</td>
-                  <td className="text-xs">{row.login_success
+                  {visibleCols.includes('country') && <td className="text-xs">{row.country}</td>}
+                  {visibleCols.includes('device') && <td className="hidden md:table-cell text-xs text-white/50">{row.device_type}</td>}
+                  {visibleCols.includes('os') && <td className="hidden md:table-cell text-xs text-white/50">{row.os_family}</td>}
+                  {visibleCols.includes('success') && <td className="text-xs">{row.login_success
                     ? <span className="text-low">yes</span>
-                    : <span className="text-critical">no</span>}</td>
-                  <td className="font-mono text-xs">{row.rule_score}</td>
-                  <td className="font-mono text-xs">{fmtScore(row.ml_score)}</td>
+                    : <span className="text-critical">no</span>}</td>}
+                  {visibleCols.includes('rule') && <td className="font-mono text-xs">{row.rule_score}</td>}
+                  {visibleCols.includes('ml') && <td className="font-mono text-xs">{fmtScore(row.ml_score)}</td>}
                   <td><SeverityBadge severity={row.risk_level} /></td>
                 </motion.tr>
               ))}

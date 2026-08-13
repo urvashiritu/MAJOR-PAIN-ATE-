@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { AlertTriangle, ArrowRight } from 'lucide-react'
+import StatusIndicator from '../common/StatusIndicator'
 
 export default function HighRiskBanner({ alert, onInvestigate }) {
   if (!alert) return null
@@ -21,7 +22,7 @@ export default function HighRiskBanner({ alert, onInvestigate }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="stamp stamp-critical">
-              <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+              <StatusIndicator state="down" size="sm" className="gap-1" />
               {label}
             </span>
             <span className="text-sm font-semibold text-ink/90 tracking-wide">{alert.type || 'Anomaly Detected'}</span>

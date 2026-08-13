@@ -4,6 +4,7 @@ import {
   LayoutDashboard, AlertTriangle, Users, Database, Shield, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { getDatasetSummary } from '../../hooks/useApi'
+import StatusIndicator from '../common/StatusIndicator'
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', id: 'dashboard' },
@@ -127,7 +128,7 @@ export default function Sidebar({ collapsed, setCollapsed, activePage, setActive
                 className="flex items-center justify-between"
               >
                 <div className="flex items-center gap-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${summary ? 'bg-green-500' : 'bg-white/20'}`} />
+                  <StatusIndicator state={summary ? 'active' : 'idle'} size="sm" className="gap-1" />
                   <span className="text-[11px] text-white/60 truncate">{m.name}</span>
                 </div>
                 <div className="flex items-center gap-1">
