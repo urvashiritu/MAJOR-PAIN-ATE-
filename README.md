@@ -155,6 +155,7 @@ page is the "show the cleaned dataset" view, not live traffic.
 - `data/live.duckdb` — live demo DB (users, events, alerts, user_profile)
 - `src/00_clean_dataset.py` → `src/02_feature_engineering.py` → `src/01_load_and_sample.py` → `src/03_validate_contract.py` → `src/04_rule_baseline.py` → `src/05_models_evaluation.py` → `src/06_supervised_model.py`
 - `live/` — Flask demo: `app.py` (web + JSON API + SSE), `db.py` (schema + profiles), `scoring.py` (shared SQL + HGB), `seed_demo.py` (personas), `templates/`
+- `logs-lab/` — separate synthetic-login experiment (no answer key) with its own parser, honest 3-way split training, explainable UI and write-up
 - `reports/` — rule scores, model comparison, threshold curves, replay analysis, evaluation JSONs
 - `models/final_model.joblib` — the Phase 6 Local Outlier Factor + scaler + threshold
 - `models/supervised_hgb.joblib` — the Phase 6+ supervised HGB + scaler + threshold (gold F1 0.287, the winner)
@@ -206,6 +207,9 @@ venv/bin/python live/app.py         # http://127.0.0.1:5000
 | `dataset_scan_report.md` | Full-scan quality audit of all 31.3M rows + cleaning solution, in plain words |
 | `PROJECT_ROADMAP.md` | Implementation plan, phases 0–11, in plain words |
 | `COMPLETE_PROJECT_REFERENCE.md` | Slim plain-English reference: metrics explained, honest findings, demo script, viva Q&A |
+| `logs-lab/README.md` | The synthetic-login experiment: purpose, honest scores, how to run |
+| `logs-lab/LOGS-LAB.md` | Full experiment write-up: methodology, scores, comparison to the main project |
+| `logs-lab/ui/README.md` | The standalone explainable UI: what it shows, API, how the explanations work |
 
 Reading order: README → roadmap → scan report → reference.
 
