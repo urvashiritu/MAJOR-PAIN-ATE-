@@ -118,6 +118,20 @@ The honest one-liner:
   10% challenge rate, the rules flag ~79% of true account takeovers while re-challenging
   ~11% of normal events.
 - The rules are our demo workhorse; the models are the comparison.
+- **This is a single-dataset study.** We evaluated LANL, CERT R4.2 and Cloud-UEBA as a
+  second dataset and rejected them: none has the login columns (country/device/IP/browser,
+  success/failure) our shared feature and rule SQL needs, and none provides event-level
+  attack ground truth (CERT is user+day, Cloud-UEBA is unlabeled by design). So the
+  findings here — blocklist ceiling, 2.6× supervised gain, 141-ATO needle — are measured
+  on RBA alone; transfer to other login telemetry is future work, not a claim.
+
+### Live dashboard vs. dataset browser
+
+The `/dashboard` SPA mixes two data sources, by design. The headline **KPIs, anomaly
+trend, risk distribution, activity-by-hour and top reasons come from the live demo
+database** (`events` where `decision != 'history'`) and tick as logins are scored. The
+**world map, scatter plot and Dataset page read the offline 1M-row scored sample** — that
+page is the "show the cleaned dataset" view, not live traffic.
 
 ### What was done, phase by phase (plain words)
 

@@ -363,50 +363,54 @@ def api_health():
     return jsonify({"status": "ok"})
 
 
+LIVE_EVENTS = "events WHERE decision != 'history'"
+
+
 @app.route("/api/dashboard")
 def api_dashboard():
     c = con()
     agg = c.execute(f"""
         SELECT COUNT(*) total,
-               COUNT(*) FILTER (WHERE r.risk_level IN ('high', 'critical')) flagged,
-               COUNT(DISTINCT s.user_id) users,
-               COUNT(DISTINCT s.user_id)
-                 FILTER (WHERE r.risk_level IN ('high', 'critical')) risky_users
-        FROM {SAMPLE_JOIN}
+               COUNT(*) FILTER (WHERE risk_level IN ('high', 'critical')) flagged,
+               COUNT(DISTINCT user_id) users,
+               COUNT(DISTINCT user_id)
+                 FILTER (WHERE risk_level IN ('high', 'critical')) risky_users
+        FROM {LIVE_EVENTS}
     """).fetchone()
     total, flagged, users, risky_users = agg
 
     trend = c.execute(f"""
-        SELECT dayofweek(s.ts) d,
-               COUNT(*) FILTER (WHERE r.risk_level IN ('high', 'critical')) flagged,
-               COUNT(*) FILTER (WHERE s.login_success
-                                AND r.risk_level IN ('high', 'critical')) fp
-        FROM {SAMPLE_JOIN} GROUP BY 1 ORDER BY 1
+        SELECT dayofweek(ts) d,
+               COUNT(*) FILTER (WHERE risk_level IN ('high', 'critical')) flagged,
+               COUNT(*) FILTER (WHERE login_success
+                                AND risk_level IN ('high', 'critical')) fp
+        FROM {LIVE_EVENTS} GROUP BY 1 ORDER BY 1
     """).fetchall()
     days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     anomaly_trend = [{"date": days[d], "anomalies": f, "falsePositives": fp}
                      for d, f, fp in trend]
 
     risk_dist = c.execute(f"""
-        SELECT COALESCE(r.risk_level, 'low') lvl, COUNT(*) n
-        FROM {SAMPLE_JOIN} GROUP BY 1
+        SELECT COALESCE(risk_level, 'low') lvl, COUNT(*) n
+        FROM {LIVE_EVENTS} GROUP BY 1
     """).fetchall()
     risk_dist = [{"name": lvl.title(), "value": n, "color": SEV_COLORS[lvl]}
                  for lvl, n in risk_dist if lvl in SEV_COLORS]
 
     activity = c.execute(f"""
-        SELECT s.hour h,
-               COUNT(*) FILTER (WHERE r.risk_level IN ('high', 'critical')) anom,
-               COUNT(*) FILTER (WHERE r.risk_level IN ('low', 'medium')) norm
-        FROM {SAMPLE_JOIN} GROUP BY 1 ORDER BY 1
+        SELECT hour(ts) h,
+               COUNT(*) FILTER (WHERE risk_level IN ('high', 'critical')) anom,
+               COUNT(*) FILTER (WHERE risk_level IN ('low', 'medium')) norm
+        FROM {LIVE_EVENTS} GROUP BY 1 ORDER BY 1
     """).fetchall()
     user_activity = [{"hour": f"{h:02d}", "normal": norm, "anomalous": anom}
                      for h, anom, norm in activity]
 
-    reasons = c.execute(f"""
+    reasons = c.execute("""
         SELECT reason, COUNT(*) n
-        FROM {SAMPLE_JOIN}, unnest(string_split(r.reasons, ', ')) AS t(reason)
-        WHERE r.reasons IS NOT NULL
+        FROM (SELECT reasons FROM events
+              WHERE decision != 'history' AND reasons IS NOT NULL),
+             unnest(string_split(reasons, ', ')) AS t(reason)
         GROUP BY 1 ORDER BY 2 DESC LIMIT 7
     """).fetchall()
     top = max((n for _, n in reasons), default=1)

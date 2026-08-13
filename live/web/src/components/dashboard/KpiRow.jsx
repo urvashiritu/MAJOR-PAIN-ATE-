@@ -34,7 +34,7 @@ function KPICardInner({ icon: Icon, label, value, change, color, iconColor, spar
 
 export default function KpiRow({ totalEvents, anomalies, highRiskUsers, usersMonitored, eventsChange, anomalyChange, spark }) {
   const kpis = [
-    { icon: Activity,     label: 'Total Events',    value: totalEvents,  change: eventsChange,  color: '#6ea8e8', iconColor: 'text-info' },
+    { icon: Activity,     label: 'Live Events Scored', value: totalEvents, change: eventsChange, color: '#6ea8e8', iconColor: 'text-info' },
     { icon: AlertTriangle,label: 'Anomalies',        value: anomalies,   change: anomalyChange, color: '#e8a33d', iconColor: 'text-ochre' },
     { icon: Shield,       label: 'High Risk Users',  value: highRiskUsers,change: undefined,    color: '#e5484d', iconColor: 'text-critical' },
     { icon: Users,        label: 'Users Monitored',  value: usersMonitored,change: undefined,   color: '#57b06c', iconColor: 'text-low' },

@@ -210,8 +210,11 @@ alert, we don't block — the Google/Microsoft approach.
 
 **Q8: Which dataset and why?**
 RBA (Telenor Norway, Wiefling et al., ACM TOPS 2022): 31.3M logins with country, device,
-browser, OS, timestamp, success/failure, attack labels. LANL and CERT lack these columns.
-It's synthesized — we say so in the report and treat it as a benchmark.
+browser, OS, timestamp, success/failure, attack labels. LANL and CERT lack these columns,
+so we did not add a second dataset: auth events with no country/device/IP/success cannot
+run through our shared feature/rule SQL, and none of them provides event-level attack
+ground truth (CERT is user+day scenarios, Cloud-UEBA is unlabeled by design). It's
+synthesized — we say so in the report and treat it as a benchmark.
 
 **Q9: Are your metrics real?**
 Yes — every number in `reports/` is produced by running the scripts. Early drafts quoted
@@ -247,6 +250,11 @@ chronological splits, the contract validator, and honest reporting.
 ## Honest limitations (say these out loud)
 
 - The dataset is synthesized — a benchmark, not production data.
+- One dataset only. We evaluated LANL, CERT R4.2 and Cloud-UEBA as a second dataset and
+  rejected all three: they lack the login columns (country/device/IP/browser, success/
+  failure) our shared feature and rule SQL requires, and none provides event-level attack
+  ground truth. This is a single-dataset study; transfer to other login telemetry is
+  future work, not a claim.
 - Behavior cannot predict a blocklist — proven, not hidden.
 - The gold label and ATO are different populations: supervised models catch gold events
   (0.287 F1) but not ATOs; the rules catch the ATO tail (~79% @ 10% challenge).
