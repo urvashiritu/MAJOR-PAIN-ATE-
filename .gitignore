@@ -1,5 +1,6 @@
 # Dataset (re-downloadable from Zenodo: https://zenodo.org/records/6782156)
 data/raw/rba-dataset.csv
+data/
 
 # Derived / generated artifacts
 models/
@@ -17,3 +18,21 @@ venv/
 
 # OS
 .DS_Store
+
+data
+# Datasets
+data/
+*.parquet
+*.json
+*.jsonl
+*.xml
+*.log
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Environment
+.env
+.venv
