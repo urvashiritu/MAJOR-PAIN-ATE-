@@ -52,7 +52,7 @@ from sklearn.neighbors import LocalOutlierFactor
 from sklearn.preprocessing import StandardScaler
 
 from _shared import (SEED, FPR_BUDGET, FEATURE_COLS, split_sql, metrics_at,
-                     tune_threshold, replay_rows)
+                     tune_threshold)
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_FEATURES = ROOT / "data" / "processed" / "features.parquet"

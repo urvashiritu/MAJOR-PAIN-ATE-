@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-"""Shared evaluation code used by src/05 and src/06.
+"""Shared evaluation code used by the model pipeline (src/07).
 
-Both scripts load the same features, split per-user chronologically, and
-evaluate with the same metrics/threshold tuning so Phase 6 and the
-supervised extension stay directly comparable. Keep the definitions here;
-05 and 06 only import.
+Loads the same features, splits per-user chronologically, and evaluates with
+the same metrics/threshold tuning so all models stay directly comparable.
 """
 from pathlib import Path
 
-import duckdb
 import numpy as np
-import pandas as pd
 from sklearn.metrics import precision_recall_curve
 
 SEED = 42
@@ -26,30 +22,6 @@ FEATURE_COLS = [
     "ip_seen_before", "country_seen_before", "asn_seen_before",
     "device_seen_before", "os_seen_before", "browser_seen_before",
 ]
-
-
-def load_data(con: duckdb.DuckDBPyConnection, features: Path, scores: Path) -> pd.DataFrame:
-    """Features + rule scores merged on row_id; hour mapped to hour_sin/cos."""
-    df = con.execute(f"""
-        SELECT row_id, user_id, ts, ip, is_attack_ip, is_ato, login_success,
-               hour, is_night, is_weekend, country_change, device_change,
-               failed_recently, rapid_login_rate, login_frequency_today,
-               geo_unreliable, is_generator_bot, ua_os_conflict,
-               is_private_ip, rtt_missing, is_vlc,
-               ip_seen_before, country_seen_before, asn_seen_before,
-               device_seen_before, os_seen_before, browser_seen_before
-        FROM read_parquet('{features}')
-    """).df()
-    rule = con.execute(f"""
-        SELECT row_id, rule_score FROM read_parquet('{scores}')
-    """).df()
-    df = df.merge(rule, on="row_id", how="left")
-    if df["rule_score"].isna().any():
-        raise SystemExit("rule_baseline_scores.parquet missing row_ids (re-run src/04_rule_baseline.py)")
-    h = df["hour"].to_numpy() / 24.0 * 2 * np.pi
-    df["hour_sin"] = np.sin(h)
-    df["hour_cos"] = np.cos(h)
-    return df
 
 
 def split_sql(features: Path) -> str:
