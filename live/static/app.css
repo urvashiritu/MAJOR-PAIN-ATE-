@@ -194,7 +194,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .passcard .who { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .passcard .who h2 { margin: 0; font-size: 15px; font-weight: 650; }
 .passcard .meta { font-family: var(--mono); font-size: 11.5px; color: var(--muted); line-height: 1.8; word-break: break-all; margin: 8px 0 12px; }
-.passcard .player { display: flex; gap: 8px; }
+.passcard .player { display: flex; flex-direction: column; gap: 8px; }
 
 /* ---------- OTP ---------- */
 .otp input {

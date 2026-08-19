@@ -14,13 +14,7 @@ const ALL_COLUMNS = [
   { key: 'os', label: 'OS' },
   { key: 'success', label: 'Success' },
   { key: 'rule', label: 'Rule' },
-  { key: 'ml', label: 'ML' },
 ]
-
-function fmtScore(v) {
-  if (v === null || v === undefined) return '—'
-  return (v > 0 && v < 1 ? v.toExponential(2) : v.toFixed(2))
-}
 
 export default function DatasetPage() {
   const [summary, setSummary] = useState(null)
@@ -100,16 +94,15 @@ export default function DatasetPage() {
                 {visibleCols.includes('os') && <th className="hidden md:table-cell">OS</th>}
                 {visibleCols.includes('success') && <th>Success</th>}
                 {visibleCols.includes('rule') && <th>Rule</th>}
-                {visibleCols.includes('ml') && <th>ML</th>}
                 <th>Risk</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={9} className="text-center text-sm text-white/40 py-8">Loading…</td></tr>
+                <tr><td colSpan={8} className="text-center text-sm text-white/40 py-8">Loading…</td></tr>
               )}
               {!loading && rows.length === 0 && (
-                <tr><td colSpan={9} className="text-center text-sm text-white/40 py-8">No rows match</td></tr>
+                <tr><td colSpan={8} className="text-center text-sm text-white/40 py-8">No rows match</td></tr>
               )}
               {rows.map(row => (
                 <motion.tr key={row.row_id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
@@ -122,7 +115,6 @@ export default function DatasetPage() {
                     ? <span className="text-low">yes</span>
                     : <span className="text-critical">no</span>}</td>}
                   {visibleCols.includes('rule') && <td className="font-mono text-xs">{row.rule_score}</td>}
-                  {visibleCols.includes('ml') && <td className="font-mono text-xs">{fmtScore(row.ml_score)}</td>}
                   <td><SeverityBadge severity={row.risk_level} /></td>
                 </motion.tr>
               ))}

@@ -18,6 +18,7 @@ JSON API:
 
 Run:  venv/bin/python live/app.py   (then open http://127.0.0.1:5000)
 """
+import ipaddress
 import json
 import math
 import queue
@@ -35,7 +36,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "live"))
 
 from db import get_con, init_schema  # noqa: E402
-from scoring import score_event, feature_sql, score_sql, load_model  # noqa: E402
+from scoring import score_event, feature_sql, score_sql  # noqa: E402
+from ua import parse_user_agent  # noqa: E402
 
 from geolocation import get_country_coords  # noqa: E402
 
@@ -54,18 +56,16 @@ app.url_map.converters["sint"] = SignedIntConverter
 
 SAMPLE = ROOT / "data" / "processed" / "sample.parquet"
 RULES = ROOT / "reports" / "rule_baseline_scores.parquet"
-ML_SCORES = ROOT / "data" / "processed" / "sample_ml_scores.parquet"
 SAMPLE_JOIN = f"""
     read_parquet('{SAMPLE}') s
     JOIN read_parquet('{RULES}') r USING (row_id)
-    LEFT JOIN read_parquet('{ML_SCORES}') m USING (row_id)
 """
 
 REASON_LABELS = {
     "country": "New Country", "device": "New Device", "hour": "Off-Hours Access",
     "failed": "Recent Failures", "rapid": "Rapid Login Burst", "freq": "Login Frequency",
     "new ip": "Unknown IP", "new asn": "Unknown ASN", "new os": "Unknown OS",
-    "new browser": "Unknown Browser",
+    "new browser": "Unknown Browser", "blocklist ip": "Blocklisted IP",
 }
 
 SEV_COLORS = {"low": "#22c55e", "medium": "#f59e0b", "high": "#ef4444", "critical": "#dc2626"}
@@ -88,20 +88,45 @@ def _login_success(payload: dict) -> bool:
 
 
 def _event_from_form(user: dict, payload: dict, login_success: bool) -> dict:
+    """Build an event from an incoming login form.
+
+    Real-device values are preferred, with the user's stored profile as
+    fallback so a form can leave fields blank:
+      device / os / browser <- payload -> request User-Agent -> user profile
+      ip                   <- payload -> request.remote_addr -> user profile
+      country / asn        <- payload -> user profile
+    An optional `ts` (ISO/UTC datetime) overrides the clock so the demo can
+    simulate "off-hours" logins at any time of day.
+    """
+    ua = parse_user_agent(request.headers.get("User-Agent", ""))
+    ts = datetime.now(timezone.utc)
+    if payload.get("ts"):
+        try:
+            ts = datetime.fromisoformat(str(payload["ts"]).replace("Z", "+00:00"))
+        except ValueError:
+            ts = datetime.now(timezone.utc)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+    ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
+    ip = payload.get("ip") or user.get("ip") or request.remote_addr
+    try:
+        is_private = bool(ipaddress.ip_address(str(ip)).is_private)
+    except ValueError:
+        is_private = False
     return {
         "user_id": user["user_id"],
-        "ts": datetime.now(timezone.utc),
-        "ip": payload.get("ip") or user.get("ip"),
+        "ts": ts,
+        "ip": ip,
         "country": payload.get("country") or user.get("country"),
-        "device_type": payload.get("device_type") or user.get("device_type"),
-        "os_family": payload.get("os_family") or user.get("os_family"),
-        "browser_family": payload.get("browser_family") or user.get("browser_family"),
+        "device_type": payload.get("device_type") or ua["device_type"] or user.get("device_type"),
+        "os_family": payload.get("os_family") or ua["os_family"] or user.get("os_family"),
+        "browser_family": payload.get("browser_family") or ua["browser_family"] or user.get("browser_family"),
         "asn": payload.get("asn") or user.get("asn"),
         "login_success": login_success,
         "is_attack_ip": bool(user.get("persona") == "attacker"),
         "is_ato": bool(user.get("persona") == "attacker" and not login_success),
-        "is_private_ip": False,
-        "geo_unreliable": False,
+        "is_private_ip": is_private,
+        "geo_unreliable": is_private,
         "rtt_missing": True,
         "ua_os_conflict": False,
         "is_generator_bot": False,
@@ -151,9 +176,16 @@ def _persist_behavioral(c, row_id: int, payload: dict) -> None:
 
 @app.template_filter("fmt")
 def _fmt_ts(ts) -> str:
-    """Human timestamp: '12 Aug 2026, 14:32:07' (local time)."""
+    """Human timestamp: '12 Aug 2026, 14:32:07' (local time).
+
+    Event timestamps are stored as naive UTC, so assume UTC before
+    converting to the display timezone (otherwise DuckDB's naive
+    datetimes are misinterpreted as local and shift by the tz offset).
+    """
     if ts is None:
         return "-"
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
     return ts.astimezone().strftime("%d %b %Y, %H:%M:%S")
 
 
@@ -181,7 +213,6 @@ def _publish(c, result: dict) -> None:
             "browser_family": result["browser_family"],
             "login_success": bool(result["login_success"]),
             "rule_score": result["rule_score"],
-            "ml_score": result["ml_score"],
             "risk_level": result["risk_level"],
             "reasons": result["reasons"],
             "decision": result["decision"],
@@ -564,8 +595,11 @@ def api_alerts_spa():
 
 @app.route("/api/alerts/<int:alert_id>/ack", methods=["POST"])
 def api_alert_ack(alert_id: int):
+    # Acknowledge by alert_id or by the underlying event_id: the drawer can
+    # open from a Recent Logins row (id = event) or an Alerts row (id = alert).
     c = con()
-    c.execute("UPDATE alerts SET acked_at = now() WHERE alert_id = ?", [alert_id])
+    c.execute("UPDATE alerts SET acked_at = now() WHERE alert_id = ? OR event_id = ?",
+              [alert_id, alert_id])
     return jsonify({"ok": True, "alert_id": alert_id})
 
 
@@ -620,7 +654,6 @@ def api_investigation(event_id: int):
     from_coords = get_country_coords(e.get("usual_country") or "US")
     to_coords = get_country_coords(e.get("country") or "US")
     top_hours = (e.get("top_hours") or "0").split(",")[0]
-    threshold = float(load_model()["threshold"])
 
     prev = c.execute("""
         SELECT fp_hash, key_hold_median, key_gap_median, wpm FROM events
@@ -696,10 +729,9 @@ def api_investigation(event_id: int):
         "timeline": timeline, "featureContributions": contributions,
         "mitreId": None, "mitreName": "—", "mitreDescription": "",
         "aiExplanation": (
-            f"Rule points {e.get('rule_score') or 0}; supervised HGB probability "
-            f"{e.get('ml_score') or 0:.3f} vs threshold {threshold:.3f}.\n"
-            f"Reasons: {e.get('reasons') or 'none'}"),
-        "confidence": min(99, int((e.get("ml_score") or 0) * 100)),
+            f"Rule points {e.get('rule_score') or 0}; reasons: "
+            f"{e.get('reasons') or 'none'}"),
+        "confidence": min(99, int(e.get("rule_score") or 0)),
         "baseline": {
             "avgLoginHour": f"{int(top_hours):02d}:00" if top_hours else "-",
             "avgLogoutHour": "-",
@@ -752,11 +784,10 @@ def api_dataset_summary():
                COUNT(*) FILTER (WHERE s.is_ato) ato,
                COUNT(*) FILTER (WHERE s.login_success) success,
                COUNT(*) FILTER (WHERE r.risk_level IN ('high', 'critical')) flagged,
-               ROUND(AVG(r.rule_score)) avg_rule,
-               ROUND(AVG(m.ml_score) FILTER (WHERE m.ml_score IS NOT NULL), 3) avg_ml
+               ROUND(AVG(r.rule_score)) avg_rule
         FROM {SAMPLE_JOIN}
     """).fetchone()
-    total, attacks, ato, success, flagged, avg_rule, avg_ml = row
+    total, attacks, ato, success, flagged, avg_rule = row
     dist = c.execute(f"""
         SELECT COALESCE(r.risk_level, 'low'), COUNT(*) FROM {SAMPLE_JOIN} GROUP BY 1
     """).fetchall()
@@ -764,7 +795,7 @@ def api_dataset_summary():
         "total": total, "attacks": attacks,
         "attackShare": round(100 * attacks / total, 2),
         "ato": ato, "success": success, "flagged": flagged,
-        "avgRule": avg_rule, "avgMl": avg_ml, "mlReady": ML_SCORES.exists(),
+        "avgRule": avg_rule,
         "riskDist": {lvl: n for lvl, n in dist},
     })
 
@@ -772,12 +803,12 @@ def api_dataset_summary():
 @app.route("/api/dataset/rows")
 def api_dataset_rows():
     page = max(1, int(request.args.get("page", 1)))
-    per = min(100, max(10, int(request.args.get("per_page", 25))))
+    per = min(100, max(10, int(request.args.get("per_page", request.args.get("perPage", 25)))))
     risk = request.args.get("risk", "")
     attack = request.args.get("attack", "")
     ato = request.args.get("ato", "")
     country = (request.args.get("country") or "").strip().upper()
-    q = (request.args.get("q") or "").strip()
+    q = (request.args.get("q") or request.args.get("search") or "").strip()
 
     where, args = [], []
     if risk:
@@ -802,7 +833,7 @@ def api_dataset_rows():
     rows = c.execute(f"""
         SELECT s.row_id, s.ts, s.user_id, s.country, s.device_type, s.os_family,
                s.login_success, s.is_attack_ip, s.is_ato, r.rule_score,
-               m.ml_score, r.risk_level, r.reasons
+               r.risk_level, r.reasons
         {sql} ORDER BY r.rule_score DESC, s.row_id LIMIT ? OFFSET ?
     """, args + [per, (page - 1) * per]).fetchall()
     cols = [d[0] for d in c.description]

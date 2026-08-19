@@ -118,7 +118,6 @@ export default function Sidebar({ collapsed, setCollapsed, activePage, setActive
               { name: 'Total Events', value: summary ? summary.total.toLocaleString() : '…' },
               { name: 'Flagged', value: summary ? summary.flagged.toLocaleString() : '…' },
               { name: 'Attack Share', value: summary ? `${summary.attackShare}%` : '…' },
-              { name: 'ML Anomalies', value: summary ? summary.mlReady ? 'Ensemble live' : 'offline' : '…' },
             ].map((m, i) => (
               <motion.div
                 key={m.name}
@@ -137,10 +136,6 @@ export default function Sidebar({ collapsed, setCollapsed, activePage, setActive
               </motion.div>
             ))}
             <div className="pt-2 mt-1 border-t border-white/[0.06] space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-white/40">Avg ML Score</span>
-                <span className="text-[10px] text-low font-mono">{summary ? summary.avgMl.toFixed(3) : '…'}</span>
-              </div>
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-white/40">Rule Threshold</span>
                 <span className="text-[10px] text-white/60 font-mono">{summary ? summary.avgRule : '…'}</span>

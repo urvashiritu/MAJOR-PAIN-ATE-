@@ -11,7 +11,7 @@
   <div class="topbar">
     <div>
       <h1>Live security dashboard</h1>
-      <div class="sub">every login scored by the shared rule + ML pipeline</div>
+      <div class="sub">every login scored by the shared rule pipeline</div>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
       <span id="live" class="live"><span class="dot"></span>connecting</span>
@@ -32,7 +32,7 @@
     {% if alerts %}
     <div class="scroll">
     <table>
-      <thead><tr><th>#</th><th>user</th><th>time</th><th>level</th><th>rule</th><th>ml</th><th>decision</th><th>reasons</th></tr></thead>
+      <thead><tr><th>#</th><th>user</th><th>time</th><th>level</th><th>rule</th><th>decision</th><th>reasons</th></tr></thead>
       <tbody id="alerts-body">
       {% for a in alerts %}
       <tr>
@@ -41,7 +41,6 @@
         <td class="tsl" title="{{ a.ts }}">{{ a.ts|fmt }}</td>
         <td><span class="pill level-{{ a.level }}">{{ a.level }}</span></td>
         <td class="d">{{ a.rule_score }}</td>
-        <td class="d">{{ '%.3f' % a.ml_score if a.ml_score is not none else '-' }}</td>
         <td><span class="pill {{ a.decision }}">{{ a.decision }}</span></td>
         <td class="wrap-txt">{{ a.reasons or '-' }}</td>
       </tr>
@@ -58,7 +57,7 @@
     <div class="head"><h2>Recent events</h2><span class="count">{{ events|length }} shown</span></div>
     <div class="scroll">
     <table>
-      <thead><tr><th>#</th><th>user</th><th>time</th><th>ip</th><th>country</th><th>device</th><th>os</th><th>ok</th><th>rule</th><th>ml</th><th>level</th><th>decision</th><th>reasons</th></tr></thead>
+      <thead><tr><th>#</th><th>user</th><th>time</th><th>ip</th><th>country</th><th>device</th><th>os</th><th>ok</th><th>rule</th><th>level</th><th>decision</th><th>reasons</th></tr></thead>
       <tbody id="events-body">
       {% for e in events %}
       <tr>
@@ -71,7 +70,6 @@
         <td class="d">{{ e.os_family }}</td>
         <td class="d" style="color:var(--{{ 'green' if e.login_success else 'red' }})">{{ 'OK' if e.login_success else 'FAIL' }}</td>
         <td class="d">{{ e.rule_score }}</td>
-        <td class="d">{{ '%.3f' % e.ml_score if e.ml_score is not none else '-' }}</td>
         <td><span class="pill level-{{ e.risk_level }}">{{ e.risk_level }}</span></td>
         <td><span class="pill {{ e.decision }}">{{ e.decision }}</span></td>
         <td class="wrap-txt">{{ e.reasons or '-' }}</td>
@@ -125,7 +123,7 @@
     const sc = document.createElement('div');
     sc.className = 'scroll';
     const tbl = document.createElement('table');
-    tbl.innerHTML = '<thead><tr><th>#</th><th>user</th><th>time</th><th>level</th><th>rule</th><th>ml</th><th>decision</th><th>reasons</th></tr></thead>';
+    tbl.innerHTML = '<thead><tr><th>#</th><th>user</th><th>time</th><th>level</th><th>rule</th><th>decision</th><th>reasons</th></tr></thead>';
     body = document.createElement('tbody');
     body.id = id;
     tbl.appendChild(body);
@@ -160,7 +158,6 @@
     tr.appendChild(td(d.login_success ? 'OK' : 'FAIL', 'd'));
     tr.lastChild.style.color = d.login_success ? 'var(--green)' : 'var(--red)';
     tr.appendChild(td(d.rule_score, 'd'));
-    tr.appendChild(td(d.ml_score == null ? '-' : Number(d.ml_score).toFixed(3), 'd'));
     const lvl = document.createElement('span');
     lvl.className = 'pill level-' + (d.risk_level || 'low');
     lvl.textContent = d.risk_level || '-';
@@ -197,7 +194,6 @@
     lt.appendChild(lvl);
     tr.appendChild(lt);
     tr.appendChild(td(d.rule_score, 'd'));
-    tr.appendChild(td(d.ml_score == null ? '-' : Number(d.ml_score).toFixed(3), 'd'));
     const dec = document.createElement('span');
     dec.className = 'pill ' + d.decision;
     dec.textContent = d.decision;

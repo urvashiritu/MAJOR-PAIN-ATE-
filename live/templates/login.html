@@ -11,7 +11,7 @@
   <div class="topbar">
     <div>
       <h1>MAJOR-PAIN — login demo</h1>
-      <div class="sub">rule engine + HGB model score every login in real time</div>
+      <div class="sub">rule engine scores every login in real time, with written reasons</div>
     </div>
     <a class="plug" href="/admin">admin dashboard</a>
   </div>
@@ -35,6 +35,42 @@
                  style="width:100%;margin-bottom:6px;padding:6px 8px;background:transparent;border:1px solid rgba(255,255,255,.18);border-radius:4px;color:inherit;font-family:monospace;font-size:12px">
           <button type="submit" class="{{ 'attacker' if u.persona == 'attacker' }}" style="width:100%">simulate login</button>
         </form>
+{% if u.persona != 'attacker' %}
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+          <form method="post" action="/login">
+            <input type="hidden" name="user_id" value="{{ u.user_id }}">
+            <input type="hidden" name="login_success" value="1">
+            <input type="hidden" name="ip" value="{{ u.ip }}">
+            <input type="hidden" name="asn" value="{{ u.asn }}">
+            <input type="hidden" name="device_type" value="{{ u.device_type }}">
+            <input type="hidden" name="os_family" value="{{ u.os_family }}">
+            <input type="hidden" name="browser_family" value="{{ u.browser_family }}">
+            <button type="submit" class="btn">usual setup</button>
+          </form>
+          <form method="post" action="/login">
+            <input type="hidden" name="user_id" value="{{ u.user_id }}">
+            <input type="hidden" name="login_success" value="1">
+            <input type="hidden" name="device_type" value="mobile">
+            <input type="hidden" name="os_family" value="iOS">
+            <input type="hidden" name="browser_family" value="Safari">
+            <input type="hidden" name="ip" value="88.140.82.2">
+            <input type="hidden" name="asn" value="AS1235">
+            <button type="submit" class="btn">new device</button>
+          </form>
+          <form method="post" action="/login" class="preset-night">
+            <input type="hidden" name="user_id" value="{{ u.user_id }}">
+            <input type="hidden" name="login_success" value="1">
+            <input type="hidden" name="country" value="FR">
+            <input type="hidden" name="ip" value="82.64.9.11">
+            <input type="hidden" name="asn" value="AS1234">
+            <input type="hidden" name="device_type" value="desktop">
+            <input type="hidden" name="os_family" value="Windows">
+            <input type="hidden" name="browser_family" value="Chrome">
+            <input type="hidden" name="ts" value="">
+            <button type="submit" class="btn attacker">foreign · night</button>
+          </form>
+        </div>
+        {% endif %}
         {% if u.persona == 'attacker' %}
         <form method="post" action="/burst">
           <button type="submit" class="btn attacker">rapid burst</button>
@@ -72,5 +108,16 @@
   </form>
 </div>
 <script src="/static/behavioral.js"></script>
+<script>
+document.querySelectorAll('.preset-night').forEach(function (f) {
+  f.addEventListener('submit', function () {
+    var now = new Date();
+    var night = new Date(now);
+    night.setUTCHours(23, 0, 0, 0);
+    if (night <= now) night.setUTCDate(night.getUTCDate() + 1);
+    f.querySelector('input[name="ts"]').value = night.toISOString();
+  });
+});
+</script>
 </body>
 </html>

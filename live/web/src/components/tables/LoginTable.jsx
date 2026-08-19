@@ -5,9 +5,9 @@ import GlassCard from '../GlassCard'
 import SeverityBadge from '../common/SeverityBadge'
 
 const statusConfig = {
-  blocked: { className: 'badge-critical', label: 'Blocked' },
-  flagged: { className: 'badge-high', label: 'Flagged' },
-  allowed: { className: 'badge-low', label: 'Allowed' },
+  block: { severity: 'critical', label: 'Blocked' },
+  flag: { severity: 'high', label: 'Flagged' },
+  allow: { severity: 'low', label: 'Allowed' },
 }
 
 export default function LoginTable({ logins, onRowClick }) {
@@ -98,7 +98,7 @@ export default function LoginTable({ logins, onRowClick }) {
                 </td>
                 <td>
                   <SeverityBadge
-                    severity={row.status === 'blocked' ? 'critical' : row.status === 'flagged' ? 'high' : 'low'}
+                    severity={statusConfig[row.status]?.severity || 'low'}
                     label={statusConfig[row.status]?.label || row.status}
                   />
                 </td>

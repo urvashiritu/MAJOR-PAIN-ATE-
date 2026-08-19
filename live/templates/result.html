@@ -22,7 +22,7 @@
       {% if result.decision == 'flag' %}FLAG — extra verification required{% endif %}
       {% if result.decision == 'block' %}BLOCK — login denied{% endif %}
     </div>
-    <div class="meta">risk level: {{ result.risk_level }} · rule {{ result.rule_score }}/100 · ml {{ '%.3f' % result.ml_score }} (thr {{ '%.3f' % result.threshold }})</div>
+    <div class="meta">risk level: {{ result.risk_level }} · rule {{ result.rule_score }}/100</div>
   </div>
 
   <div class="grid2">
@@ -31,16 +31,6 @@
       <div class="meter {{ result.decision }}">
         <div class="row"><span>risk out of 100</span><b>{{ result.rule_score }}</b></div>
         <div class="track"><div class="fill" style="width:{{ [result.rule_score, 100] | min }}%"></div></div>
-      </div>
-    </div>
-    <div class="card">
-      <h3>ML score (HGB)</h3>
-      <div class="meter {{ result.decision }}">
-        <div class="row"><span>probability of attack</span><b>{{ '%.3f' % result.ml_score }}</b></div>
-        <div class="track">
-          <div class="fill" style="width:{{ [result.ml_score * 100, 100] | min }}%"></div>
-          <div class="thr" title="decision threshold" style="left:{{ [result.threshold * 100, 100] | min }}%"></div>
-        </div>
       </div>
     </div>
   </div>

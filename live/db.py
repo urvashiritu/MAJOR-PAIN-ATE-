@@ -4,7 +4,7 @@
 One database file holds everything the demo needs:
   users      demo accounts (a handful of personas)
   events     every login event: the user's history plus new live events
-  alerts     events that tripped the rule/ML gate (for the admin panel)
+  alerts     events that tripped the rule gate (for the admin panel)
 
 The events table carries the same clean columns the training pipeline used
 (see data/processed/sample.parquet), so feature_sql / score_sql from
@@ -49,7 +49,6 @@ CREATE TABLE IF NOT EXISTS events (
     is_vlc BOOLEAN,
     asn VARCHAR,
     rule_score INTEGER,
-    ml_score DOUBLE,
     risk_level VARCHAR,
     reasons VARCHAR,
     decision VARCHAR,                 -- 'allow' | 'flag' | 'block' | 'history'
@@ -68,7 +67,6 @@ CREATE TABLE IF NOT EXISTS alerts (
     ts TIMESTAMP NOT NULL,
     level VARCHAR NOT NULL,           -- low | medium | high | critical
     rule_score INTEGER,
-    ml_score DOUBLE,
     reasons VARCHAR,
     decision VARCHAR,
     acked_at TIMESTAMP                -- set when an analyst acknowledges

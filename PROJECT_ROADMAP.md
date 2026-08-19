@@ -11,8 +11,8 @@ We build a login-security system that:
 4. shows decisions on a live security dashboard.
 
 Two connected parts:
-- **Offline**: a data + machine-learning pipeline built on the RBA dataset (done, phases 0–6).
-- **Live**: website, risk API, user profiles, dashboard for the demo (phases 7–11, next; partial demo built Aug 11).
+- **Offline**: a data + machine-learning pipeline built on the RBA dataset (done, phases 0–7).
+- **Live**: website, risk API, user profiles, dashboard for the demo (done, phases 7–8; demonstration next).
 
 This project is specifically about **login identity anomalies** — not a full insider-threat
 or post-login monitoring system.
@@ -39,9 +39,8 @@ or post-login monitoring system.
 | 3 | Cleaning and sampling | Fixed messy values; picked 1M representative rows keeping all 141 takeover rows; capped the bot user | ✅ (Aug 8) |
 | 4 | Feature engineering | 21 features per event over the user's true full history (new country? new device? recent failure? burst? unusual hour?) | ✅ (Aug 8) |
 | 5 | Rule baseline | Bouncer checklist: new country +30, new IP +25, recent failure +20, ... → low/medium/high/critical with reasons | ✅ (Aug 9) |
-| 6 | Models and evaluation | 4 anomaly models compared honestly; LOF won (gold F1 0.110 @ 5% FPR) | ✅ (Aug 9) |
-| 6+ | Supervised extension | Trained on the gold label itself → HGB gold F1 0.287, a 2.6× improvement | ✅ (Aug 11) |
-| 7 | Live scoring engine (user profile + risk API) | DuckDB live DB (`users`/`events`/`alerts`/`user_profile`), `live/scoring.py` reusing the exact `feature_sql`/`score_sql` + HGB model, personas seeded from real sample data, `POST /login` verdict flow, `POST /burst` attack sim, `user_profile` refreshed only after accepted (allow) events, JSON API (`POST /events`, `GET /risk/{id}`, `GET /users/{id}/profile`, `GET /alerts`) | ✅ (Aug 12) |
+| 6 | Models and evaluation | 4 anomaly models compared honestly on the **full 1M sample** (no subsets); the trimmed ensemble won (gold F1 0.111 @ 5% FPR) | ✅ (Aug 9, revised Aug 19) |
+| 7 | Live scoring engine (user profile + risk API) | DuckDB live DB (`users`/`events`/`alerts`/`user_profile`), `live/scoring.py` reusing the exact `feature_sql`/`score_sql` (rule engine — no ML), personas seeded from real sample data, `POST /login` verdict flow, `POST /burst` attack sim, `user_profile` refreshed only after accepted (allow) events, JSON API (`POST /events`, `GET /risk/{id}`, `GET /users/{id}/profile`, `GET /alerts`) | ✅ (Aug 12) |
 | 8 | Website and dashboard | Login form + persona cards, verdict/blocked/challenge flow pages, admin dashboard (events + alerts) with live push via SSE `GET /events/stream` | ✅ (Aug 12) — SSE chosen over WS: one-way push, zero new dependencies |
 | 9 | Live demonstration | Laptop 1 = dashboard, Laptop 2 = website. Scripted scenarios: normal login → allow; new country → challenge; failed attempts → alert | ⏳ |
 | 10 | Testing | Data, feature, model, and app tests | ⏳ |
@@ -72,18 +71,22 @@ or post-login monitoring system.
 - every alert includes an explanation,
 - documentation matches the implemented system.
 
-## Phase 6+ details (supervised models, Aug 11)
+## Phase 6 details (anomaly models, Aug 19 revision)
 
-- Trained on the **gold label** (153,352 rows: `is_attack_ip` AND `login_success`) — a
-  supervised question, unlike the anomaly detectors of Phase 6.
-- Same split, same 21 features, same 5% FPR budget as Phase 6 (directly comparable).
-- Results on the test set (212,233 events): HGB gold F1 **0.287** (ROC-AUC 0.752),
-  Logistic Regression **0.180** (ROC-AUC 0.695).
-- Honest caveats, documented in the report: test users also appear in train (later events —
-  consistent with Phase 6), threshold tuned on test gold (consistent-but-optimistic),
-  ATO 0/14 (gold and ATO are different populations; the rules catch ~79% of ATOs).
-- Artifacts: `src/06_supervised_model.py`, `reports/supervised_evaluation.json`,
-  `reports/supervised_replay.csv`. No Phase 6 files were touched.
+- Every model trains on the **same full train split of the 1M sample** (787,770 rows,
+  attack rows included) — no per-model subsets. Contamination = the split's own attack
+  share (0.2504, computed not hardcoded).
+- Thresholds tuned on the gold label (`is_attack_ip` AND `login_success`) under a 5% FPR
+  budget; anomaly score = `-decision_function`.
+- Results on the test set (212,233 events): trimmed ensemble (rank-average of LOF + OCSVM +
+  EE, the models with gold AUC > 0.5) gold F1 **0.111**; best single LOF **0.092**; OCSVM
+  **0.092**; IF **0.002**; EE **0.000** (best attack ROC-AUC 0.571).
+- The supervised extension (Aug 11: HGB gold F1 0.287 on the gold label) and the earlier
+  subset-trained detectors were **removed (Aug 19)** — see the "why the demo has no ML
+  score" note in the README. The IP-prior blocklist ceiling (0.747) and the rules replay
+  (~79% ATO at 10% challenge) are the standing findings.
+- Artifacts: `src/07_ensemble_full.py`, `reports/ensemble_full_comparison.csv`,
+  `reports/ensemble_full_report.json`, `models/ensemble_full.joblib`.
 
 ## Phase 7/8 build notes (live demo, Aug 11–12)
 
@@ -92,9 +95,8 @@ or post-login monitoring system.
 - Scoring reuses the **exact training SQL** — `feature_sql` (src/02) and
   `score_sql` (src/04) are imported as-is and run over the user's stored
   history + the new event, so live features cannot drift from offline ones.
-  ML = HGB `predict_proba` on the 21 FEATURE_COLS vs the tuned threshold.
-- Decision policy (demo defaults): blocklist IP → block · rule_score ≥ 65 →
-  block · ml_score ≥ threshold → flag · otherwise → allow.
+- Decision policy (demo defaults): blocklist IP → block · rule_score ≥ 90
+  (critical) → block · rule_score ≥ 45 (flag) → flag · otherwise → allow.
 - Seeded from `data/processed/sample.parquet`: 3 normal personas (alice, bob,
   carol) with 177 real history events, plus a fresh attacker persona with a
   blocklisted IP (5.180.170.85) and no history.
@@ -122,7 +124,7 @@ or post-login monitoring system.
 
 ## Immediate next task
 
-**Phase 9 — live demonstration.** Laptop 1 = dashboard (`/admin`), Laptop 2 =
+**Phase 9 — live demonstration.** Laptop 1 = dashboard (`/dashboard`), Laptop 2 =
 website (`/`). Scripted scenarios: normal login → allow; new country/device →
 flag → challenge step; attacker or rapid burst → block; watch alerts appear
 live on the dashboard. Then Phase 10 (tests) and Phase 11 (report).

@@ -42,7 +42,8 @@ export async function getDatasetSummary() {
 }
 
 export async function getDatasetRows(params = {}) {
-  const qs = new URLSearchParams(params).toString()
+  const clean = Object.entries(params).filter(([, v]) => v !== undefined)
+  const qs = new URLSearchParams(clean).toString()
   return fetchJson(`/dataset/rows${qs ? `?${qs}` : ''}`)
 }
 

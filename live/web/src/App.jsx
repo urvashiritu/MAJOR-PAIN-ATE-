@@ -46,7 +46,7 @@ export default function App() {
   }, [alerts])
 
   const newAlerts = alerts.filter(a => a.status === 'new').length
-  const spark = useMemo(() => (dashboard.anomalyTrend || []).map(p => p.anomalies), [dashboard.anomalyTrend])
+  const spark = useMemo(() => (dashboard.anomalyTrend || []).map(p => ({ value: p.anomalies })), [dashboard.anomalyTrend])
 
   const pages = {
     dashboard: (

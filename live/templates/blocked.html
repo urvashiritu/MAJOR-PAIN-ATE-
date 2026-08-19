@@ -33,7 +33,7 @@
     <div class="kv">
       ip <b>{{ event.ip }}</b> · country <b>{{ event.country }}</b> · device <b>{{ event.device_type }}</b><br>
       os <b>{{ event.os_family }}</b> · browser <b>{{ event.browser_family }}</b><br>
-      rule score <b>{{ event.rule_score }}</b> · ml score <b>{{ '%.3f' % event.ml_score if event.ml_score is not none else '-' }}</b> · risk <b>{{ event.risk_level }}</b>
+      rule score <b>{{ event.rule_score }}</b> · risk <b>{{ event.risk_level }}</b>
     </div>
   </div>
 
