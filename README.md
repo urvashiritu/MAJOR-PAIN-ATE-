@@ -19,6 +19,14 @@ dataset (RBA, from Telenor Norway). During the live demo, login events arrive fr
 second laptop, get scored in real time, and appear on a dashboard as safe (green) or
 suspicious (red), with the reasons shown for every decision.
 
+> **Where the project is right now (rebuild in progress):** the RBA dataset was evaluated
+> first and demonstrated why shortcut labels can make ML misleading (its attack label is an
+> IP blacklist, so a lookup beats any model). The live system is therefore **moving to the
+> LANL Cyber1 dataset** — real network authentication logs with red-team ground truth and
+> no shortcut possible — where the trained ML model is the sole scorer. The old RBA-based
+> demo code is preserved in `legacy/rba/` as research material. See `docs/PROJECT_CONTEXT.md`
+> for the full validated plan.
+
 ### The one finding that shapes everything
 
 While analyzing the dataset, we discovered something important:
@@ -150,7 +158,7 @@ page is the "show the cleaned dataset" view, not live traffic.
 - `data/processed/user_baselines.parquet` — per-user history over all 31.3M rows
 - `data/live.duckdb` — live demo DB (users, events, alerts, user_profile)
 - `src/00_clean_dataset.py` → `src/02_feature_engineering.py` → `src/01_load_and_sample.py` → `src/03_validate_contract.py` → `src/04_rule_baseline.py` → `src/07_ensemble_full.py`
-- `live/` — Flask demo: `app.py` (web + JSON API + SSE), `db.py` (schema + profiles), `scoring.py` (shared rule SQL), `ua.py` (User-Agent parsing), `seed_demo.py` (personas), `templates/`, `web/` (React dashboard)
+- `live/` — Flask demo: `app.py` (web + JSON API + SSE), `db.py` (schema + profiles), `templates/`, `web/` (React dashboard). The RBA rule-scoring modules moved to `legacy/rba/` (`scoring.py`, `seed_demo.py`, `ua.py`, `geolocation.py`)
 - `reports/` — rule scores, model comparison, ensemble evaluation, replay analysis, evaluation JSONs
 - `models/ensemble_full.joblib` — the full-sample ensemble + scaler + tuned thresholds (the model deliverable; not loaded by the live app)
 

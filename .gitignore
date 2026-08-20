@@ -1,6 +1,9 @@
 # Dataset (re-downloadable from Zenodo: https://zenodo.org/records/6782156)
 data/raw/rba-dataset.csv
 
+# LANL cyber1 dataset (7 GB+ decompressed; archive.zip source lives in ~/Downloads)
+data/raw/lanl/
+
 # Derived / generated artifacts
 models/
 reports/
