@@ -2,15 +2,27 @@
 """LANL live scoring — IF + LightGBM combined model.
 
 One event in, a decision out. The scoring path:
-  1. Compute 8 LANL features from user's stored history
-  2. Isolation Forest anomaly score (ultra-conservative, 0% FPR)
-  3. LightGBM probability (aggressive, catches 87.7% attacks)
-  4. Combined = 0.5 * lgb_prob + 0.5 * if_norm_score
+  1. Compute 10 scale-invariant LANL features from user's stored history
+  2. Isolation Forest anomaly score
+  3. LightGBM probability
+  4. Combined = 0.5 * lgb_score + 0.5 * if_score
 
 Decision policy:
-  - combined >= 0.60  -> block  (92.3% recall, 6.9% FPR)
-  - combined >= 0.25  -> flag   (100% recall, 16.8% FPR)
+  - combined >= 0.60  -> block
+  - combined >= 0.25  -> flag
   - otherwise         -> allow
+
+Features (all scale-invariant -- work at any event count):
+  dst_first        binary  first-ever event to this destination
+  src_first        binary  first-ever event from this source
+  vel_1h           count   events in last 3600 seconds
+  fail_1h          count   failures in last 3600 seconds
+  fail_rate_1h     ratio   fail_1h / vel_1h  (0.0-1.0)
+  burst_ratio      ratio   vel_5m / vel_1h   (0.0-1.0)
+  dst_diversity_1h count   distinct dst_computers in last 3600s
+  src_diversity_1h count   distinct src_computers in last 3600s
+  hour_sin         float   sin(hour / 24 * 2pi)
+  hour_cos         float   cos(hour / 24 * 2pi)
 """
 import math
 import os
@@ -22,16 +34,20 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 
-IF_MODEL_PATH = ROOT / "models" / "lanl_if.joblib"
-LGB_MODEL_PATH = ROOT / "models" / "lanl_lgb.joblib"
+IF_MODEL_PATH = ROOT / "models" / "lanl_if_v2.joblib"
+LGB_MODEL_PATH = ROOT / "models" / "lanl_lgb_v2.joblib"
 
 BLOCK_THRESHOLD = float(os.environ.get("DEMO_BLOCK_AT", "0.60"))
 FLAG_THRESHOLD = float(os.environ.get("DEMO_FLAG_AT", "0.25"))
 
 LANL_FEATURES = [
-    "dst_first", "src_first", "hour_ratio", "dst_prior_events",
-    "fail_1h", "vel_1h", "hour_sin", "hour_cos",
+    "dst_first", "src_first", "vel_1h", "fail_1h",
+    "fail_rate_1h", "burst_ratio",
+    "dst_diversity_1h", "src_diversity_1h",
+    "hour_sin", "hour_cos",
 ]
+
+IF_LOG_FEATURES = ["vel_1h", "fail_1h", "dst_diversity_1h", "src_diversity_1h"]
 
 _if_model = None
 _if_scaler = None
@@ -43,14 +59,12 @@ _models_loaded = False
 
 
 def load_models():
-    """Load IF and LGB models (called once, cached)."""
     global _if_model, _if_scaler, _if_min, _if_max, _if_range
     global _lgb_model, _models_loaded
 
     if _models_loaded:
         return True
 
-    # Load IF
     if not IF_MODEL_PATH.exists():
         print(f"FATAL: IF model not found: {IF_MODEL_PATH}")
         return False
@@ -61,19 +75,18 @@ def load_models():
         _if_min = art["score_min"]
         _if_max = art["score_max"]
         _if_range = _if_max - _if_min if _if_max > _if_min else 1.0
-        print(f"loaded IF: threshold={art['threshold']:.4f} roc_auc={art['roc_auc']:.4f}")
+        print(f"loaded IF: roc_auc={art.get('roc_auc', '?')}")
     except Exception as exc:
         print(f"FATAL: failed to load IF model: {exc}")
         return False
 
-    # Load LGB
     if not LGB_MODEL_PATH.exists():
         print(f"FATAL: LGB model not found: {LGB_MODEL_PATH}")
         return False
     try:
         art = joblib.load(LGB_MODEL_PATH)
         _lgb_model = art["model"]
-        print(f"loaded LGB: threshold={art['threshold']:.4f} roc_auc={art['roc_auc']:.4f}")
+        print(f"loaded LGB: roc_auc={art.get('roc_auc', '?')}")
     except Exception as exc:
         print(f"FATAL: failed to load LGB model: {exc}")
         return False
@@ -84,87 +97,80 @@ def load_models():
 
 
 def lanl_feature_sql(user_src: str) -> str:
-    """Single CTE computing all 8 LANL features from user's event history.
-
-    The user_src subquery must provide:
-      row_id, time, user_id, src_computer, dst_computer, auth_type,
-      logon_type, orientation, result
-
-    Features are computed over the user's ENTIRE stored history.
-    """
+    """Compute 10 scale-invariant features via fixed time windows."""
     return f"""
     WITH user_events AS (
         SELECT *,
                (time % 86400) / 3600.0 AS hour_f
         FROM {user_src}
     ),
-    agg AS (
+    windowed AS (
         SELECT *,
-            -- dst_first: is this the first event to this destination?
             CASE WHEN ROW_NUMBER() OVER (
                 PARTITION BY user_id, dst_computer ORDER BY time, row_id
             ) = 1 THEN 1 ELSE 0 END AS dst_first,
 
-            -- src_first: is this the first event from this source?
             CASE WHEN ROW_NUMBER() OVER (
                 PARTITION BY user_id, src_computer ORDER BY time, row_id
             ) = 1 THEN 1 ELSE 0 END AS src_first,
 
-            -- dst_prior_events: count of prior events to this destination
-            ROW_NUMBER() OVER (
-                PARTITION BY user_id, dst_computer ORDER BY time, row_id
-            ) - 1 AS dst_prior_events,
-
-            -- hour_events: count of events at this exact float-hour (per-second)
             COUNT(*) OVER (
-                PARTITION BY user_id, hour_f
-            ) AS hour_events,
-
-            -- user_events: total events for this user
-            COUNT(*) OVER (
-                PARTITION BY user_id
-            ) AS user_events,
-
-            -- vel_1h: events in last 3600 seconds
-            COUNT(*) OVER (
-                PARTITION BY user_id
-                ORDER BY time
+                PARTITION BY user_id ORDER BY time
                 RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
             ) AS vel_1h,
 
-            -- fail_1h: failures in last 3600 seconds
-            SUM(CASE WHEN result = 'Fail' THEN 1 ELSE 0 END) OVER (
-                PARTITION BY user_id
-                ORDER BY time
+            COALESCE(SUM(CASE WHEN result = 'Fail' THEN 1 ELSE 0 END) OVER (
+                PARTITION BY user_id ORDER BY time
                 RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
-            ) AS fail_1h
+            ), 0) AS fail_1h,
+
+            COUNT(*) OVER (
+                PARTITION BY user_id ORDER BY time
+                RANGE BETWEEN 300 PRECEDING AND 1 PRECEDING
+            ) AS vel_5m,
+
+            COUNT(DISTINCT dst_computer) OVER (
+                PARTITION BY user_id ORDER BY time
+                RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
+            ) AS dst_diversity_1h,
+
+            COUNT(DISTINCT src_computer) OVER (
+                PARTITION BY user_id ORDER BY time
+                RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
+            ) AS src_diversity_1h
 
         FROM user_events
     )
-    SELECT row_id, time, user_id, src_computer, dst_computer,
-           auth_type, logon_type, orientation, result,
-           hour_f,
-           dst_first, src_first,
-           CAST(hour_events AS DOUBLE) / CAST(GREATEST(user_events, 1) AS DOUBLE) AS hour_ratio,
-           dst_prior_events,
-           COALESCE(CAST(fail_1h AS DOUBLE), 0.0) AS fail_1h,
-           COALESCE(vel_1h, 0) AS vel_1h,
-           SIN(hour_f / 24.0 * 2 * {math.pi}) AS hour_sin,
-           COS(hour_f / 24.0 * 2 * {math.pi}) AS hour_cos
-    FROM agg
+    SELECT
+        row_id, time, user_id, src_computer, dst_computer,
+        auth_type, logon_type, orientation, result,
+        hour_f,
+        dst_first,
+        src_first,
+        COALESCE(vel_1h, 0) AS vel_1h,
+        COALESCE(CAST(fail_1h AS DOUBLE), 0.0) AS fail_1h,
+        CASE WHEN vel_1h > 0
+            THEN COALESCE(CAST(fail_1h AS DOUBLE), 0.0) / CAST(vel_1h AS DOUBLE)
+            ELSE 0.0
+        END AS fail_rate_1h,
+        CASE WHEN vel_1h > 0
+            THEN CAST(COALESCE(vel_5m, 0) AS DOUBLE) / CAST(vel_1h AS DOUBLE)
+            ELSE 0.0
+        END AS burst_ratio,
+        COALESCE(dst_diversity_1h, 1) AS dst_diversity_1h,
+        COALESCE(src_diversity_1h, 1) AS src_diversity_1h,
+        SIN(hour_f / 24.0 * 2 * {math.pi}) AS hour_sin,
+        COS(hour_f / 24.0 * 2 * {math.pi}) AS hour_cos
+    FROM windowed
     """
 
 
 def _compute_if_score(features: np.ndarray) -> float:
-    """Compute IF anomaly score (0=normal, 1=anomalous).
-    
-    IF score_samples returns higher values for more normal data (higher density).
-    We invert: 1 - normalized_density so that higher output = more anomalous.
-    """
+    """IF anomaly score: 0=normal, 1=anomalous."""
     X = features.copy()
-    X[3] = np.log1p(X[3])
-    X[4] = np.log1p(X[4])
-    X[5] = np.log1p(X[5])
+    feat_idx = {name: i for i, name in enumerate(LANL_FEATURES)}
+    for name in IF_LOG_FEATURES:
+        X[feat_idx[name]] = np.log1p(X[feat_idx[name]])
     X_scaled = _if_scaler.transform(X.reshape(1, -1))
     raw = _if_model.score_samples(X_scaled)[0]
     norm = float(np.clip((raw - _if_min) / _if_range, 0, 1))
@@ -172,29 +178,22 @@ def _compute_if_score(features: np.ndarray) -> float:
 
 
 def _compute_lgb_score(features: np.ndarray) -> float:
-    """Compute LGB attack probability (0=normal, 1=anomalous).
-    
-    predict_proba[:, 1] returns P(class=1). The model is inverted on
-    low-event-count data, so we use[:, 0] (P(normal)) as the anomaly signal.
-    """
+    """LGB anomaly score: 0=normal, 1=anomalous."""
     proba = _lgb_model.predict_proba(features.reshape(1, -1))[0]
-    return float(1.0 - proba[1])
+    return float(proba[1])
 
 
 def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
     """Score one LANL event against the user's stored history."""
     if not load_models():
-        raise RuntimeError("Models not loaded — cannot score events")
+        raise RuntimeError("Models not loaded")
 
-    # 1. Get next row_id
     row_id = int(con.execute("SELECT COALESCE(MAX(row_id), 0) + 1 FROM events").fetchone()[0])
 
-    # 2. Insert raw event
     ts = ev.get("ts")
     time_val = ev.get("time")
     if time_val is None and ts:
-        # Derive time integer from timestamp for window functions
-        time_val = int(ts.timestamp()) if hasattr(ts, 'timestamp') else 0
+        time_val = int(ts.timestamp()) if hasattr(ts, "timestamp") else 0
 
     con.execute("""
         INSERT INTO events (row_id, ts, time, user_id, src_computer, dst_computer,
@@ -204,7 +203,6 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
           ev.get("auth_type"), ev.get("logon_type"), ev.get("orientation"),
           ev.get("result", "Success")))
 
-    # 3. Compute features from user's full history (including this event)
     user_src = f"""
         (SELECT row_id, time, user_id, src_computer, dst_computer,
                 auth_type, logon_type, orientation, result
@@ -215,34 +213,32 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         WHERE row_id = {row_id}
     """).fetchdf().iloc[0]
 
-    # 4. Score with both models
     features = np.array([float(feat_row[f]) for f in LANL_FEATURES], dtype=np.float32)
     if_score = _compute_if_score(features)
     lgb_score = _compute_lgb_score(features)
     combined = 0.5 * lgb_score + 0.5 * if_score
 
-    # 5. Decision
     if combined >= BLOCK_THRESHOLD:
-        decision, level, reasons = "block", "critical", f"combined={combined:.3f} (>{BLOCK_THRESHOLD})"
+        decision, level, reasons = "block", "critical", f"combined={combined:.3f}"
     elif combined >= FLAG_THRESHOLD:
-        decision, level, reasons = "flag", "high", f"combined={combined:.3f} (>{FLAG_THRESHOLD})"
+        decision, level, reasons = "flag", "high", f"combined={combined:.3f}"
     else:
         decision, level, reasons = "allow", "low", f"combined={combined:.3f}"
 
-    # 6. Update event
     con.execute("""
-        UPDATE events SET dst_first=?, src_first=?, hour_ratio=?, dst_prior_events=?,
-            fail_1h=?, vel_1h=?, hour_sin=?, hour_cos=?,
+        UPDATE events SET dst_first=?, src_first=?, vel_1h=?, fail_1h=?,
+            fail_rate_1h=?, burst_ratio=?, dst_diversity_1h=?, src_diversity_1h=?,
+            hour_sin=?, hour_cos=?,
             lgb_score=?, if_score=?, combined_score=?, risk_level=?, reasons=?, decision=?
         WHERE row_id=?
     """, (int(feat_row["dst_first"]), int(feat_row["src_first"]),
-          float(feat_row["hour_ratio"]), int(feat_row["dst_prior_events"]),
-          float(feat_row["fail_1h"]), int(feat_row["vel_1h"]),
+          int(feat_row["vel_1h"]), float(feat_row["fail_1h"]),
+          float(feat_row["fail_rate_1h"]), float(feat_row["burst_ratio"]),
+          int(feat_row["dst_diversity_1h"]), int(feat_row["src_diversity_1h"]),
           float(feat_row["hour_sin"]), float(feat_row["hour_cos"]),
           round(lgb_score, 6), round(if_score, 6), round(combined, 6),
           level, reasons, decision, row_id))
 
-    # 7. Alert if block/flag
     if decision in ("block", "flag"):
         alert_id = int(con.execute("SELECT COALESCE(MAX(alert_id), 0) + 1 FROM alerts").fetchone()[0])
         con.execute("""

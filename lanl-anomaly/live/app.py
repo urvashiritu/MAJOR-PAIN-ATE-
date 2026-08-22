@@ -348,18 +348,26 @@ def api_investigation(event_id: int):
     if e.get("src_first"):
         features.append({"feature": "First-time Source", "value": 1, "color": "#F04444",
                          "detail": f"Never used {e.get('src_computer')}"})
-    if e.get("hour_ratio", 0) > 0.1:
-        features.append({"feature": "Unusual Hour", "value": e["hour_ratio"], "color": "#F5B84B",
-                         "detail": f"Hour ratio: {e['hour_ratio']:.2f}"})
+    if e.get("burst_ratio", 0) > 0.5:
+        features.append({"feature": "Burst Activity", "value": e["burst_ratio"], "color": "#FF8A3D",
+                         "detail": f"Burst ratio: {e['burst_ratio']:.2f} (last 5min vs 1h)"})
     if e.get("vel_1h", 0) > 10:
         features.append({"feature": "High Velocity", "value": e["vel_1h"], "color": "#FF8A3D",
-                         "detail": f"{e['vel_1h']} events/hour"})
+                         "detail": f"{e['vel_1h']} events in last hour"})
     if e.get("fail_1h", 0) > 0:
         features.append({"feature": "Recent Failures", "value": e["fail_1h"], "color": "#FF8A3D",
                          "detail": f"{e['fail_1h']:.0f} failures in last hour"})
-    if e.get("dst_prior_events", 0) == 0 and e.get("dst_first"):
-        features.append({"feature": "Unknown Destination", "value": 1, "color": "#F04444",
-                         "detail": f"{e.get('dst_computer')} not in history"})
+    if e.get("fail_rate_1h", 0) > 0.3:
+        features.append({"feature": "High Failure Rate", "value": e["fail_rate_1h"], "color": "#F5B84B",
+                         "detail": f"Failure rate: {e['fail_rate_1h']:.0%}"})
+    if e.get("dst_diversity_1h", 0) > 5:
+        features.append({"feature": "Destination Scanning", "value": e["dst_diversity_1h"],
+                         "color": "#F04444",
+                         "detail": f"{e['dst_diversity_1h']} distinct destinations in 1h"})
+    if e.get("src_diversity_1h", 0) > 2:
+        features.append({"feature": "Source Hopping", "value": e["src_diversity_1h"],
+                         "color": "#F04444",
+                         "detail": f"{e['src_diversity_1h']} distinct sources in 1h"})
 
     # Timeline
     timeline_rows = c.execute("""
@@ -405,8 +413,10 @@ def api_investigation(event_id: int):
         },
         "features": {
             "dst_first": e.get("dst_first"), "src_first": e.get("src_first"),
-            "hour_ratio": e.get("hour_ratio"), "dst_prior_events": e.get("dst_prior_events"),
-            "fail_1h": e.get("fail_1h"), "vel_1h": e.get("vel_1h"),
+            "vel_1h": e.get("vel_1h"), "fail_1h": e.get("fail_1h"),
+            "fail_rate_1h": e.get("fail_rate_1h"), "burst_ratio": e.get("burst_ratio"),
+            "dst_diversity_1h": e.get("dst_diversity_1h"),
+            "src_diversity_1h": e.get("src_diversity_1h"),
             "hour_sin": e.get("hour_sin"), "hour_cos": e.get("hour_cos"),
         },
     })
