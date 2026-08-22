@@ -33,15 +33,13 @@ CREATE TABLE IF NOT EXISTS events (
     logon_type VARCHAR,
     orientation VARCHAR,
     result VARCHAR,
-    -- scale-invariant features
+    -- features (matching original 8-feature training)
     dst_first BOOLEAN,
     src_first BOOLEAN,
+    hour_ratio DOUBLE,
+    dst_prior_events BIGINT,
     vel_1h BIGINT,
     fail_1h DOUBLE,
-    fail_rate_1h DOUBLE,
-    burst_ratio DOUBLE,
-    dst_diversity_1h BIGINT,
-    src_diversity_1h BIGINT,
     hour_sin DOUBLE,
     hour_cos DOUBLE,
     -- scores

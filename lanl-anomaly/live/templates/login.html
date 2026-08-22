@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DOM1 Corporate Portal</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0e17;color:#e0e6f0;min-height:100vh;display:flex;align-items:center;justify-content:center}
+  .login-card{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:40px;width:420px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+  .logo{text-align:center;margin-bottom:32px}
+  .logo .icon{width:56px;height:56px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:12px}
+  .logo h1{font-size:20px;font-weight:600;color:#f1f5f9}
+  .logo p{font-size:13px;color:#64748b;margin-top:4px}
+  label{display:block;font-size:13px;color:#94a3b8;margin-bottom:6px;font-weight:500}
+  input,select{width:100%;padding:10px 14px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:14px;margin-bottom:16px;outline:none;transition:border .2s}
+  input:focus,select:focus{border-color:#3b82f6}
+  select option{background:#1e293b;color:#e2e8f0}
+  .row{display:flex;gap:12px}
+  .row>div{flex:1}
+  button{width:100%;padding:12px;background:linear-gradient(135deg,#3b82f6,#2563eb);border:none;border-radius:8px;color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .2s;margin-top:8px}
+  button:hover{opacity:.9}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .result{margin-top:20px;padding:14px;border-radius:8px;font-size:13px;display:none;line-height:1.5}
+  .result.allow{background:rgba(34,197,94,.12);border:1px solid #166534;color:#4ade80}
+  .result.flag{background:rgba(251,191,36,.12);border:1px solid #854d0e;color:#fbbf24}
+  .result.block{background:rgba(239,68,68,.12);border:1px solid #991b1b;color:#f87171}
+  .result .title{font-weight:600;font-size:14px;margin-bottom:4px}
+  .history{margin-top:24px}
+  .history h3{font-size:13px;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+  .history-log{max-height:200px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:12px;background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px}
+  .history-log .entry{padding:4px 0;border-bottom:1px solid #1e293b;display:flex;justify-content:space-between}
+  .history-log .entry:last-child{border:none}
+  .history-log .time{color:#64748b}
+  .history-log .ok{color:#4ade80}
+  .history-log .warn{color:#fbbf24}
+  .history-log .err{color:#f87171}
+  .scenario-bar{display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap}
+  .scenario-bar button{width:auto;padding:6px 12px;font-size:11px;font-weight:500;background:#1e293b;border:1px solid #334155;border-radius:6px;margin:0}
+  .scenario-bar button:hover{background:#334155}
+  .scenario-bar button.active{background:#3b82f6;border-color:#3b82f6}
+  .backend-url{font-size:11px;color:#475569;text-align:center;margin-top:16px}
+  .backend-url a{color:#3b82f6;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="login-card">
+  <div class="logo">
+    <div class="icon">&#128274;</div>
+    <h1>DOM1 Corporate Portal</h1>
+    <p>Secure Authentication Gateway</p>
+  </div>
+
+  <div class="scenario-bar" id="scenarios">
+    <button onclick="setScenario('normal')" class="active" title="Normal alice login from familiar machine">Normal</button>
+    <button onclick="setScenario('wrongpass')" title="Wrong password attempt">Wrong Pass</button>
+    <button onclick="setScenario('newdest')" title="Login to unfamiliar destination">New Dest</button>
+    <button onclick="setScenario('attacker')" title="Attacker with failed logins">Attacker</button>
+    <button onclick="setScenario('late')" title="Login at unusual hour (3am)">Late Night</button>
+  </div>
+
+  <form id="loginForm" onsubmit="submitLogin(event)">
+    <label>Username</label>
+    <select id="userSelect">
+      <option value="1" data-name="alice">alice (U10059@DOM1)</option>
+      <option value="2" data-name="bob">bob (U10158@DOM1)</option>
+      <option value="3" data-name="carol">carol (U10500@DOM1)</option>
+      <option value="-1" data-name="attacker">attacker (U748@DOM1)</option>
+    </select>
+    <label>Password</label>
+    <input type="password" id="password" value="Password123" autocomplete="off">
+    <div class="row">
+      <div>
+        <label>Source Machine</label>
+        <select id="srcComputer">
+          <option value="C17693">C17693</option>
+          <option value="C1652">C1652</option>
+          <option value="C295">C295</option>
+          <option value="C832">C832</option>
+          <option value="C9999">C9999 (new)</option>
+        </select>
+      </div>
+      <div>
+        <label>Destination</label>
+        <select id="dstComputer">
+          <option value="C852">C852</option>
+          <option value="C874">C874</option>
+          <option value="C311">C311</option>
+          <option value="C9999">C9999 (new)</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Auth Type</label>
+        <select id="authType">
+          <option value="NTLM">NTLM</option>
+          <option value="Kerberos">Kerberos</option>
+        </select>
+      </div>
+      <div>
+        <label>Result</label>
+        <select id="resultSelect">
+          <option value="Success">Success</option>
+          <option value="Failure">Failure</option>
+        </select>
+      </div>
+    </div>
+    <button type="submit" id="submitBtn">Sign In</button>
+  </form>
+
+  <div class="result" id="result"></div>
+
+  <div class="history">
+    <h3>Recent Activity</h3>
+    <div class="history-log" id="historyLog">
+      <div class="entry"><span class="time">--:--:--</span> <span style="color:#64748b">Waiting for first login...</span></div>
+    </div>
+  </div>
+
+  <div class="backend-url">Backend: <a href="#" id="backendUrl">http://127.0.0.1:5000</a></div>
+</div>
+
+<script>
+const API = window.location.protocol + '//' + window.location.host;
+document.getElementById('backendUrl').textContent = API;
+
+let lastScenario = 'normal';
+
+const SCENARIOS = {
+  normal:    { user: '1', src: 'C17693', dst: 'C852',  auth: 'NTLM', result: 'Success' },
+  wrongpass: { user: '1', src: 'C17693', dst: 'C852',  auth: 'NTLM', result: 'Failure' },
+  newdest:   { user: '1', src: 'C17693', dst: 'C9999', auth: 'NTLM', result: 'Success' },
+  attacker:  { user: '-1', src: 'C9999', dst: 'C9999', auth: 'NTLM', result: 'Failure' },
+  late:      { user: '2', src: 'C17693', dst: 'C852',  auth: 'NTLM', result: 'Success' },
+};
+
+function setScenario(name) {
+  lastScenario = name;
+  const s = SCENARIOS[name];
+  document.getElementById('userSelect').value = s.user;
+  document.getElementById('srcComputer').value = s.src;
+  document.getElementById('dstComputer').value = s.dst;
+  document.getElementById('authType').value = s.auth;
+  document.getElementById('resultSelect').value = s.result;
+  document.querySelectorAll('.scenario-bar button').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+async function submitLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Authenticating...';
+
+  const payload = {
+    user_id: parseInt(document.getElementById('userSelect').value),
+    src_computer: document.getElementById('srcComputer').value,
+    dst_computer: document.getElementById('dstComputer').value,
+    auth_type: document.getElementById('authType').value,
+    result: document.getElementById('resultSelect').value,
+  };
+
+  try {
+    const res = await fetch(API + '/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+
+    const el = document.getElementById('result');
+    const level = data.risk_level || 'low';
+    el.className = 'result ' + (data.decision === 'block' ? 'block' : data.decision === 'flag' ? 'flag' : 'allow');
+    el.style.display = 'block';
+
+    const icons = { allow: '&#9989;', flag: '&#9888;&#65039;', block: '&#10060;' };
+    const labels = { allow: 'ACCESS GRANTED', flag: 'ACCESS FLAGGED', block: 'ACCESS DENIED' };
+    el.innerHTML = `
+      <div class="title">${icons[data.decision] || ''} ${labels[data.decision] || data.decision.toUpperCase()}</div>
+      <div>Score: <strong>${(data.combined_score || 0).toFixed(3)}</strong> | Risk: <strong>${level.toUpperCase()}</strong></div>
+      <div style="margin-top:4px;color:#94a3b8">${data.reasons || ''}</div>
+    `;
+
+    // Add to history
+    const log = document.getElementById('historyLog');
+    if (log.querySelector('.entry .time')?.textContent === '--:--:--') log.innerHTML = '';
+    const now = new Date().toLocaleTimeString();
+    const cls = data.decision === 'block' ? 'err' : data.decision === 'flag' ? 'warn' : 'ok';
+    const name = document.getElementById('userSelect').selectedOptions[0].dataset.name;
+    log.innerHTML = `<div class="entry"><span class="time">${now}</span> <span class="${cls}">${name} -> ${payload.dst_computer} [${data.combined_score?.toFixed(3)}] ${data.decision.toUpperCase()}</span></div>` + log.innerHTML;
+
+  } catch (err) {
+    const el = document.getElementById('result');
+    el.className = 'result block';
+    el.style.display = 'block';
+    el.innerHTML = `<div class="title">&#9888; Connection Error</div><div>${err.message}</div>`;
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Sign In';
+}
+</script>
+</body>
+</html>

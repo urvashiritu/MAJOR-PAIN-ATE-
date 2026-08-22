@@ -39,3 +39,4 @@ live/web/node_modules/
 # Playwright test artifacts
 .playwright-mcp/
 
+lanl-anomaly/data/

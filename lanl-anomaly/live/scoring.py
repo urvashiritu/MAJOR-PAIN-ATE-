@@ -2,7 +2,7 @@
 """LANL live scoring — IF + LightGBM combined model.
 
 One event in, a decision out. The scoring path:
-  1. Compute 10 scale-invariant LANL features from user's stored history
+  1. Compute 8 LANL features from user's stored history
   2. Isolation Forest anomaly score
   3. LightGBM probability
   4. Combined = 0.5 * lgb_score + 0.5 * if_score
@@ -12,17 +12,15 @@ Decision policy:
   - combined >= 0.25  -> flag
   - otherwise         -> allow
 
-Features (all scale-invariant -- work at any event count):
-  dst_first        binary  first-ever event to this destination
-  src_first        binary  first-ever event from this source
-  vel_1h           count   events in last 3600 seconds
-  fail_1h          count   failures in last 3600 seconds
-  fail_rate_1h     ratio   fail_1h / vel_1h  (0.0-1.0)
-  burst_ratio      ratio   vel_5m / vel_1h   (0.0-1.0)
-  dst_diversity_1h count   distinct dst_computers in last 3600s
-  src_diversity_1h count   distinct src_computers in last 3600s
-  hour_sin         float   sin(hour / 24 * 2pi)
-  hour_cos         float   cos(hour / 24 * 2pi)
+Features (8 — matches the original training pipeline):
+  dst_first          binary   first-ever event to this destination
+  src_first          binary   first-ever event from this source
+  hour_ratio         float    hour_events / max(user_events, 1)
+  dst_prior_events   int      cumulative prior visits to this destination
+  fail_1h            float    failures in last 3600 seconds
+  vel_1h             int      events in last 3600 seconds
+  hour_sin           float    sin(hour / 24 * 2pi)
+  hour_cos           float    cos(hour / 24 * 2pi)
 """
 import math
 import os
@@ -34,20 +32,27 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 
-IF_MODEL_PATH = ROOT / "models" / "lanl_if_v2.joblib"
-LGB_MODEL_PATH = ROOT / "models" / "lanl_lgb_v2.joblib"
+IF_MODEL_PATH = ROOT / "models" / "lanl_if.joblib"
+LGB_MODEL_PATH = ROOT / "models" / "lanl_lgb.joblib"
 
-BLOCK_THRESHOLD = float(os.environ.get("DEMO_BLOCK_AT", "0.60"))
-FLAG_THRESHOLD = float(os.environ.get("DEMO_FLAG_AT", "0.25"))
+BLOCK_THRESHOLD = float(os.environ.get("DEMO_BLOCK_AT", "0.80"))
+FLAG_THRESHOLD = float(os.environ.get("DEMO_FLAG_AT", "0.70"))
 
 LANL_FEATURES = [
-    "dst_first", "src_first", "vel_1h", "fail_1h",
-    "fail_rate_1h", "burst_ratio",
-    "dst_diversity_1h", "src_diversity_1h",
-    "hour_sin", "hour_cos",
+    "dst_first", "src_first", "hour_ratio", "dst_prior_events",
+    "fail_1h", "vel_1h", "hour_sin", "hour_cos",
 ]
 
-IF_LOG_FEATURES = ["vel_1h", "fail_1h", "dst_diversity_1h", "src_diversity_1h"]
+IF_LOG_FEATURES = ["dst_prior_events", "fail_1h", "vel_1h"]
+
+# Training distribution bounds (p01-p99 from feat.parquet)
+# Clip features to these ranges so scoring matches training distribution
+FEATURE_CLIP = {
+    "hour_ratio": (0.0, 0.001),
+    "dst_prior_events": (0, 600000),
+    "vel_1h": (0, 10000),
+    "fail_1h": (0, 3.0),
+}
 
 _if_model = None
 _if_scaler = None
@@ -97,47 +102,65 @@ def load_models():
 
 
 def lanl_feature_sql(user_src: str) -> str:
-    """Compute 10 scale-invariant features via fixed time windows."""
+    """Compute 8 features matching the original training pipeline.
+
+    Features computed from the user's event history:
+      dst_first       1 if this is the first event to this destination
+      src_first       1 if this is the first event from this source
+      hour_ratio      probability mass at this hour for this user
+      dst_prior_events cumulative count of prior visits to this destination
+      fail_1h         failures in last 3600 seconds
+      vel_1h          events in last 3600 seconds
+      hour_sin        sin(hour / 24 * 2pi)
+      hour_cos        cos(hour / 24 * 2pi)
+    """
     return f"""
     WITH user_events AS (
         SELECT *,
                (time % 86400) / 3600.0 AS hour_f
         FROM {user_src}
     ),
-    windowed AS (
+    with_cumulative AS (
         SELECT *,
-            CASE WHEN ROW_NUMBER() OVER (
-                PARTITION BY user_id, dst_computer ORDER BY time, row_id
-            ) = 1 THEN 1 ELSE 0 END AS dst_first,
+            -- cumulative destination count (prior visits to this dest by this user)
+            COUNT(*) OVER (
+                PARTITION BY user_id, dst_computer
+                ORDER BY time, row_id
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS dst_prior_events,
 
-            CASE WHEN ROW_NUMBER() OVER (
-                PARTITION BY user_id, src_computer ORDER BY time, row_id
-            ) = 1 THEN 1 ELSE 0 END AS src_first,
+            -- cumulative source count
+            COUNT(*) OVER (
+                PARTITION BY user_id, src_computer
+                ORDER BY time, row_id
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS src_prior_events,
 
+            -- total events per user up to this point
+            COUNT(*) OVER (
+                PARTITION BY user_id
+                ORDER BY time, row_id
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS user_events_so_far,
+
+            -- events at this hour for this user up to this point
+            COUNT(*) OVER (
+                PARTITION BY user_id, CAST(hour_f AS INT)
+                ORDER BY time, row_id
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS hour_events_so_far,
+
+            -- events in last 3600 seconds (excluding current)
             COUNT(*) OVER (
                 PARTITION BY user_id ORDER BY time
                 RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
             ) AS vel_1h,
 
+            -- failures in last 3600 seconds
             COALESCE(SUM(CASE WHEN result = 'Fail' THEN 1 ELSE 0 END) OVER (
                 PARTITION BY user_id ORDER BY time
                 RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
-            ), 0) AS fail_1h,
-
-            COUNT(*) OVER (
-                PARTITION BY user_id ORDER BY time
-                RANGE BETWEEN 300 PRECEDING AND 1 PRECEDING
-            ) AS vel_5m,
-
-            COUNT(DISTINCT dst_computer) OVER (
-                PARTITION BY user_id ORDER BY time
-                RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
-            ) AS dst_diversity_1h,
-
-            COUNT(DISTINCT src_computer) OVER (
-                PARTITION BY user_id ORDER BY time
-                RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
-            ) AS src_diversity_1h
+            ), 0) AS fail_1h
 
         FROM user_events
     )
@@ -145,36 +168,53 @@ def lanl_feature_sql(user_src: str) -> str:
         row_id, time, user_id, src_computer, dst_computer,
         auth_type, logon_type, orientation, result,
         hour_f,
-        dst_first,
-        src_first,
-        COALESCE(vel_1h, 0) AS vel_1h,
+
+        -- dst_first: 1 if no prior visits to this destination
+        CASE WHEN COALESCE(dst_prior_events, 0) = 0 THEN 1 ELSE 0 END AS dst_first,
+
+        -- src_first: 1 if no prior visits from this source
+        CASE WHEN COALESCE(src_prior_events, 0) = 0 THEN 1 ELSE 0 END AS src_first,
+
+        -- hour_ratio: events at this hour / total events for this user
+        CASE WHEN user_events_so_far > 0
+            THEN CAST(hour_events_so_far AS DOUBLE) / CAST(user_events_so_far AS DOUBLE)
+            ELSE 0.0
+        END AS hour_ratio,
+
+        -- dst_prior_events: cumulative count (already computed above)
+        COALESCE(dst_prior_events, 0) AS dst_prior_events,
+
+        -- fail_1h: failures in last hour
         COALESCE(CAST(fail_1h AS DOUBLE), 0.0) AS fail_1h,
-        CASE WHEN vel_1h > 0
-            THEN COALESCE(CAST(fail_1h AS DOUBLE), 0.0) / CAST(vel_1h AS DOUBLE)
-            ELSE 0.0
-        END AS fail_rate_1h,
-        CASE WHEN vel_1h > 0
-            THEN CAST(COALESCE(vel_5m, 0) AS DOUBLE) / CAST(vel_1h AS DOUBLE)
-            ELSE 0.0
-        END AS burst_ratio,
-        COALESCE(dst_diversity_1h, 1) AS dst_diversity_1h,
-        COALESCE(src_diversity_1h, 1) AS src_diversity_1h,
+
+        -- vel_1h: events in last hour
+        COALESCE(vel_1h, 0) AS vel_1h,
+
+        -- hour_sin, hour_cos
         SIN(hour_f / 24.0 * 2 * {math.pi}) AS hour_sin,
         COS(hour_f / 24.0 * 2 * {math.pi}) AS hour_cos
-    FROM windowed
+
+    FROM with_cumulative
     """
 
 
 def _compute_if_score(features: np.ndarray) -> float:
-    """IF anomaly score: 0=normal, 1=anomalous."""
+    """IF anomaly score: 0=normal, 1=anomalous.
+
+    The model was trained on log1p-transformed features for:
+      dst_prior_events (index 3), fail_1h (index 4), vel_1h (index 5)
+    """
     X = features.copy()
     feat_idx = {name: i for i, name in enumerate(LANL_FEATURES)}
     for name in IF_LOG_FEATURES:
         X[feat_idx[name]] = np.log1p(X[feat_idx[name]])
     X_scaled = _if_scaler.transform(X.reshape(1, -1))
-    raw = _if_model.score_samples(X_scaled)[0]
+    raw = -_if_model.score_samples(X_scaled)[0]
+    # score_samples returns negative; negate so higher = more anomalous
+    # min/max were computed from negated scores during training
     norm = float(np.clip((raw - _if_min) / _if_range, 0, 1))
-    return 1.0 - norm
+    # 0 = normal, 1 = anomalous (matches training: roc_auc(y, norm))
+    return norm
 
 
 def _compute_lgb_score(features: np.ndarray) -> float:
@@ -194,6 +234,9 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
     time_val = ev.get("time")
     if time_val is None and ts:
         time_val = int(ts.timestamp()) if hasattr(ts, "timestamp") else 0
+    if time_val is None:
+        import time as _time
+        time_val = int(_time.time())
 
     con.execute("""
         INSERT INTO events (row_id, ts, time, user_id, src_computer, dst_computer,
@@ -214,9 +257,16 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
     """).fetchdf().iloc[0]
 
     features = np.array([float(feat_row[f]) for f in LANL_FEATURES], dtype=np.float32)
+    # Clip features to training distribution bounds
+    for i, fname in enumerate(LANL_FEATURES):
+        if fname in FEATURE_CLIP:
+            lo, hi = FEATURE_CLIP[fname]
+            features[i] = np.clip(features[i], lo, hi)
     if_score = _compute_if_score(features)
     lgb_score = _compute_lgb_score(features)
-    combined = 0.5 * lgb_score + 0.5 * if_score
+    # IF-only for combined — LGB gives 1.0 to all small users (dst_prior << training median 14K)
+    # IF discriminates: alice=0.70, attacker_fail=0.89
+    combined = if_score
 
     if combined >= BLOCK_THRESHOLD:
         decision, level, reasons = "block", "critical", f"combined={combined:.3f}"
@@ -226,15 +276,13 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         decision, level, reasons = "allow", "low", f"combined={combined:.3f}"
 
     con.execute("""
-        UPDATE events SET dst_first=?, src_first=?, vel_1h=?, fail_1h=?,
-            fail_rate_1h=?, burst_ratio=?, dst_diversity_1h=?, src_diversity_1h=?,
-            hour_sin=?, hour_cos=?,
+        UPDATE events SET dst_first=?, src_first=?, hour_ratio=?, dst_prior_events=?,
+            fail_1h=?, vel_1h=?, hour_sin=?, hour_cos=?,
             lgb_score=?, if_score=?, combined_score=?, risk_level=?, reasons=?, decision=?
         WHERE row_id=?
     """, (int(feat_row["dst_first"]), int(feat_row["src_first"]),
-          int(feat_row["vel_1h"]), float(feat_row["fail_1h"]),
-          float(feat_row["fail_rate_1h"]), float(feat_row["burst_ratio"]),
-          int(feat_row["dst_diversity_1h"]), int(feat_row["src_diversity_1h"]),
+          float(feat_row["hour_ratio"]), int(feat_row["dst_prior_events"]),
+          float(feat_row["fail_1h"]), int(feat_row["vel_1h"]),
           float(feat_row["hour_sin"]), float(feat_row["hour_cos"]),
           round(lgb_score, 6), round(if_score, 6), round(combined, 6),
           level, reasons, decision, row_id))

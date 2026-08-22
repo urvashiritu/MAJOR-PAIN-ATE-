@@ -24,7 +24,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 from werkzeug.routing import IntegerConverter
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,9 +101,17 @@ def _publish(c, result: dict) -> None:
 
 # ---------------- Routes ----------------
 
+TEMPLATES = ROOT / "live" / "templates"
+
+
 @app.route("/")
 def index():
     return send_from_directory(WEB, "index.html")
+
+
+@app.route("/login")
+def login():
+    return render_template("login.html")
 
 
 @app.route("/dashboard")
@@ -241,7 +249,7 @@ def api_dashboard():
     # Events per minute (last 5 minutes of events)
     epm = c.execute(f"""
         SELECT COUNT(*) FROM {LIVE_EVENTS}
-        WHERE ts >= now() - INTERVAL '5 minutes'
+        AND ts >= now() - INTERVAL '5 minutes'
     """).fetchone()[0]
 
     # Risk distribution
@@ -279,10 +287,10 @@ def api_dashboard():
     """).fetchall()
     alerts = [{
         "id": a[0], "eventId": a[1], "severity": a[4],
-        "user_id": a[2], "name": a[7] or a[2], "raw_id": a[8] or "",
+        "user_id": a[2], "name": a[9] or str(a[2]), "raw_id": a[10] or "",
         "combined_score": a[5], "reasons": a[6], "decision": a[7],
         "timestamp": a[3].strftime("%H:%M:%S") if a[3] else "-",
-        "status": "acknowledged" if a[9] else "new",
+        "status": "acknowledged" if a[8] else "new",
     } for a in al]
 
     return jsonify({
@@ -307,10 +315,10 @@ def api_alerts_spa():
     """).fetchall()
     alerts = [{
         "id": r[0], "eventId": r[1], "severity": r[4],
-        "user_id": r[2], "name": r[7] or r[2], "raw_id": r[8] or "",
+        "user_id": r[2], "name": r[9] or str(r[2]), "raw_id": r[10] or "",
         "combined_score": r[5], "reasons": r[6], "decision": r[7],
         "timestamp": r[3].strftime("%H:%M:%S") if r[3] else "-",
-        "status": "acknowledged" if r[9] else "new",
+        "status": "acknowledged" if r[8] else "new",
     } for r in rows]
     return jsonify(alerts)
 
@@ -348,26 +356,18 @@ def api_investigation(event_id: int):
     if e.get("src_first"):
         features.append({"feature": "First-time Source", "value": 1, "color": "#F04444",
                          "detail": f"Never used {e.get('src_computer')}"})
-    if e.get("burst_ratio", 0) > 0.5:
-        features.append({"feature": "Burst Activity", "value": e["burst_ratio"], "color": "#FF8A3D",
-                         "detail": f"Burst ratio: {e['burst_ratio']:.2f} (last 5min vs 1h)"})
+    if e.get("dst_prior_events", 0) == 0 and not e.get("dst_first"):
+        features.append({"feature": "Unfamiliar Destination", "value": 0, "color": "#F04444",
+                         "detail": f"0 prior visits to {e.get('dst_computer')}"})
     if e.get("vel_1h", 0) > 10:
         features.append({"feature": "High Velocity", "value": e["vel_1h"], "color": "#FF8A3D",
                          "detail": f"{e['vel_1h']} events in last hour"})
     if e.get("fail_1h", 0) > 0:
         features.append({"feature": "Recent Failures", "value": e["fail_1h"], "color": "#FF8A3D",
                          "detail": f"{e['fail_1h']:.0f} failures in last hour"})
-    if e.get("fail_rate_1h", 0) > 0.3:
-        features.append({"feature": "High Failure Rate", "value": e["fail_rate_1h"], "color": "#F5B84B",
-                         "detail": f"Failure rate: {e['fail_rate_1h']:.0%}"})
-    if e.get("dst_diversity_1h", 0) > 5:
-        features.append({"feature": "Destination Scanning", "value": e["dst_diversity_1h"],
-                         "color": "#F04444",
-                         "detail": f"{e['dst_diversity_1h']} distinct destinations in 1h"})
-    if e.get("src_diversity_1h", 0) > 2:
-        features.append({"feature": "Source Hopping", "value": e["src_diversity_1h"],
-                         "color": "#F04444",
-                         "detail": f"{e['src_diversity_1h']} distinct sources in 1h"})
+    if e.get("hour_ratio", 0) > 0.01:
+        features.append({"feature": "Unusual Hour", "value": e["hour_ratio"], "color": "#F5B84B",
+                         "detail": f"hour_ratio={e['hour_ratio']:.4f} (unusual time for this user)"})
 
     # Timeline
     timeline_rows = c.execute("""
@@ -413,10 +413,8 @@ def api_investigation(event_id: int):
         },
         "features": {
             "dst_first": e.get("dst_first"), "src_first": e.get("src_first"),
+            "hour_ratio": e.get("hour_ratio"), "dst_prior_events": e.get("dst_prior_events"),
             "vel_1h": e.get("vel_1h"), "fail_1h": e.get("fail_1h"),
-            "fail_rate_1h": e.get("fail_rate_1h"), "burst_ratio": e.get("burst_ratio"),
-            "dst_diversity_1h": e.get("dst_diversity_1h"),
-            "src_diversity_1h": e.get("src_diversity_1h"),
             "hour_sin": e.get("hour_sin"), "hour_cos": e.get("hour_cos"),
         },
     })
