@@ -30,6 +30,7 @@ from werkzeug.routing import IntegerConverter
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "live"))
 
+import db as db  # noqa: E402
 from db import get_con, init_schema, refresh_profile  # noqa: E402
 from scoring import score_event, lanl_feature_sql  # noqa: E402
 

@@ -21,6 +21,7 @@
 
 
 
+
 ## [17:46] USER
 
 bro i wanna search the dataset of rba using duckdb and im a beginner and i wanna do it myself how do i do that?

@@ -21,6 +21,7 @@
 
 
 
+
 ## [18:27] USER
 
  do a valut of obsidian of this codebase

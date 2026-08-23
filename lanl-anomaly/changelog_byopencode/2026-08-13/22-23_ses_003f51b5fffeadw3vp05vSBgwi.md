@@ -21,6 +21,7 @@
 
 
 
+
 ## [22:23] USER
 
 whats the result of training the model

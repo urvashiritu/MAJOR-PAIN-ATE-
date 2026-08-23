@@ -21,6 +21,7 @@
 
 
 
+
 ## [10:26] USER
 
 whats the problem with lanl training pipeline and my system specifications 
