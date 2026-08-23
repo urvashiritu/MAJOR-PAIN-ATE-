@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Settings, RotateCcw, Shield, AlertTriangle } from "lucide-react";
+import { Settings, Shield, AlertTriangle } from "lucide-react";
 import { getStats, resetDashboard } from "../hooks/useApi";
 import HoldButton from "../components/common/HoldButton";
 

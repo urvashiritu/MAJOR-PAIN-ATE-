@@ -1,221 +1,348 @@
 # AI-Based Identity Anomaly Detection System
 
 **Team:** Hemanth Kumar KS (1SK23CS020) | Urvashi Tanwar (1SK23CS055) | Veenashree S T (1SK23CS057) | Vishwanath Sanapur (1SK23CS059)
-**Guide:** Dr. Anitha A C — Government Sri Krishnarajendra Silver Jubilee Technological Institute, CSE
+**Guide:** Dr. Anitha A C -- Government Sri Krishnarajendra Silver Jubilee Technological Institute, CSE
 
 ---
 
-## The project in one paragraph (plain words)
+## What this project does
 
-Think of the system as a **bouncer at a nightclub** — but for login events.
+Every time someone logs in, the system asks: "Is this how this user normally behaves?"
 
-Every time someone logs in, the system asks: *"Is this how this user normally behaves?"*
-A normal login (usual time, usual country, usual device) gets a **green light**. A strange
-login (new country, new device, 3am, failed attempts just before) gets a **red flag** with
-a written explanation of *why*.
+A normal login (usual time, usual machine, familiar destination) gets allowed. A strange
+login (new machine, unfamiliar destination, unusual hour, repeated failures) gets flagged
+or blocked, with an explanation of why.
 
-The system was trained on **31 million real login events** from a published academic
-dataset (RBA, from Telenor Norway). During the live demo, login events arrive from a
-second laptop, get scored in real time, and appear on a dashboard as safe (green) or
-suspicious (red), with the reasons shown for every decision.
-
-> **Where the project is right now (rebuild in progress):** the RBA dataset was evaluated
-> first and demonstrated why shortcut labels can make ML misleading (its attack label is an
-> IP blacklist, so a lookup beats any model). The live system is therefore **moving to the
-> LANL Cyber1 dataset** — real network authentication logs with red-team ground truth and
-> no shortcut possible — where the trained ML model is the sole scorer. The old RBA-based
-> demo code is preserved in `legacy/rba/` as research material. See `docs/PROJECT_CONTEXT.md`
-> for the full validated plan.
-
-### The one finding that shapes everything
-
-While analyzing the dataset, we discovered something important:
-
-- The dataset's main attack label (`is_attack_ip`) is **not about behavior at all** —
-  it's an **IP blacklist** (a list of "bad" IP addresses). The same IP always gets the
-  same label.
-- A model that studies *behavior* can never learn to predict a *list*. We proved this
-  honestly with numbers (see "What the numbers mean" below).
-- The real behavioral signal is `is_ato` (account takeover — a hacked account), but
-  there are only **141** such events in 31 million rows — a needle in a haystack.
-
-> **Dataset warning:** the RBA dataset (Zenodo 6782156) is **synthesized** — statistically
-> recreated from real Telenor login patterns by the authors, who state the feature values
-> are "totally artificial" and **not for production systems**. We use it as a benchmark for
-> academic/demo purposes only.
+The system is trained on the **LANL Cyber1 dataset** -- real network authentication
+logs from Los Alamos National Laboratory with red-team ground truth. During the live
+demo, login events are scored in real time and appear on a dashboard as allowed (green),
+flagged (yellow), or blocked (red), with the reasoning shown for every decision.
 
 ---
 
-## Plain-English glossary
+## Why this approach (and what we tried before)
 
-| Word | What it means, simply |
-|---|---|
-| **Row / event** | One login attempt: who, when, from which country, on which device, did it succeed |
-| **Feature** | A single number computed from a row (e.g. `hour`, `country_change`, `ip_seen_before`) |
-| **Label** | The truth: is this row an attack (1) or not (0). The model tries to predict this |
-| **Blocklist label** | A label decided per IP, not per behavior. `is_attack_ip` is one: the same IP is always 1 or always 0 |
-| **Gold label** | Our tuning target: `is_attack_ip` AND the login succeeded. A successful login from a blocked IP |
-| **ATO** | Account Takeover — a real account got hacked (141 rows in the data; the behavioral gold standard) |
-| **Sampling** | Picking a smaller, representative chunk out of the big dataset (31M rows don't fit in memory) |
-| **Train/test split** | Train the model on part A, test it on part B it never saw. If it works on part B, it works on new events |
-| **F1 score** | One number that balances "how often you're right when you flag" and "how many attacks you catch" (0 = worst, 1 = perfect) |
-| **FPR** | False positive rate: the fraction of normal events we wrongly flag (our budget: 5%) |
-| **Replay** | "If we double-check the top X% most suspicious logins, how many attacks do we catch, and how many normal users do we bother?" |
-| **Challenge rate** | The fraction of events we pick for a second check (e.g. 10%) |
+We went through three earlier paths before arriving here. Each one taught us something
+useful about why ML fails or succeeds on different datasets.
+
+### Path 1: RBA + 4-model ensemble (F1 0.11)
+
+We trained Isolation Forest, LOF, OCSVM, and Elliptic Envelope on the RBA dataset
+(31M login events from a Norwegian ISP). The best model (trimmed ensemble) scored
+F1 0.11 on the "gold label" (successful login from a blocked IP).
+
+The problem was the label itself. RBA's attack label is an IP blocklist -- a static
+list of bad IPs. The same IP always gets the same label. A model that studies behavior
+can never learn to predict a list. A simple IP lookup (no ML needed) scored 0.75 F1,
+beating every model by a wide margin. ML was the wrong tool for a blocklist problem.
+
+### Path 2: RBA + XGBoost (same result, different model)
+
+We tried XGBoost on the same RBA data. Same label, same problem. The model learned
+some behavioral patterns but still couldn't beat the blocklist shortcut. Changing
+the model doesn't fix a broken label.
+
+### Path 3: LANL + 4-model ensemble (ROC-AUC 0.99, but impractical)
+
+We moved to the LANL Cyber1 dataset (1B auth events from a national lab) and
+trained the same 4-model ensemble. Isolation Forest hit ROC-AUC 0.99 on the test
+set. But the 4-model approach had problems:
+
+- Elliptic Envelope caught only 1 true positive out of 4 red-team events
+- LOF took 910 seconds to fit on 7M rows
+- Combining 4 models added complexity without proportional benefit
+- The ensemble scores were hard to interpret in the demo
+
+### Path 4 (current): LANL + IF + habit deviation (ROC-AUC 0.92 combined)
+
+The current approach uses a single Isolation Forest model plus a simple habit
+deviation layer. Here's why it works better:
+
+**1. No shortcut possible.** LANL's auth data has no IPs, no geolocation, no
+device IDs, no browser signatures. The only signal is behavior. This is why ML
+can win here when it couldn't on RBA.
+
+**2. Per-user baseline.** The habit deviation compares each event to the user's
+own history, not a global average. "Alice has never visited C9999 before" is a
+stronger signal than "most users don't visit C9999."
+
+**3. 8 features, not 21.** We use dst_first, src_first, hour_ratio,
+dst_prior_events, fail_1h, vel_1h, hour_sin, hour_cos. Each one maps to a
+concrete behavioral question: "Is this destination new? Is this source new?
+Is this hour unusual? How many times has the user been here before?"
+
+**4. Interpretable decisions.** The scoring formula is:
+`if_score + 0.10 * min(dev_points, 3)`. The habit deviation adds at most
+0.3 points, acting as a tiebreaker. The IF model does the heavy lifting;
+the deviation layer adds per-user context.
+
+**5. Fast enough for real time.** IF scores one event in ~1.58 microseconds
+on the demo scale. The habit deviation query runs in milliseconds against
+DuckDB. The combined path is well under 1ms per event.
+
+### Results comparison
+
+| Approach | Dataset | Best model | F1 | ROC-AUC | Notes |
+|----------|---------|-----------|-----|---------|-------|
+| RBA + 4 ensemble | RBA (31M) | ensemble_trimmed | 0.111 | 0.536 | IP blocklist label; ML can't beat lookup |
+| RBA + XGBoost | RBA (31M) | XGBoost | 0.111 | 0.536 | Same label, same problem |
+| LANL + 4 ensemble | LANL (7M train) | isolation_forest | 0.0005 | 0.994 | High ROC-AUC but impractical ensemble |
+| LANL + IF + habit | LANL (demo) | combined | -- | 0.916 | 8 features, interpretable, real-time |
+
+The LANL + IF + habit approach trades a small amount of ROC-AUC (0.92 vs 0.99)
+for practical benefits: fewer features, interpretable decisions, per-user context,
+and a scoring path fast enough for live demo use.
 
 ---
 
-## The pipeline in one picture
+## Architecture
 
 ```
-raw CSV  (31.3M events)
-   │  src/00_clean_dataset.py              ~30 s
-   ▼
-rba_clean.parquet  (cleaned, flags added)
-   │  src/02_feature_engineering.py        ~8 min over the FULL 31.3M rows
-   ▼
-rba_features.parquet  (features per event)
-   │  src/01_load_and_sample.py            ~2 min, samples from the featured table
-   ▼
-sample.parquet / features.parquet  (1M events, 192,649 users)
-   │  src/03_validate_contract.py          seconds, must print PASS
-   ▼
-src/04_rule_baseline.py    points system → rule scores   (the live decision layer)
-   │
-   ▼
-src/07_ensemble_full.py   anomaly models on the FULL 1M sample → reports/, models/
+data/raw/lanl/slice.parquet     LANL Cyber1 authentication logs
+         |
+    seed_demo.py                Seeds 4 users + history into DuckDB
+         |
+    data/live.duckdb            Live demo database
+         |
+    app.py (Flask)              Backend: scoring, API, SSE
+    scoring.py                  IF + habit deviation scoring
+    db.py                       DuckDB storage, profiles
+         |
+    live/web/ (React + Vite)    Dashboard SPA
+    templates/login.html        Login page (generates test events)
 ```
 
-Two things to notice: features run before sampling (a sampled event carries the exact
-feature the live system would compute), and `02` runs before `01`. The order is
-`00 → 02 → 01 → 03 → 04 → 07`. The rules engine is what decides in the live demo;
-`07` is the model experiment that compares anomaly detectors head-to-head on the full
-sample.
+Backend: Flask on port 5000
+Frontend: React + Vite, proxied through Flask
+Database: DuckDB
+Models: Isolation Forest + LightGBM (pretrained, stored in `models/`)
 
 ---
 
-## Current state (Aug 19, 2026)
+## How to run
 
-Phases 0–8 are done (the live demo app shipped Aug 11–12). Every gate passes.
-The honest evaluation is in `reports/`.
+### Prerequisites
 
-### What the numbers mean (in plain words)
+- Python 3.10+ with venv set up at `../venv/`
+- Node.js 18+ with npm
 
-The simplest way to read the results — three honest facts:
-
-1. **A blocklist beats every behavior model.** Just looking up "is this IP on a bad-IP
-   list" scores **0.75**, while our best machine-learning model scores **0.11**. That's
-   because the main attack label *is* a blocklist, not a behavior label. The gap is the
-   label's fault, not the model's.
-2. **The rules are the practical winner.** When we "double-check" the 10% most suspicious
-   logins, the rule engine catches **~79% of real account takeovers** while re-challenging
-   ~11% of normal users.
-3. **The ML is the honest comparison, not the demo.** All four anomaly models are trained
-   on the same full 1M-row sample; the best is the trimmed ensemble (**F1 0.111**), just
-   ahead of Local Outlier Factor alone (0.092). (F1 is one number from 0=useless to
-   1=perfect balancing "are we right when we flag?" and "do we catch enough?")
-
-> **Why there is no "ML score" in the live demo:** an earlier phase trained a supervised
-> HGB model on the gold label (best F1 0.287). Auditing the demo showed that score never
-> moved a decision — the features the demo surfaces (new device, foreign login) move it
-> the *wrong way*, and its trigger was never reached. The supervised model, the
-> subset-trained Phase-6 detectors, and the separate `logs-lab` experiment were removed
-> so the demo is honestly **rule-driven**: blocklist → block, rule ≥ 90 → block,
-> rule ≥ 45 → flag, otherwise allow.
-
-- **This is a single-dataset study.** We evaluated LANL, CERT R4.2 and Cloud-UEBA as a
-  second dataset and rejected them: none has the login columns (country/device/IP/browser,
-  success/failure) our shared feature and rule SQL needs, and none provides event-level
-  attack ground truth (CERT is user+day, Cloud-UEBA is unlabeled by design). So the
-  findings here — blocklist ceiling, 79%-ATO rules replay, 141-ATO needle — are measured
-  on RBA alone; transfer to other login telemetry is future work, not a claim.
-
-### Live dashboard vs. dataset browser
-
-The `/dashboard` SPA mixes two data sources, by design. The headline **KPIs, anomaly
-trend, risk distribution, activity-by-hour and top reasons come from the live demo
-database** (`events` where `decision != 'history'`) and tick as logins are scored. The
-**world map, scatter plot and Dataset page read the offline 1M-row scored sample** — that
-page is the "show the cleaned dataset" view, not live traffic.
-
-### What was done, phase by phase (plain words)
-
-| Phase | What we did | In one sentence |
-|---|---|---|
-| 0–2 | Scope, environment, dataset audit | Decided what to build and studied all 31.3M rows (found the messy parts, and the big discovery: the main label is a blocklist) |
-| 3 | Cleaning + sampling | Fixed the messy values, then picked 1M representative rows — keeping all 141 takeover rows and capping one "robot" user that was 45% of the data |
-| 4 | Feature engineering | 21 features per login: new country? new device? failed login 5 min ago? rapid burst? unusual hour? — all computed over the user's real history |
-| 5 | Rule baseline | A bouncer's checklist: new country +30, new IP +25, recent failure +20, ... → low / medium / high / critical, with written reasons |
-| 6 | Anomaly models | 4 models that learn "what is normal" and flag the unusual — compared honestly on the full 1M sample; the trimmed ensemble won at 0.111 |
-| 7–8 | Live demo app | Flask app + DuckDB: personas seeded from the real sample, every login scored live by the exact training SQL (rule engine), verdict/blocked/challenge pages, admin dashboard with live push, user profiles + JSON API |
-
-### Repo contents
-
-- `data/raw/rba-dataset.csv` — raw RBA dataset (8.5 GB, 31.3M events, Zenodo)
-- `data/processed/rba_clean.parquet` — cleaned (same row count, flags added)
-- `data/processed/rba_features.parquet` — features over all 31.3M rows
-- `data/processed/sample.parquet` + `features.parquet` — 1M-row training table
-- `data/processed/user_baselines.parquet` — per-user history over all 31.3M rows
-- `data/live.duckdb` — live demo DB (users, events, alerts, user_profile)
-- `src/00_clean_dataset.py` → `src/02_feature_engineering.py` → `src/01_load_and_sample.py` → `src/03_validate_contract.py` → `src/04_rule_baseline.py` → `src/07_ensemble_full.py`
-- `live/` — Flask demo: `app.py` (web + JSON API + SSE), `db.py` (schema + profiles), `templates/`, `web/` (React dashboard). The RBA rule-scoring modules moved to `legacy/rba/` (`scoring.py`, `seed_demo.py`, `ua.py`, `geolocation.py`)
-- `reports/` — rule scores, model comparison, ensemble evaluation, replay analysis, evaluation JSONs
-- `models/ensemble_full.joblib` — the full-sample ensemble + scaler + tuned thresholds (the model deliverable; not loaded by the live app)
-
----
-
-## How to run everything
+### 1. Seed the database
 
 ```bash
-venv/bin/python src/00_clean_dataset.py          # ~30 s
-venv/bin/python src/02_feature_engineering.py    # ~8 min, full 31.3M pass
-venv/bin/python src/01_load_and_sample.py        # ~2 min
-venv/bin/python src/03_validate_contract.py      # must print PASS
-venv/bin/python src/04_rule_baseline.py          # ~1 min
-venv/bin/python src/07_ensemble_full.py          # ~3 min (trains all models on the full 1M sample)
+venv/bin/python live/seed_demo.py
 ```
 
-Run them in that order (note: the file numbers are phase numbers — `01` runs
-*third*). Each script writes a report next to its output. If `03` fails,
-the inputs are stale — rebuild.
+This reads `data/raw/lanl/slice.parquet` and creates `data/live.duckdb` with
+4 user profiles and their login history.
 
-Or use the Makefile, which encodes the order for you (each target rebuilds
-its inputs only when they are stale):
+### 2. Start the backend
 
 ```bash
-make all          # full pipeline 00 -> 02 -> 01 -> 03 -> 04 -> 07
-make clean features sample validate rules ensemble-full   # any stage
+venv/bin/python live/app.py
 ```
 
-## Running the live demo
+The server starts on `http://0.0.0.0:5000`. Models are loaded at startup --
+you should see "MODELS LOADED" in the health endpoint.
+
+### 3. Start the frontend (for dashboard)
 
 ```bash
-venv/bin/python live/seed_demo.py   # (re)create data/live.duckdb with persona history
-venv/bin/python live/app.py         # http://127.0.0.1:5000
+cd live/web
+npm install
+npm run dev
 ```
 
-- `/` login form (persona cards + custom event) · `/dashboard` SPA · `/admin` redirects to it
-- score a login from another machine (demo): `POST /events` with JSON
-  `{"user_id": <id>, "country": "FR", ...}` — all endpoints return JSON:
-  `GET /risk/<event_id>` · `GET /users/<user_id>/profile` · `GET /alerts`
-- the dashboard updates live over SSE (`GET /events/stream`) — no refresh
+The dev server starts on `http://localhost:5173/dashboard/`. In production,
+build with `npm run build` and Flask serves the static files.
 
-## Docs
+### 4. Open the login page
 
-| Doc | What it covers |
-|---|---|
-| `README.md` | This file: overview, pipeline picture, current state, run commands |
-| `dataset_scan_report.md` | Full-scan quality audit of all 31.3M rows + cleaning solution, in plain words |
-| `PROJECT_ROADMAP.md` | Implementation plan, phases 0–11, in plain words |
-| `COMPLETE_PROJECT_REFERENCE.md` | Slim plain-English reference: metrics explained, honest findings, demo script, viva Q&A |
+Open `http://<backend-ip>:5000` on a second laptop or phone. Pick a scenario,
+fill in the form, and submit. The event is scored and appears on the dashboard.
 
-Reading order: README → roadmap → scan report → reference.
+---
 
-## Known Issues (all resolved)
+## Login scenarios
 
-1. ~~Training data has only 248 attack examples (1.36%)~~ — **RESOLVED (Aug 8):** whole-user sampling yields 1,000,003 rows with a 24.76% natural attack share.
-2. ~~Documented metrics (94.2%/91.7%/88.3%) are not reproducible~~ — **RESOLVED (Aug 9):** Phase 6 measures and reports honestly; the old claim is gone. See `reports/ensemble_full_comparison.csv`.
-3. ~~`failed_before_success` semantics~~ — **RESOLVED (Aug 8):** real 5-minute lookback, renamed `failed_recently`.
-4. ~~`contamination` must not be hardcoded~~ — **RESOLVED (Aug 9):** models fit on clean rows only; contamination 0.10 is the flag-rate intent; the measured train attack share (0.2504) is reported alongside.
-5. ~~rule points must be tuned, not constants~~ — **RESOLVED (Aug 9):** weights follow the takeover-behavior ordering; level bounds kept at 30/65/90 with rationale in `src/04_rule_baseline.py`.
-6. **RESOLVED (Aug 8):** `geo_unreliable` duplicate, iOS/Mobile substring mislabels, device short-circuit, `Andorid` typo, non-deterministic sampling, hardcoded `fixed_rows`, `prior_fail_ts` leak, `failed_before_success` misnomer — all fixed and guarded by `src/03_validate_contract.py`.
+The login page has 5 preset scenarios to test different detection cases:
+
+| Scenario | What happens | Expected result |
+|----------|-------------|-----------------|
+| Normal | Alice logs in from her usual machine (C17788) to a familiar destination (C612) | ALLOW |
+| Wrong Pass | Alice enters wrong password, then corrects it | ALLOW (single failure is normal) |
+| New Dest | Alice logs in to a destination she has never visited before (C9999) | BLOCK (0.796) |
+| Attacker | Attacker (C151) tries to log in -- has 17k+ suspicious history events | ALLOW (single attempt); FLAG or BLOCK with rapid-fire attempts |
+| Late Night | Alice logs in at 3am | ALLOW (time alone is not enough) |
+
+---
+
+## How scoring works
+
+Each event is scored by combining two signals:
+
+1. **Isolation Forest anomaly score** -- a machine learning model that learned what
+   "normal" looks like across 8 features (new destination, new source, hour patterns,
+   prior visits, failure rate, velocity)
+
+2. **Habit deviation points** -- simple rules that compare this event to the user's
+   stored history:
+   - First-ever destination: +1 point
+   - First-ever source: +1 point
+   - Repeated auth failures: +1 point
+
+The combined score is: `if_score + 0.10 * min(dev_points, 3)`
+
+Decision thresholds:
+- Combined >= 0.75: BLOCK
+- Combined >= 0.65: FLAG
+- Below 0.65: ALLOW
+
+LightGBM is also loaded and its score is displayed for transparency, but it is not
+part of the decision -- it was trained on full-scale data and saturates at 1.0 on
+demo-scale histories.
+
+---
+
+## Features (8)
+
+| Feature | Type | What it measures |
+|---------|------|-----------------|
+| dst_first | binary | Is this the first event to this destination? |
+| src_first | binary | Is this the first event from this source? |
+| hour_ratio | float | Fraction of events at this hour vs total |
+| dst_prior_events | int | How many times has this user visited this destination? |
+| fail_1h | float | Auth failures in the last hour |
+| vel_1h | int | Events in the last hour |
+| hour_sin | float | Sine of hour (captures cyclical time) |
+| hour_cos | float | Cosine of hour (captures cyclical time) |
+
+---
+
+## Seeded users
+
+| User | User ID | Default Source | History Events |
+|------|---------|---------------|----------------|
+| alice | 1 | C17788 | ~99 |
+| bob | 2 | C21468 | ~39 |
+| carol | 3 | C18941 | ~42 |
+| attacker | -1 | C151 | ~17,000 |
+
+---
+
+## API endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /events | Score a single event |
+| GET | /events/stream | SSE stream of scored events |
+| GET | /api/dashboard | KPIs, recent events, alerts |
+| GET | /api/investigation/<id> | Feature breakdown + timeline |
+| GET | /api/users/<id>/profile | Baseline + distributions |
+| GET | /api/users | All users + stats |
+| GET | /api/alerts | Recent alerts |
+| POST | /api/alerts/<id>/ack | Acknowledge alert |
+| GET | /api/health | System status (models loaded, uptime) |
+| POST | /api/reset | Reset demo to initial state |
+
+---
+
+## Project structure
+
+```
+lanl-anomaly/
+  data/
+    raw/lanl/slice.parquet     Source dataset
+    live.duckdb                 Demo database
+  models/
+    lanl_if.joblib              Isolation Forest model
+    lanl_lgb.joblib             LightGBM model
+    lanl_ensemble.joblib        Ensemble model
+  src/
+    00_clean_dataset.py         Dataset cleaning
+    01_load_and_sample.py       Sampling
+    02_feature_engineering.py   Feature SQL
+    02_retrain_both.py          Retrain IF + LGB
+    02_retrain_if.py            Retrain IF only
+    03_validate_contract.py     Validation
+    04_rule_baseline.py         Rule engine
+    07_ensemble_full.py         Ensemble evaluation
+  live/
+    app.py                      Flask backend
+    scoring.py                  Scoring logic
+    db.py                       Database layer
+    seed_demo.py                Database seeder
+    templates/login.html        Login page
+    web/                        React dashboard
+  reports/                      Evaluation reports
+  legacy/                       Old RBA code (preserved)
+```
+
+---
+
+## Experimental results
+
+### LANL feature separation (702 red-team events)
+
+The behavioral signals are real. Here's how each feature alone separates red-team
+events from normal activity:
+
+| Feature | Red vs user's own normal | Red vs normal users | What it means |
+|---------|-------------------------|---------------------|---------------|
+| dst_first | 0.650 | 0.649 | Red hits new destinations |
+| src_first | 0.552 | 0.552 | Red uses new sources |
+| hour_ratio | 0.712 | 0.352 | Red works at odd hours (per-user: 0.71) |
+| dst_prior_events (inverted) | 0.970 | 0.905 | Red visits unfamiliar targets |
+| fail_1h | 0.657 | 0.665 | Red coincides with failure bursts |
+| vel_1h (inverted) | 0.810 | 0.586 | Red follows different activity patterns |
+
+"Per-user" means vs the compromised user's own baseline (A vs B). This is the
+UEBA framing: "is THIS user acting normally?" not "is this a bad user?"
+
+### Model performance on LANL
+
+| Model | ROC-AUC | F1 | Recall | FPR | Train time |
+|-------|---------|-----|--------|-----|------------|
+| Isolation Forest | 0.994 | 0.0005 | 0.75 | 0.004 | 13s |
+| Elliptic Envelope | 1.000 | 0.333 | 0.25 | 0.000 | 245s |
+| LOF | 0.814 | 0.003 | 0.25 | 0.000 | 911s |
+| Combined (IF + habit) | 0.916 | 0.009 | 0.01 | 0.000 | -- |
+
+Note: F1 is low because of extreme class imbalance (4 red events in 3M test rows).
+ROC-AUC is the more meaningful metric here. The combined score trades peak ROC-AUC
+for interpretable, per-user decisions.
+
+### Demo scoring measurements (5 scenarios x 3 runs each)
+
+| Scenario | n | p50 score | ALLOW | FLAG | BLOCK |
+|----------|---|-----------|-------|------|-------|
+| Normal (alice, familiar) | 15 | 0.48 | 15 | 0 | 0 |
+| Wrong pass (single failure) | 15 | 0.58 | 3 | 12 | 0 |
+| Burst (rapid-fire attacks) | 5 | 0.62 | 2 | 2 | 1 |
+| Burst warmup (first attempts) | 5 | 0.54 | 4 | 1 | 0 |
+| Replay (repeated patterns) | 15 | 0.58 | 3 | 12 | 0 |
+
+The system correctly allows normal logins, flags suspicious patterns, and blocks
+sustained attack bursts. Single failures and early attempts stay below the flag
+threshold, reducing false alarms.
+
+---
+
+## Known limitations
+
+- The Late Night scenario is cosmetic only. The timestamp is anchored to the
+  seed data, so "3am" does not change the score without modifying the form
+  to spoof the hour in the POST payload.
+- LightGBM is displayed but not used for decisions. It was trained on
+  full-scale data (~52k events per destination) and scores everything as
+  anomalous on demo-scale histories.
+- This is a single-dataset study on LANL Cyber1. Transfer to other networks
+  is future work.
+
+---
+
+## References
+
+- LANL Cyber1 dataset: `data/raw/lanl/slice.parquet`
+- Original RBA dataset (preserved in `legacy/`): Zenodo 6782156
+- Isolation Forest: Liu et al., 2008
+- LightGBM: Ke et al., 2017

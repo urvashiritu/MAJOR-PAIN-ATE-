@@ -4,11 +4,11 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const LEVELS = [
-  { min: 0, max: 0, cls: "heatmap-empty" },
-  { min: 1, max: 2, cls: "heatmap-l1" },
-  { min: 3, max: 5, cls: "heatmap-l2" },
-  { min: 6, max: 9, cls: "heatmap-l3" },
-  { min: 10, max: Infinity, cls: "heatmap-l4" },
+  { min: 0, max: 0, cls: "heatmap-empty", fill: "var(--wash)" },
+  { min: 1, max: 2, cls: "heatmap-l1", fill: "rgba(232,163,61,0.15)" },
+  { min: 3, max: 5, cls: "heatmap-l2", fill: "rgba(232,163,61,0.35)" },
+  { min: 6, max: 9, cls: "heatmap-l3", fill: "rgba(232,163,61,0.55)" },
+  { min: 10, max: Infinity, cls: "heatmap-l4", fill: "rgba(229,72,77,0.8)" },
 ];
 
 function getLevel(count) {

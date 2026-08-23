@@ -24,7 +24,6 @@ from pathlib import Path
 import duckdb
 import joblib
 import numpy as np
-import pandas as pd
 from sklearn.ensemble import IsolationForest
 from sklearn.metrics import average_precision_score, roc_auc_score, precision_recall_curve
 from sklearn.model_selection import StratifiedShuffleSplit

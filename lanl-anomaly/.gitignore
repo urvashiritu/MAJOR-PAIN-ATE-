@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.duckdb.wal
+.playwright-mcp/
+changelog_byopencode/
+screenshots/
+*.tmp
+.env

@@ -73,11 +73,11 @@
   </div>
 
   <div class="scenario-bar" id="scenarios">
-    <button onclick="setScenario('normal')" class="active" title="Normal alice login from familiar machine">Normal</button>
-    <button onclick="setScenario('wrongpass')" title="Wrong password attempt">Wrong Pass</button>
-    <button onclick="setScenario('newdest')" title="Login to unfamiliar destination">New Dest</button>
-    <button onclick="setScenario('attacker')" title="Attacker with failed logins">Attacker</button>
-    <button onclick="setScenario('late')" title="Login at unusual hour (3am)">Late Night</button>
+    <button onclick="setScenario('normal', event)" class="active" title="Normal alice login from familiar machine">Normal</button>
+    <button onclick="setScenario('wrongpass', event)" title="Wrong password attempt">Wrong Pass</button>
+    <button onclick="setScenario('newdest', event)" title="Login to unfamiliar destination">New Dest</button>
+    <button onclick="setScenario('attacker', event)" title="Attacker with failed logins">Attacker</button>
+    <button onclick="setScenario('late', event)" title="Login at unusual hour (3am)">Late Night</button>
   </div>
 
   <form id="loginForm" onsubmit="submitLogin(event)">
@@ -156,7 +156,7 @@ document.getElementById('backendUrl').textContent = API;
 const LOG_KEY = 'laptop2_event_log';
 let eventLog = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
 
-function setScenario(name) {
+function setScenario(name, event) {
   const s = SCENARIOS[name];
   document.getElementById('userSelect').value = s.user;
   document.getElementById('srcComputer').value = s.src;

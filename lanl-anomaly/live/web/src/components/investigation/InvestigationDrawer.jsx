@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, AlertTriangle, Shield, Clock, User } from "lucide-react";
+import { X, AlertTriangle, Shield, User } from "lucide-react";
 import { getInvestigation, ackAlert } from "../../hooks/useApi";
 import SeverityBadge from "../common/SeverityBadge";
 
