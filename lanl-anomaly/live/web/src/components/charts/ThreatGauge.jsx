@@ -1,3 +1,5 @@
+import { useState, useEffect } from "react";
+import { useSpring, useMotionValueEvent } from "framer-motion";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 
 const RADIUS = 70;
@@ -23,10 +25,19 @@ function getLabel(value) {
 }
 
 export default function ThreatGauge({ value = 0, label = "Threat Level" }) {
-  const normalizedValue = Math.min(Math.max(value, 0), 1);
-  const angle = normalizedValue * 180;
-  const color = getGaugeColor(normalizedValue);
-  const statusLabel = getLabel(normalizedValue);
+  const target = Math.min(Math.max(value, 0), 1);
+  const spring = useSpring(0, { stiffness: 60, damping: 18, mass: 1 });
+  const [display, setDisplay] = useState(target);
+
+  useEffect(() => {
+    spring.set(target);
+  }, [target, spring]);
+
+  useMotionValueEvent(spring, "change", (v) => setDisplay(v));
+
+  const angle = display * 180;
+  const color = getGaugeColor(display);
+  const statusLabel = getLabel(display);
 
   const data = [
     { value: angle, fill: color },
@@ -51,16 +62,21 @@ export default function ThreatGauge({ value = 0, label = "Threat Level" }) {
               innerRadius={RADIUS - STROKE}
               outerRadius={RADIUS}
               stroke="none"
+              isAnimationActive={false}
             >
               {data.map((entry, i) => (
-                <Cell key={i} fill={entry.fill} />
+                <Cell
+                  key={i}
+                  fill={entry.fill}
+                  style={{ transition: "fill 0.5s ease" }}
+                />
               ))}
             </Pie>
           </PieChart>
         </ResponsiveContainer>
         <div className="absolute inset-0 flex flex-col items-center justify-end pb-1">
-          <div className="text-3xl font-bold" style={{ color }}>
-            {(normalizedValue * 100).toFixed(0)}
+          <div className="text-3xl font-bold tabular-nums" style={{ color }}>
+            {(display * 100).toFixed(0)}
           </div>
           <div
             className="text-[10px] uppercase tracking-widest font-bold mt-0.5"

@@ -12,7 +12,7 @@ const COLS = [
   { key: "ts", label: "Time" },
 ];
 
-export default function EventTable({ events, onInvestigate }) {
+export default function EventTable({ events, onInvestigate, maxRows, maxHeight }) {
   const [sortKey, setSortKey] = useState("combined_score");
   const [sortDir, setSortDir] = useState("desc");
 
@@ -23,6 +23,7 @@ export default function EventTable({ events, onInvestigate }) {
     if (typeof av === "string") return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
     return sortDir === "asc" ? av - bv : bv - av;
   });
+  const rows = maxRows ? sorted.slice(0, maxRows) : sorted;
 
   const toggle = (key) => {
     if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -31,10 +32,17 @@ export default function EventTable({ events, onInvestigate }) {
 
   return (
     <div className="panel overflow-hidden">
-      <div className="text-xs uppercase tracking-wider text-ink-faint px-4 py-3 font-semibold hairline">
-        Scored Events
+      <div className="flex items-center justify-between px-4 py-3 hairline">
+        <div className="text-xs uppercase tracking-wider text-ink-faint font-semibold">
+          Scored Events
+        </div>
+        {maxRows && sorted.length > rows.length && (
+          <span className="text-[10px] text-ink-faint uppercase tracking-widest">
+            top {rows.length} of {sorted.length}
+          </span>
+        )}
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
         <table className="table-glass">
           <thead>
             <tr>
@@ -46,7 +54,7 @@ export default function EventTable({ events, onInvestigate }) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((e) => (
+            {rows.map((e) => (
               <tr key={e.id} onClick={() => onInvestigate?.(e.id)} className="cursor-pointer">
                 <td className="text-ink">{e.name || e.raw_id || e.user_id}</td>
                 <td>{e.src_computer}</td>

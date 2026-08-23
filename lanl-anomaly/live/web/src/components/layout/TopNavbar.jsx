@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Activity } from "lucide-react";
 import { getHealth } from "../../hooks/useApi";
+import CommandPalette from "./CommandPalette";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard" },
@@ -8,7 +9,7 @@ const TABS = [
   { id: "users", label: "Users" },
 ];
 
-export default function TopNavbar({ activePage, onNavigate }) {
+export default function TopNavbar({ activePage, onNavigate, onInvestigate }) {
   const [online, setOnline] = useState(false);
 
   useEffect(() => {
@@ -37,6 +38,7 @@ export default function TopNavbar({ activePage, onNavigate }) {
       </div>
 
       <div className="flex items-center gap-3">
+        <CommandPalette onNavigate={onNavigate} onInvestigate={onInvestigate} />
         <div className="flex items-center gap-2 text-xs text-ink-dim">
           <div className={`live-dot ${online ? "" : "opacity-30"}`} />
           <span>{online ? "MODELS LOADED" : "OFFLINE"}</span>

@@ -1,15 +1,11 @@
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useDashboardData } from "../hooks/useDashboardData";
 import KpiCards from "../components/dashboard/KpiCards";
+import HighRiskBanner from "../components/dashboard/HighRiskBanner";
 import AlertFeed from "../components/dashboard/AlertFeed";
 import EventTable from "../components/tables/EventTable";
-import GlassCard from "../components/common/GlassCard";
 import ThreatGauge from "../components/charts/ThreatGauge";
 import ScoreTrend from "../components/charts/ScoreTrend";
-import ActivityHeatmap from "../components/charts/ActivityHeatmap";
-import LoginVolumeChart from "../components/charts/LoginVolumeChart";
-import ThreatRings from "../components/charts/ThreatRings";
-import TopOffenders from "../components/charts/TopOffenders";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
 const COLORS = { low: "#57b06c", medium: "#e8a33d", high: "#ff9b9e", critical: "#e5484d" };
@@ -31,9 +27,13 @@ export default function DashboardPage({ onInvestigate }) {
   const alerts = data?.alerts || [];
   const riskDist = data?.riskDistribution || [];
 
-  const avgScore = events.length > 0
-    ? events.reduce((s, e) => s + (e.combined_score || 0), 0) / events.length
+  // Gauge driven by worst recent score (reacts to attacks; average dilutes the signal)
+  const threatValue = events.length
+    ? Math.max(...events.map((e) => e.combined_score || 0))
     : 0;
+  const bannerAlert = alerts.find(
+    (a) => a.severity === "critical" || a.severity === "high",
+  );
 
   return (
     <motion.div
@@ -42,57 +42,58 @@ export default function DashboardPage({ onInvestigate }) {
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.25 }}
     >
-      {/* Row 1: KPI Cards with sparklines */}
+      {/* Row A — slim KPI cards */}
       <KpiCards kpis={kpis} events={events} />
 
-      {/* Row 2: Threat Gauge + Score Trend */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 mb-5">
-        <GlassCard className="p-4 flex items-center justify-center">
-          <ThreatGauge value={avgScore} label="Current Threat Level" />
-        </GlassCard>
-        <GlassCard className="p-4 xl:col-span-2">
+      {/* Row B — attack banner (animates in only when high/critical alert exists) */}
+      <AnimatePresence>
+        <HighRiskBanner alert={bannerAlert} onInvestigate={onInvestigate} />
+      </AnimatePresence>
+
+      {/* Row C — live alert feed (hero) + threat gauge */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 mb-4">
+        <div className="xl:col-span-7">
+          <AlertFeed alerts={alerts.slice(0, 12)} onInvestigate={onInvestigate} />
+        </div>
+        <div className="xl:col-span-5">
+          <div className="panel p-4 h-full flex items-center justify-center">
+            <ThreatGauge value={threatValue} label="Current Threat Level" />
+          </div>
+        </div>
+      </div>
+
+      {/* Row D — score timeline + risk split */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 mb-4">
+        <div className="xl:col-span-8 panel p-4">
           <ScoreTrend events={events} />
-        </GlassCard>
-      </div>
-
-      {/* Row 3: Activity Heatmap (full width) */}
-      <GlassCard className="p-4 mb-5">
-        <ActivityHeatmap events={events} />
-      </GlassCard>
-
-      {/* Row 4: Login Volume + Threat Rings */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 mb-5">
-        <GlassCard className="p-4 xl:col-span-2">
-          <LoginVolumeChart events={events} />
-        </GlassCard>
-        <GlassCard className="p-4 flex items-center justify-center">
-          <ThreatRings kpis={kpis} />
-        </GlassCard>
-      </div>
-
-      {/* Row 5: Top Offenders + Alert Feed */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
-        <GlassCard className="p-4">
-          <TopOffenders events={events} />
-        </GlassCard>
-        <AlertFeed alerts={alerts} onInvestigate={onInvestigate} />
-      </div>
-
-      {/* Row 6: Risk Distribution mini + Event Table */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-5 mb-5">
-        <GlassCard className="p-4">
-          <div className="text-xs uppercase tracking-wider text-ink-faint mb-3 font-semibold">
+        </div>
+        <div className="xl:col-span-4 panel p-4">
+          <div className="text-xs uppercase tracking-wider text-ink-faint mb-2 font-semibold">
             Risk Split
           </div>
-          <ResponsiveContainer width="100%" height={140}>
+          <ResponsiveContainer width="100%" height={150}>
             <PieChart>
-              <Pie data={riskDist} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={30} outerRadius={55}>
+              <Pie
+                data={riskDist}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                innerRadius={35}
+                outerRadius={60}
+                paddingAngle={2}
+              >
                 {riskDist.map((entry, i) => (
                   <Cell key={i} fill={entry.color || COLORS[entry.name?.toLowerCase()]} />
                 ))}
               </Pie>
               <Tooltip
-                contentStyle={{ background: "#151a24", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, fontSize: 11 }}
+                contentStyle={{
+                  background: "#151a24",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: 6,
+                  fontSize: 11,
+                }}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -104,11 +105,11 @@ export default function DashboardPage({ onInvestigate }) {
               </div>
             ))}
           </div>
-        </GlassCard>
-        <div className="xl:col-span-3">
-          <EventTable events={events} onInvestigate={onInvestigate} />
         </div>
       </div>
+
+      {/* Row E — compact event table */}
+      <EventTable events={events} onInvestigate={onInvestigate} maxRows={10} maxHeight={260} />
     </motion.div>
   );
 }

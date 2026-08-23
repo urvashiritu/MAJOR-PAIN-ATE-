@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from "recharts";
@@ -41,7 +42,12 @@ export default function ScoreTrend({ events = [] }) {
       <div className="text-xs uppercase tracking-wider text-ink-faint mb-3 font-semibold">
         Anomaly Score Trend
       </div>
-      <ResponsiveContainer width="100%" height={200}>
+      <motion.div
+        initial={{ clipPath: "inset(0 100% 0 0)" }}
+        animate={{ clipPath: "inset(0 0% 0 0)" }}
+        transition={{ duration: 1.1, ease: [0.4, 0, 0.2, 1], delay: 0.15 }}
+      >
+        <ResponsiveContainer width="100%" height={200}>
         <AreaChart data={data} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
           <defs>
             <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
@@ -87,7 +93,8 @@ export default function ScoreTrend({ events = [] }) {
             }}
           />
         </AreaChart>
-      </ResponsiveContainer>
+        </ResponsiveContainer>
+      </motion.div>
     </div>
   );
 }

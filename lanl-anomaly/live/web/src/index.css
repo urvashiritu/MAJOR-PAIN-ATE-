@@ -117,4 +117,43 @@ body {
     border-radius: 6px; padding: 8px 12px; font-size: 11px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.4);
   }
+
+  /* ── Paper-tape KPI counters ── */
+  .tape-num {
+    font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Menlo, Consolas, monospace;
+    font-size: 1.9rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    color: #e8ecf4;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tape-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(139, 147, 165, 0.9);
+  }
+
+  .tape-perf {
+    border-right: 2px dotted rgba(139, 147, 165, 0.35);
+  }
+
+  /* ── Badge hover micro-interaction ── */
+  .badge-transition {
+    transition: filter 0.15s ease;
+  }
+  .badge-transition:hover {
+    filter: brightness(1.35);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }

@@ -1,11 +1,18 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { getAlerts, ackAlert } from "../hooks/useApi";
+import { useDashboardData } from "../hooks/useDashboardData";
 import SeverityBadge from "../components/common/SeverityBadge";
+import ActivityHeatmap from "../components/charts/ActivityHeatmap";
+import ThreatRings from "../components/charts/ThreatRings";
+import TopOffenders from "../components/charts/TopOffenders";
 
 export default function AlertsPage({ onInvestigate }) {
   const [alerts, setAlerts] = useState([]);
   const [filter, setFilter] = useState("all");
+  const { data } = useDashboardData();
+  const events = data?.recentEvents || [];
+  const kpis = data?.kpis || {};
 
   useEffect(() => {
     getAlerts().then(setAlerts).catch(console.error);
@@ -43,6 +50,19 @@ export default function AlertsPage({ onInvestigate }) {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4">
+        <div className="xl:col-span-2 panel p-4">
+          <ActivityHeatmap events={events} />
+        </div>
+        <div className="panel p-4 flex items-center justify-center">
+          <ThreatRings kpis={kpis} />
+        </div>
+      </div>
+
+      <div className="panel p-4 mb-4">
+        <TopOffenders events={events} />
       </div>
 
       <div className="panel overflow-hidden">

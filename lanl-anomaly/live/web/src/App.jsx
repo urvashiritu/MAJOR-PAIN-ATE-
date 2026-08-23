@@ -34,6 +34,7 @@ export default function App() {
           <TopNavbar
             activePage={activePage}
             onNavigate={setActivePage}
+            onInvestigate={setInvestigateId}
           />
           <main className="p-5 pt-3 max-w-[1440px] mx-auto">
             <AnimatePresence mode="wait">
