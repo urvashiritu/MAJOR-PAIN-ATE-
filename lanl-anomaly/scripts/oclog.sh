@@ -94,4 +94,63 @@ EOF
   ' "$TMP"
 } >"$OUT"
 
+# ---------- prev/next chains (per day) + auto-index ----------
+
+alias_of() { # ".../10-57_ses_abc123.md" -> "path|HH-MM abc123"
+  local t="${1#"$OUT_BASE"/}" b
+  b="$(basename "${1%.md}")"
+  printf '%s|%s %s' "${t%.md}" "${b:0:5}" "${b:10:6}"
+}
+
+relink_chains() {
+  shopt -s nullglob
+  local day_dir files f i n prev next nav pl nl
+  for day_dir in "$OUT_BASE"/*/; do
+    files=("$day_dir"*.md)
+    n=${#files[@]}
+    (( n )) || continue
+    for i in "${!files[@]}"; do
+      f="${files[$i]}"
+      prev=""; next=""
+      (( i > 0 )) && prev=$(alias_of "${files[$((i - 1))]}")
+      (( i < n - 1 )) && next=$(alias_of "${files[$((i + 1))]}")
+      nav=""
+      [[ -n "$prev" ]] && nav+="← [[${prev%%|*}|${prev#*|}]] "
+      [[ -n "$prev" && -n "$next" ]] && nav+="· "
+      [[ -n "$next" ]] && nav+="[[${next%%|*}|${next#*|}]] →"
+      awk -v nav="$nav" '
+        !ins && /^---$/ { print; print ""; print "**" nav "**"; ins = 1; next }
+        /^\*\*← / { next }
+        { print }
+      ' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+    done
+  done
+}
+
+write_index() {
+  {
+    echo "# Session Memory Index"
+    echo
+    echo "opencode session memory · regenerable via \`scripts/oclog.sh\` · open this folder in Obsidian for tree/graph view"
+    echo
+    local d f n model tin tout base
+    for d in "$OUT_BASE"/*/; do
+      echo "## $(basename "${d%/}")"
+      echo
+      for f in "$d"*.md; do
+        n="${f%.md}"
+        base="$(basename "$n")"
+        model=$(grep -m1 '| Model |' "$f" | sed 's/^| Model | \([^ (]*\).*/\1/')
+        tin=$(grep -m1 '| Tokens in |' "$f" | sed 's/^| Tokens in | \([^|]*\) |.*/\1/' | tr -d ' ')
+        tout=$(grep -m1 '| Tokens out |' "$f" | sed 's/^| Tokens out | \([^|]*\) |.*/\1/' | tr -d ' ')
+        echo "- [[${n#"$OUT_BASE"/}|${base:0:5} ${base:10:6}]] · $model · in $tin / out $tout"
+      done
+      echo
+    done
+  } >"$OUT_BASE/_index.md"
+}
+
+relink_chains
+write_index
+
 echo "logged: $OUT ($(wc -l <"$OUT") lines)"

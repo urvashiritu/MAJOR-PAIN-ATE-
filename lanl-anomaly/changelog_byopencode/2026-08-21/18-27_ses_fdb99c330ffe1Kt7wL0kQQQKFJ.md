@@ -16,6 +16,10 @@
 
 ---
 
+**← [[2026-08-21/17-26_ses_fdbd2170cffe9kW9KgufQNzMy2|17-26 fdbd21]] · [[2026-08-21/19-26_ses_fdb63c031ffev35JNxzfsNPVFg|19-26 fdb63c]] →**
+
+
+
 
 ## [18:27] USER
 
