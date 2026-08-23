@@ -66,6 +66,7 @@ def main() -> None:
     con.execute("DELETE FROM alerts")
     con.execute("DELETE FROM users")
     con.execute("DELETE FROM user_profile")
+    con.execute("DELETE FROM demo_meta")
 
     shift = _day_aligned_shift(con)
     print(f"  day-aligned shift: +{shift:,} s ({shift // 86400} days; "
@@ -114,6 +115,12 @@ def main() -> None:
 
     for user_id in [1, 2, 3, attacker_id]:
         db.refresh_profile(con, user_id)
+
+    max_slice = shift and con.execute(
+        f"SELECT MAX(time) FROM read_parquet('{SLICE}')"
+    ).fetchone()[0]
+    if max_slice:
+        db.set_seed_anchor(con, max_slice + shift, int(time.time()))
 
     n_events = con.execute("SELECT COUNT(*) FROM events").fetchone()[0]
     n_users = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]

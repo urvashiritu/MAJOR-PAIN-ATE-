@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS events (
     lgb_score DOUBLE,
     if_score DOUBLE,
     combined_score DOUBLE,
+    dev_points INTEGER,
+    dev_reasons TEXT,
     risk_level VARCHAR,
     reasons VARCHAR,
     decision VARCHAR
@@ -75,6 +77,11 @@ CREATE TABLE IF NOT EXISTS user_profile (
     profile_status TEXT DEFAULT 'ACTIVE',
     updated_at TIMESTAMP DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS demo_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
 """
 
 
@@ -86,6 +93,15 @@ def get_con(db_path: str = DB_PATH) -> duckdb.DuckDBPyConnection:
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(SCHEMA_SQL)
+    # Migration for DBs created before the deviation columns existed
+    cols = {r[0] for r in con.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'events'
+    """).fetchall()}
+    if "dev_points" not in cols:
+        con.execute("ALTER TABLE events ADD COLUMN dev_points INTEGER")
+    if "dev_reasons" not in cols:
+        con.execute("ALTER TABLE events ADD COLUMN dev_reasons TEXT")
 
 
 def next_event_id(con: duckdb.DuckDBPyConnection) -> int:
@@ -93,10 +109,15 @@ def next_event_id(con: duckdb.DuckDBPyConnection) -> int:
 
 
 def refresh_profile(con: duckdb.DuckDBPyConnection, user_id: int) -> None:
-    """Rebuild user_profile from event history."""
+    """Rebuild user_profile from event history.
+
+    Learns from HISTORY and ALLOW rows only — flagged/blocked events must
+    never teach the baseline what 'normal' looks like.
+    """
     df = con.execute("""
         SELECT ts, time, src_computer, dst_computer, auth_type, result
-        FROM events WHERE user_id = ? AND decision != 'pending' ORDER BY time
+        FROM events WHERE user_id = ? AND decision IN ('history', 'allow')
+        ORDER BY time
     """, [user_id]).fetchdf()
 
     con.execute("INSERT OR REPLACE INTO user_profile (user_id) VALUES (?)", [user_id])
@@ -135,3 +156,29 @@ def refresh_profile(con: duckdb.DuckDBPyConnection, user_id: int) -> None:
         WHERE user_id = ?
     """, (top_src, top_dst, top_hours, top_auth,
           avg_per_hour, total, failure_rate, user_id))
+
+
+def set_seed_anchor(con: duckdb.DuckDBPyConnection,
+                    shifted_history_end: int, wallclock_at_seed: int) -> None:
+    """Record the demo time frame.
+
+    Live events are stamped as:  frame_time = shifted_history_end
+                                 + (now - wallclock_at_seed)
+    so they continue organically after history end (pseudo-hours stay near
+    user habits, and vel/fail windows see both history tail and session).
+    """
+    con.executemany(
+        "INSERT OR REPLACE INTO demo_meta (key, value) VALUES (?, ?)",
+        [("seed_anchor", str(int(shifted_history_end))),
+         ("seed_wallclock", str(int(wallclock_at_seed)))])
+
+
+def get_seed_anchor(con: duckdb.DuckDBPyConnection):
+    """Returns (frame_anchor, wallclock_at_seed) or None."""
+    rows = dict(con.execute(
+        "SELECT key, value FROM demo_meta WHERE key IN "
+        "('seed_anchor', 'seed_wallclock')"
+    ).fetchall())
+    if "seed_anchor" not in rows or "seed_wallclock" not in rows:
+        return None
+    return int(rows["seed_anchor"]), int(rows["seed_wallclock"])

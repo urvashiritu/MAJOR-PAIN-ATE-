@@ -91,6 +91,8 @@ def _publish(c, result: dict) -> None:
             "lgb_score": result.get("lgb_score", 0.0),
             "if_score": result.get("if_score", 0.0),
             "combined_score": result["combined_score"],
+            "dev_points": result.get("dev_points", 0),
+            "dev_reasons": result.get("dev_reasons", ""),
             "risk_level": result["risk_level"],
             "reasons": result["reasons"],
             "decision": result["decision"],
@@ -176,7 +178,15 @@ def api_events():
 
     time_val = payload.get("time")
     if time_val is None:
-        time_val = int(ts.timestamp())
+        # Continue the seeded demo timeline: history-end + real elapsed
+        # seconds since seeding. Keeps pseudo-hours near user habits and
+        # makes vel/fail windows see both history and session events.
+        anchor = db.get_seed_anchor(c)
+        if anchor:
+            frame_start, wallclock_at_seed = anchor
+            time_val = frame_start + max(0, int(time.time()) - wallclock_at_seed)
+        else:
+            time_val = int(ts.timestamp())
 
     ev = {
         "user_id": uid,

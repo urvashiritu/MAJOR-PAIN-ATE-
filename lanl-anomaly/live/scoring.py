@@ -24,6 +24,7 @@ Features (8 — matches the original training pipeline):
 """
 import math
 import os
+import time
 from pathlib import Path
 
 import duckdb
@@ -61,6 +62,51 @@ _if_max = None
 _if_range = None
 _lgb_model = None
 _models_loaded = False
+
+# Per-user habit baseline refresh cadence (profiles learn from ALLOW only)
+_PROFILE_TTL_S = 60.0
+_last_profile_refresh: dict = {}
+
+
+def _load_profile(con: duckdb.DuckDBPyConnection, user_id: int):
+    row = con.execute("""
+        SELECT typical_src_computers, typical_dst_computers,
+               avg_events_per_hour, total_events
+        FROM user_profile WHERE user_id = ?
+    """, [user_id]).fetchone()
+    if row is None:
+        return None
+    return {
+        "typical_src": {c for c in (row[0] or "").split(",") if c and c != "?"},
+        "typical_dst": {c for c in (row[1] or "").split(",") if c and c != "?"},
+        "avg_per_hour": float(row[2] or 0.0),
+        "total_events": int(row[3] or 0),
+    }
+
+
+def _deviation_signals(fd: dict, profile) -> tuple:
+    """Per-user habit checks: does this event deviate from THIS user's norm?
+
+    Returns (dev_points 0..3, human-readable reasons). Users with tiny or
+    empty profiles are exempt (nothing to deviate from yet).
+    """
+    if profile is None or profile["total_events"] < 20:
+        return 0, []
+    points, reasons = 0, []
+    if fd["dst_first"] and fd["dst_computer"] not in profile["typical_dst"]:
+        points += 1
+        reasons.append(f"first-ever destination {fd['dst_computer']} outside user's usual set")
+    if fd["src_first"] and fd["src_computer"] not in profile["typical_src"]:
+        points += 1
+        reasons.append(f"first-ever source {fd['src_computer']} outside user's usual set")
+    vel_floor = max(10.0 * profile["avg_per_hour"], 20.0)
+    if fd["vel_1h"] > vel_floor:
+        points += 1
+        reasons.append(f"velocity {fd['vel_1h']}/h exceeds baseline floor {vel_floor:.0f}/h")
+    if fd["fail_1h"] >= 2:
+        points += 1
+        reasons.append(f"{int(fd['fail_1h'])} authentication failures in the last hour")
+    return points, reasons
 
 
 def load_models():
@@ -144,8 +190,9 @@ def lanl_feature_sql(user_src: str) -> str:
             ) AS user_events_so_far,
 
             -- events at this hour for this user up to this point
+            -- (partition by FLOAT hour to match training: src/lanl_features.sql:28)
             COUNT(*) OVER (
-                PARTITION BY user_id, CAST(hour_f AS INT)
+                PARTITION BY user_id, hour_f
                 ORDER BY time, row_id
                 ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
             ) AS hour_events_so_far,
@@ -257,35 +304,51 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
     """).fetchdf().iloc[0]
 
     features = np.array([float(feat_row[f]) for f in LANL_FEATURES], dtype=np.float32)
-    # Clip features to training distribution bounds
+    # Keep the clipped values for storage so what the dashboard shows is
+    # exactly what the models scored.
+    clipped = {}
     for i, fname in enumerate(LANL_FEATURES):
         if fname in FEATURE_CLIP:
             lo, hi = FEATURE_CLIP[fname]
             features[i] = np.clip(features[i], lo, hi)
+        clipped[fname] = float(features[i])
     if_score = _compute_if_score(features)
     lgb_score = _compute_lgb_score(features)
-    # IF-only for combined — LGB gives 1.0 to all small users (dst_prior << training median 14K)
-    # IF discriminates: alice=0.70, attacker_fail=0.89
-    combined = if_score
+
+    # Habit-deviation signal (per-user baseline), fused as a small booster:
+    #   effective = if_score + 0.10 * min(dev_points, 3)   (max +0.30)
+    profile = _load_profile(con, ev["user_id"])
+    fd = {
+        "dst_computer": ev["dst_computer"], "src_computer": ev["src_computer"],
+        "dst_first": int(feat_row["dst_first"]), "src_first": int(feat_row["src_first"]),
+        "vel_1h": int(feat_row["vel_1h"]), "fail_1h": float(feat_row["fail_1h"]),
+    }
+    dev_points, dev_reasons = _deviation_signals(fd, profile)
+    combined = if_score + 0.10 * min(dev_points, 3)
 
     if combined >= BLOCK_THRESHOLD:
-        decision, level, reasons = "block", "critical", f"combined={combined:.3f}"
+        decision, level = "block", "critical"
     elif combined >= FLAG_THRESHOLD:
-        decision, level, reasons = "flag", "high", f"combined={combined:.3f}"
+        decision, level = "flag", "high"
     else:
-        decision, level, reasons = "allow", "low", f"combined={combined:.3f}"
+        decision, level = "allow", "low"
+    reasons = "; ".join(filter(None, [
+        f"if={if_score:.3f}", f"dev={dev_points}",
+        *dev_reasons,
+    ]))
 
     con.execute("""
         UPDATE events SET dst_first=?, src_first=?, hour_ratio=?, dst_prior_events=?,
             fail_1h=?, vel_1h=?, hour_sin=?, hour_cos=?,
-            lgb_score=?, if_score=?, combined_score=?, risk_level=?, reasons=?, decision=?
+            lgb_score=?, if_score=?, combined_score=?, risk_level=?, reasons=?, decision=?,
+            dev_points=?, dev_reasons=?
         WHERE row_id=?
     """, (int(feat_row["dst_first"]), int(feat_row["src_first"]),
-          float(feat_row["hour_ratio"]), int(feat_row["dst_prior_events"]),
-          float(feat_row["fail_1h"]), int(feat_row["vel_1h"]),
-          float(feat_row["hour_sin"]), float(feat_row["hour_cos"]),
+          clipped["hour_ratio"], int(feat_row["dst_prior_events"]),
+          clipped["fail_1h"], int(clipped["vel_1h"]),
+          clipped["hour_sin"], clipped["hour_cos"],
           round(lgb_score, 6), round(if_score, 6), round(combined, 6),
-          level, reasons, decision, row_id))
+          level, reasons, decision, dev_points, "; ".join(dev_reasons), row_id))
 
     if decision in ("block", "flag"):
         alert_id = int(con.execute("SELECT COALESCE(MAX(alert_id), 0) + 1 FROM alerts").fetchone()[0])
@@ -295,6 +358,13 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (alert_id, row_id, ev["user_id"], ts, level,
               round(combined, 6), reasons, decision))
+    elif decision == "allow":
+        # Profiles learn from benign traffic only; refresh on a TTL cadence.
+        now_s = time.time()
+        if now_s - _last_profile_refresh.get(ev["user_id"], 0.0) > _PROFILE_TTL_S:
+            import db as _db
+            _db.refresh_profile(con, ev["user_id"])
+            _last_profile_refresh[ev["user_id"]] = now_s
 
     return {
         "row_id": row_id, "user_id": ev["user_id"], "ts": str(ts),
@@ -302,6 +372,8 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         "auth_type": ev.get("auth_type"), "result": ev.get("result", "Success"),
         "lgb_score": round(lgb_score, 6), "if_score": round(if_score, 6),
         "combined_score": round(combined, 6),
+        "dev_points": dev_points,
+        "dev_reasons": "; ".join(dev_reasons),
         "risk_level": level, "reasons": reasons, "decision": decision,
         "features": {f: float(feat_row[f]) for f in LANL_FEATURES},
     }
