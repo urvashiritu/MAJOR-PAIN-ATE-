@@ -3,8 +3,7 @@ DATA := data/processed
 
 # Pipeline order: 00 -> 02 -> 01 -> 03 -> 04, then the full-sample model
 # experiment (07). File numbers are phase numbers, not execution order.
-# Live decisions (live/) are rule-driven; src/07 (all models on the full
-# 1M sample) is the model deliverable.
+# Live decisions are LANL-driven; src/07 is the model deliverable.
 
 .PHONY: all clean features sample validate rules ensemble-full demo demo-reset demo-web
 
@@ -15,11 +14,13 @@ ensemble-full: reports/ensemble_full_comparison.csv
 reports/ensemble_full_comparison.csv: $(DATA)/features.parquet
 	$(PY) src/07_ensemble_full.py
 
+# Demo targets serve the LANL SOC demo (the presentation system).
+# NOTE: stop any running backend before demo-reset (DuckDB single-writer lock).
 demo: demo-reset
-	$(PY) live/app.py
+	$(PY) lanl-anomaly/live/app.py
 
 demo-reset:
-	$(PY) live/seed_demo.py
+	$(PY) lanl-anomaly/live/seed_demo.py
 
 demo-web:
 	cd live/web && npm run build

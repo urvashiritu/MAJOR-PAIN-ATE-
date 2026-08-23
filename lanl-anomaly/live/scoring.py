@@ -42,8 +42,11 @@ ROOT = Path(__file__).resolve().parents[1]
 IF_MODEL_PATH = ROOT / "models" / "lanl_if.joblib"
 LGB_MODEL_PATH = ROOT / "models" / "lanl_lgb.joblib"
 
-BLOCK_THRESHOLD = float(os.environ.get("DEMO_BLOCK_AT", "0.80"))
-FLAG_THRESHOLD = float(os.environ.get("DEMO_FLAG_AT", "0.70"))
+# Measured 2026-08-23 against the scenario sweep (live/measure_scores.py):
+#   quiet logins p50 0.34-0.39 (max 0.54) | bursts 0.57-0.66 |
+#   new-machine 0.73-0.74 +dev | 3-strikes wrong-password -> BLOCK
+BLOCK_THRESHOLD = float(os.environ.get("DEMO_BLOCK_AT", "0.75"))
+FLAG_THRESHOLD = float(os.environ.get("DEMO_FLAG_AT", "0.65"))
 
 LANL_FEATURES = [
     "dst_first", "src_first", "hour_ratio", "dst_prior_events",
@@ -288,8 +291,18 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
     if time_val is None and ts:
         time_val = int(ts.timestamp()) if hasattr(ts, "timestamp") else 0
     if time_val is None:
-        import time as _time
-        time_val = int(_time.time())
+        time_val = int(time.time())
+    time_val = int(time_val)
+
+    # RANGE-based feature windows treat same-timestamp rows as peers and
+    # exclude them from each other's windows — stagger collisions so rapid
+    # bursts still see their predecessors.
+    user_max = con.execute(
+        "SELECT COALESCE(MAX(time), 0) FROM events WHERE user_id = ?",
+        [ev["user_id"]],
+    ).fetchone()[0]
+    if time_val <= user_max:
+        time_val = user_max + 1
 
     con.execute("""
         INSERT INTO events (row_id, ts, time, user_id, src_computer, dst_computer,
