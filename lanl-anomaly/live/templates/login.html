@@ -94,19 +94,19 @@
       <div>
         <label>Source Machine</label>
         <select id="srcComputer">
-          <option value="C17693">C17693</option>
-          <option value="C1652">C1652</option>
-          <option value="C295">C295</option>
-          <option value="C832">C832</option>
+          <option value="C17788">C17788 (alice)</option>
+          <option value="C21468">C21468 (bob)</option>
+          <option value="C18941">C18941 (carol)</option>
+          <option value="C151">C151 (attacker)</option>
           <option value="C9999">C9999 (new)</option>
         </select>
       </div>
       <div>
         <label>Destination</label>
         <select id="dstComputer">
-          <option value="C852">C852</option>
-          <option value="C874">C874</option>
-          <option value="C311">C311</option>
+          <option value="C612">C612</option>
+          <option value="C586">C586</option>
+          <option value="C625">C625</option>
           <option value="C9999">C9999 (new)</option>
         </select>
       </div>
@@ -168,11 +168,11 @@ function setScenario(name) {
 }
 
 const SCENARIOS = {
-  normal:    { user: '1', src: 'C17693', dst: 'C852',  auth: 'NTLM', result: 'Success' },
-  wrongpass: { user: '1', src: 'C17693', dst: 'C852',  auth: 'NTLM', result: 'Failure' },
-  newdest:   { user: '1', src: 'C17693', dst: 'C9999', auth: 'NTLM', result: 'Success' },
-  attacker:  { user: '-1', src: 'C9999', dst: 'C9999', auth: 'NTLM', result: 'Failure' },
-  late:      { user: '2', src: 'C17693', dst: 'C852',  auth: 'NTLM', result: 'Success' },
+  normal:    { user: '1', src: 'C17788', dst: 'C612',  auth: 'NTLM', result: 'Success' },
+  wrongpass: { user: '1', src: 'C17788', dst: 'C612',  auth: 'NTLM', result: 'Failure' },
+  newdest:   { user: '1', src: 'C17788', dst: 'C9999', auth: 'NTLM', result: 'Success' },
+  attacker:  { user: '-1', src: 'C151',   dst: 'C9999', auth: 'NTLM', result: 'Failure' },
+  late:      { user: '2', src: 'C21468', dst: 'C586',  auth: 'NTLM', result: 'Success' },
 };
 
 function renderVerdict(data) {

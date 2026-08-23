@@ -125,10 +125,10 @@ def refresh_profile(con: duckdb.DuckDBPyConnection, user_id: int) -> None:
         return
 
     src_counts = df["src_computer"].value_counts()
-    top_src = ",".join(src_counts.head(5).index.tolist())
+    top_src = ",".join(src_counts.head(10).index.tolist())
 
     dst_counts = df["dst_computer"].value_counts()
-    top_dst = ",".join(dst_counts.head(5).index.tolist())
+    top_dst = ",".join(dst_counts.head(10).index.tolist())
 
     hours = ((df["time"] % 86400) // 3600).astype(int)
     top_hours = ",".join(str(h) for h in hours.value_counts().head(3).index)

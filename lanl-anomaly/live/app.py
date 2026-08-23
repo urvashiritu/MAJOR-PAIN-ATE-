@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT / "live"))
 
 import db as db  # noqa: E402
 from db import get_con, init_schema, refresh_profile  # noqa: E402
-from scoring import score_event, lanl_feature_sql  # noqa: E402
+from scoring import score_event, lanl_feature_sql, load_models  # noqa: E402
 
 app = Flask(__name__)
 _con_lock = threading.Lock()
@@ -479,4 +479,5 @@ WEB = ROOT / "live" / "web" / "dist"
 
 
 if __name__ == "__main__":
+    load_models()
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
