@@ -6,7 +6,7 @@ echo   ------------------------------------------
 echo.
 set /p IP=Laptop 1 IP address (e.g. 192.168.1.42):
 if "%IP%"=="" goto :noip
-start "" "http://%IP%:5000/"
+start "" "http://%IP%:5000/login"
 timeout /t 2 >nul
 exit /b 0
 

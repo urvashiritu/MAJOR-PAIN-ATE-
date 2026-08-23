@@ -7,7 +7,7 @@
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0e17;color:#e0e6f0;min-height:100vh;display:flex;align-items:center;justify-content:center}
-  .login-card{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:40px;width:420px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+  .login-card{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:40px;width:460px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
   .logo{text-align:center;margin-bottom:32px}
   .logo .icon{width:56px;height:56px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:12px}
   .logo h1{font-size:20px;font-weight:600;color:#f1f5f9}
@@ -26,15 +26,36 @@
   .result.flag{background:rgba(251,191,36,.12);border:1px solid #854d0e;color:#fbbf24}
   .result.block{background:rgba(239,68,68,.12);border:1px solid #991b1b;color:#f87171}
   .result .title{font-weight:600;font-size:14px;margin-bottom:4px}
+  .result .scores{display:flex;gap:12px;margin:6px 0;font-size:12px;color:#94a3b8}
+  .result .scores .badge{background:rgba(255,255,255,.06);padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace}
+  .result .reasons-list{margin:8px 0 0;padding:0;list-style:none}
+  .result .reasons-list li{padding:3px 0 3px 14px;position:relative;font-size:12px;color:#cbd5e1}
+  .result .reasons-list li::before{content:'';position:absolute;left:0;top:9px;width:6px;height:6px;border-radius:50%}
+  .result.block .reasons-list li::before{background:#f87171}
+  .result.flag .reasons-list li::before{background:#fbbf24}
+  .result.allow .reasons-list li::before{background:#4ade80}
+  .result .meta{margin-top:8px;font-size:11px;color:#64748b;border-top:1px solid rgba(255,255,255,.06);padding-top:6px}
   .history{margin-top:24px}
-  .history h3{font-size:13px;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
-  .history-log{max-height:200px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:12px;background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px}
-  .history-log .entry{padding:4px 0;border-bottom:1px solid #1e293b;display:flex;justify-content:space-between}
+  .history-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .history-header h3{font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:.5px}
+  .history-stats{font-size:11px;color:#64748b}
+  .history-stats span{margin-left:8px}
+  .history-stats .s-ok{color:#4ade80}
+  .history-stats .s-warn{color:#fbbf24}
+  .history-stats .s-err{color:#f87171}
+  .history-controls{display:flex;gap:6px;margin-bottom:8px}
+  .history-controls button{width:auto;padding:4px 10px;font-size:11px;font-weight:500;background:#1e293b;border:1px solid #334155;border-radius:5px;margin:0;color:#94a3b8;cursor:pointer}
+  .history-controls button:hover{background:#334155;color:#e2e8f0}
+  .history-log{max-height:260px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:11px;background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px}
+  .history-log .entry{padding:5px 0;border-bottom:1px solid #1e293b;display:flex;flex-direction:column;gap:2px}
   .history-log .entry:last-child{border:none}
+  .history-log .entry-top{display:flex;justify-content:space-between;align-items:center}
   .history-log .time{color:#64748b}
   .history-log .ok{color:#4ade80}
   .history-log .warn{color:#fbbf24}
   .history-log .err{color:#f87171}
+  .history-log .detail{color:#64748b;font-size:10px}
+  .history-log .empty{color:#475569;font-style:italic}
   .scenario-bar{display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap}
   .scenario-bar button{width:auto;padding:6px 12px;font-size:11px;font-weight:500;background:#1e293b;border:1px solid #334155;border-radius:6px;margin:0}
   .scenario-bar button:hover{background:#334155}
@@ -112,9 +133,16 @@
   <div class="result" id="result"></div>
 
   <div class="history">
-    <h3>Recent Activity</h3>
+    <div class="history-header">
+      <h3>Event Log</h3>
+      <div class="history-stats" id="historyStats"></div>
+    </div>
+    <div class="history-controls">
+      <button onclick="exportCSV()">Export CSV</button>
+      <button onclick="clearLog()">Clear Log</button>
+    </div>
     <div class="history-log" id="historyLog">
-      <div class="entry"><span class="time">--:--:--</span> <span style="color:#64748b">Waiting for first login...</span></div>
+      <div class="entry empty">Waiting for first login...</div>
     </div>
   </div>
 
@@ -125,7 +153,19 @@
 const API = window.location.protocol + '//' + window.location.host;
 document.getElementById('backendUrl').textContent = API;
 
-let lastScenario = 'normal';
+const LOG_KEY = 'laptop2_event_log';
+let eventLog = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+
+function setScenario(name) {
+  const s = SCENARIOS[name];
+  document.getElementById('userSelect').value = s.user;
+  document.getElementById('srcComputer').value = s.src;
+  document.getElementById('dstComputer').value = s.dst;
+  document.getElementById('authType').value = s.auth;
+  document.getElementById('resultSelect').value = s.result;
+  document.querySelectorAll('.scenario-bar button').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+}
 
 const SCENARIOS = {
   normal:    { user: '1', src: 'C17693', dst: 'C852',  auth: 'NTLM', result: 'Success' },
@@ -135,16 +175,120 @@ const SCENARIOS = {
   late:      { user: '2', src: 'C17693', dst: 'C852',  auth: 'NTLM', result: 'Success' },
 };
 
-function setScenario(name) {
-  lastScenario = name;
-  const s = SCENARIOS[name];
-  document.getElementById('userSelect').value = s.user;
-  document.getElementById('srcComputer').value = s.src;
-  document.getElementById('dstComputer').value = s.dst;
-  document.getElementById('authType').value = s.auth;
-  document.getElementById('resultSelect').value = s.result;
-  document.querySelectorAll('.scenario-bar button').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
+function renderVerdict(data) {
+  const el = document.getElementById('result');
+  const level = data.risk_level || 'low';
+  el.className = 'result ' + (data.decision === 'block' ? 'block' : data.decision === 'flag' ? 'flag' : 'allow');
+  el.style.display = 'block';
+
+  const icons = { allow: '&#9989;', flag: '&#9888;&#65039;', block: '&#10060;' };
+  const labels = { allow: 'ACCESS GRANTED', flag: 'ACCESS FLAGGED', block: 'ACCESS DENIED' };
+
+  const ifScore = (data.if_score || 0).toFixed(3);
+  const combined = (data.combined_score || 0).toFixed(3);
+  const devPts = data.dev_points || 0;
+  const eventId = data.row_id || '?';
+  const ts = data.ts ? new Date(data.ts).toLocaleTimeString() : new Date().toLocaleTimeString();
+
+  const devReasons = (data.dev_reasons || '').split(';').map(s => s.trim()).filter(Boolean);
+  let reasonsHtml = '';
+  if (devReasons.length > 0) {
+    reasonsHtml = '<ul class="reasons-list">' + devReasons.map(r => '<li>' + r + '</li>').join('') + '</ul>';
+  }
+
+  el.innerHTML = `
+    <div class="title">${icons[data.decision] || ''} ${labels[data.decision] || data.decision.toUpperCase()}</div>
+    <div class="scores">
+      <span>Score: <strong class="badge">${combined}</strong></span>
+      <span>Anomaly(IF): <strong class="badge">${ifScore}</strong></span>
+      <span>Habit Breaks: <strong class="badge">${devPts}</strong></span>
+    </div>
+    ${reasonsHtml}
+    <div class="meta">Event #${eventId} &middot; ${ts}</div>
+  `;
+}
+
+function addLogEntry(data, payload) {
+  const name = document.getElementById('userSelect').selectedOptions[0].dataset.name;
+  const entry = {
+    ts: new Date().toISOString(),
+    event_id: data.row_id,
+    user_name: name,
+    user_id: payload.user_id,
+    src_computer: payload.src_computer,
+    dst_computer: payload.dst_computer,
+    auth_type: payload.auth_type,
+    result: payload.result,
+    score: data.combined_score,
+    if_score: data.if_score,
+    decision: data.decision,
+    risk_level: data.risk_level,
+    dev_points: data.dev_points,
+    dev_reasons: data.dev_reasons,
+  };
+  eventLog.unshift(entry);
+  localStorage.setItem(LOG_KEY, JSON.stringify(eventLog));
+  renderLog();
+}
+
+function renderLog() {
+  const log = document.getElementById('historyLog');
+  const stats = document.getElementById('historyStats');
+
+  if (eventLog.length === 0) {
+    log.innerHTML = '<div class="entry empty">Waiting for first login...</div>';
+    stats.innerHTML = '';
+    return;
+  }
+
+  const allowCount = eventLog.filter(e => e.decision === 'allow').length;
+  const flagCount = eventLog.filter(e => e.decision === 'flag').length;
+  const blockCount = eventLog.filter(e => e.decision === 'block').length;
+  stats.innerHTML = `<span>${eventLog.length} events</span>` +
+    (allowCount ? `<span class="s-ok">${allowCount} allow</span>` : '') +
+    (flagCount ? `<span class="s-warn">${flagCount} flag</span>` : '') +
+    (blockCount ? `<span class="s-err">${blockCount} block</span>` : '');
+
+  log.innerHTML = eventLog.map(e => {
+    const time = new Date(e.ts).toLocaleTimeString();
+    const cls = e.decision === 'block' ? 'err' : e.decision === 'flag' ? 'warn' : 'ok';
+    const dec = e.decision.toUpperCase();
+    return `<div class="entry">
+      <div class="entry-top">
+        <span><span class="time">${time}</span> <span class="${cls}">${e.user_name} &rarr; ${e.dst_computer} [${(e.score||0).toFixed(3)}] ${dec}</span></span>
+        <span class="time">#${e.event_id || '?'}</span>
+      </div>
+      <div class="detail">${e.src_computer} &rarr; ${e.dst_computer} &middot; ${e.auth_type} &middot; ${e.result}</div>
+    </div>`;
+  }).join('');
+}
+
+function clearLog() {
+  eventLog = [];
+  localStorage.removeItem(LOG_KEY);
+  renderLog();
+}
+
+function exportCSV() {
+  if (eventLog.length === 0) return;
+  const headers = ['timestamp','event_id','user_name','user_id','src_computer','dst_computer','auth_type','result','score','if_score','decision','risk_level','dev_points','dev_reasons'];
+  const rows = eventLog.map(e => headers.map(h => {
+    let v = e[h] ?? '';
+    if (h === 'ts') v = e.ts;
+    if (h === 'score' || h === 'if_score') v = (v || 0).toFixed(6);
+    v = String(v).replace(/"/g, '""');
+    return v.includes(',') || v.includes('"') ? `"${v}"` : v;
+  }).join(','));
+  const csv = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  a.href = url;
+  a.download = `laptop2_events_${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 async function submitLogin(e) {
@@ -169,26 +313,8 @@ async function submitLogin(e) {
     });
     const data = await res.json();
 
-    const el = document.getElementById('result');
-    const level = data.risk_level || 'low';
-    el.className = 'result ' + (data.decision === 'block' ? 'block' : data.decision === 'flag' ? 'flag' : 'allow');
-    el.style.display = 'block';
-
-    const icons = { allow: '&#9989;', flag: '&#9888;&#65039;', block: '&#10060;' };
-    const labels = { allow: 'ACCESS GRANTED', flag: 'ACCESS FLAGGED', block: 'ACCESS DENIED' };
-    el.innerHTML = `
-      <div class="title">${icons[data.decision] || ''} ${labels[data.decision] || data.decision.toUpperCase()}</div>
-      <div>Score: <strong>${(data.combined_score || 0).toFixed(3)}</strong> | Risk: <strong>${level.toUpperCase()}</strong></div>
-      <div style="margin-top:4px;color:#94a3b8">${data.reasons || ''}</div>
-    `;
-
-    // Add to history
-    const log = document.getElementById('historyLog');
-    if (log.querySelector('.entry .time')?.textContent === '--:--:--') log.innerHTML = '';
-    const now = new Date().toLocaleTimeString();
-    const cls = data.decision === 'block' ? 'err' : data.decision === 'flag' ? 'warn' : 'ok';
-    const name = document.getElementById('userSelect').selectedOptions[0].dataset.name;
-    log.innerHTML = `<div class="entry"><span class="time">${now}</span> <span class="${cls}">${name} -> ${payload.dst_computer} [${data.combined_score?.toFixed(3)}] ${data.decision.toUpperCase()}</span></div>` + log.innerHTML;
+    renderVerdict(data);
+    addLogEntry(data, payload);
 
   } catch (err) {
     const el = document.getElementById('result');
@@ -200,6 +326,8 @@ async function submitLogin(e) {
   btn.disabled = false;
   btn.textContent = 'Sign In';
 }
+
+renderLog();
 </script>
 </body>
 </html>
