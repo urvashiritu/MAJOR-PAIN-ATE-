@@ -28,7 +28,7 @@ Everything needed to run and present the live demo. Read once, rehearse twice.
 - **Second signal: per-user habit deviation** — first-ever machine outside their usual set,
   velocity above personal floor, repeated auth failures. Fused:
   `risk = if_score + 0.10 × min(habit_breaks, 3)`.
-- **Thresholds are measured, not guessed**: FLAG ≥ 0.70, BLOCK ≥ 0.80, set from a recorded
+- **Thresholds are measured, not guessed**: FLAG ≥ 0.65, BLOCK ≥ 0.75, set from a recorded
   scenario sweep (`live/measure_scores.py`).
 - LightGBM was trained (ROC-AUC 0.859) but is displayed only, not used: it saturates on
   small-history users. We report it as a finding.
@@ -68,20 +68,20 @@ Find laptop 1's IP: `hostname -I | awk '{print $1}'`
 | # | Action | Expected on dashboard |
 |---|---|---|
 | 1 | Alice logs in normally ×3 (from laptop 2 browser) | green ALLOW rows, no alerts; score ≈ 0.3–0.5 |
-| 2 | Same login, wrong password ×3 | escalation → FLAG by third strike ("three strikes" habit rule) |
+| 2 | Same login, wrong password ×3 | escalation → alert by third strike ("three strikes" habit rule) |
 | 3 | Alice logs in from an unseen machine | **BLOCK**, Habit Breaks = 2, reasons shown in drawer |
 | 4 | Open investigation drawer on the blocked event | Risk Score / Anomaly (IF) / Habit Breaks + which habits broke |
-| 5 | Attacker burst (login page ATTACK persona or `generate.py`) | red alerts stream, Critical banner |
+| 5 | Attacker burst (login page ATTACK persona or `generate.py`) | red alerts stream, Critical banner with shimmer verdict |
 | 6 | KPIs: events/min, alert counts, per-user stats | talking point: "every verdict explains itself" |
 
 Optional second tab: `generate.py --url http://<laptop1>:5000` replays real LANL traffic.
 
-## 7. Numbers you can quote (measured 2026-08-23)
+## 7. Numbers you can quote (measured 2026-08-23, post-fix sweep)
 
-- Quiet logins: p50 IF score 0.35–0.38 → all ALLOW (zero false blocks)
-- New machine: fused ≈ 0.84 → BLOCK ×10/10
-- Wrong password: three-strikes → FLAG/BLOCK
-- Failure bursts: FLAG→BLOCK escalation
+- Quiet logins: p50 0.34–0.39 → ALL ALLOW (worst case 0.54; zero false blocks)
+- New machine: fused ≈ 0.84+ → **BLOCK 30/30** across all personas
+- Wrong password: three-strikes → **BLOCK 24/30**, rest FLAG (never silent)
+- Bursts: FLAG escalation (yellow), no innocent blocks
 - Attacker behaving quietly: correctly ALLOWed (no cry-wolf)
 
 Full table: `lanl-anomaly/reports/score_measurements.json`.

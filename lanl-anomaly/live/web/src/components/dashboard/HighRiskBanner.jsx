@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { AlertTriangle, ArrowRight } from "lucide-react";
 import StatusIndicator from "../common/StatusIndicator";
 import OdometerNumber from "../common/OdometerNumber";
+import ShimmerText from "../common/ShimmerText";
 
 export default function HighRiskBanner({ alert, onInvestigate }) {
   if (!alert) return null;
@@ -31,7 +32,14 @@ export default function HighRiskBanner({ alert, onInvestigate }) {
               className={`stamp ${isCritical ? "stamp-critical" : "stamp-high"} badge-pulse`}
             >
               <StatusIndicator state="down" size="sm" className="gap-1" />
-              {label}
+              {isCritical ? (
+                <ShimmerText
+                  text={label}
+                  className="text-[length:inherit] from-[#7f1d1d] via-[#ff6b6b] to-[#7f1d1d]"
+                />
+              ) : (
+                label
+              )}
             </span>
             <span className="text-sm font-semibold text-ink/90 tracking-wide">
               Live Attack Activity
