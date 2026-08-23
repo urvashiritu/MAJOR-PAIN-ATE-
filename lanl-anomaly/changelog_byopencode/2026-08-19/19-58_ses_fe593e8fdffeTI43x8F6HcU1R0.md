@@ -22,6 +22,8 @@
 
 
 
+
+
 ## [19:58] USER
 
 give me an entire ultra detailec compaction in full words and all

@@ -22,6 +22,8 @@
 
 
 
+
+
 ## [22:13] USER
 
 ok bro we trained the model on the dataset isnt it

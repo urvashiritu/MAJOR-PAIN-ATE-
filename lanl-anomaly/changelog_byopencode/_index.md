@@ -79,5 +79,6 @@ opencode session memory · regenerable via `scripts/oclog.sh` · open this folde
 - [[2026-08-23/10-57_ses_fd2e908a8ffeZtQ9Jbprch0YaF|10-57 fd2e90]] · x-preview-f-free · in 1.36M / out 45.5K
 - [[2026-08-23/10-58_ses_fd2e86049ffes3RhRj6CgKncNR|10-58 fd2e86]] · x-preview-f-free · in 107.1K / out 2.7K
 - [[2026-08-23/12-14_ses_fd2a33089ffeyRjJV2da8nURl1|12-14 fd2a33]] · x-preview-f-free · in 1.04M / out 23.7K
-- [[2026-08-23/12-25_ses_fd298953fffe5Dr2ail0iu7Pqr|12-25 fd2989]] · x-preview-f-free · in 1.93M / out 61.1K
+- [[2026-08-23/12-25_ses_fd298953fffe5Dr2ail0iu7Pqr|12-25 fd2989]] · mimo-v2.5-free · in 3.50M / out 117.2K
+- [[2026-08-23/16-56_ses_fd1a11811ffedXRVhiIr61dvxk|16-56 fd1a11]] · x-preview-f-free · in 68.3K / out 1.6K
 

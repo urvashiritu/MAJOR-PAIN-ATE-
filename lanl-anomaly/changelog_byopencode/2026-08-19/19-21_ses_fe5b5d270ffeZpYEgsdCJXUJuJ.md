@@ -22,6 +22,8 @@
 
 
 
+
+
 ## [19:21] USER
 
 what opencode session running rn New session - 2026-08-19T13:19:52.803Z

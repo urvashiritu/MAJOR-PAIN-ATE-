@@ -22,6 +22,8 @@
 
 
 
+
+
 ## [22:44] USER
 
 whats the result of model trained on synthetic dataset?

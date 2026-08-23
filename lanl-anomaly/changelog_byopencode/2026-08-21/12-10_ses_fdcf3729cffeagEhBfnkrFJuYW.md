@@ -22,6 +22,8 @@
 
 
 
+
+
 ## [12:10] USER
 
 why the training pipeline is shit
