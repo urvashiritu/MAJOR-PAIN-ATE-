@@ -143,6 +143,12 @@ def stream():
 
 # ---------------- JSON API ----------------
 
+def _normalize_result(raw: str) -> str:
+    """Canonicalize result values. Training data and feature SQL use 'Fail';
+    clients (login.html) send 'Failure'."""
+    return "Fail" if str(raw).strip().lower() in {"fail", "failure", "failed"} else "Success"
+
+
 @app.route("/events", methods=["POST"])
 def api_events():
     """Score one LANL event. Expects JSON with:
@@ -181,7 +187,7 @@ def api_events():
         "auth_type": payload.get("auth_type", ""),
         "logon_type": payload.get("logon_type", ""),
         "orientation": payload.get("orientation", ""),
-        "result": payload.get("result", "Success"),
+        "result": _normalize_result(payload.get("result", "Success")),
     }
 
     with _con_lock:

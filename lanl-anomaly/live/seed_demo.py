@@ -9,6 +9,7 @@ History events are stored with raw LANL columns. Features are computed
 LIVE when events are scored by the scoring engine.
 """
 import sys
+import time
 from pathlib import Path
 
 import duckdb
@@ -40,6 +41,23 @@ def _user_events(con: duckdb.DuckDBPyConnection, raw_id: str) -> list:
     """).fetchall()
 
 
+def _day_aligned_shift(con: duckdb.DuckDBPyConnection) -> int:
+    """Shift LANL time ints forward by WHOLE days so history ends within 24h
+    of wall-clock now.
+
+    Whole-day multiples keep (time % 86400) — the pseudo-hour the feature SQL
+    and the trained models expect — bit-identical to training, while making
+    vel_1h / fail_1h windows reachable from live events.
+    """
+    max_t = con.execute(
+        f"SELECT MAX(time) FROM read_parquet('{SLICE}')"
+    ).fetchone()[0]
+    if max_t is None:
+        return 0
+    now = int(time.time())
+    return ((now - max_t) // 86400) * 86400
+
+
 def main() -> None:
     con = db.get_con(str(DB_PATH))
     db.init_schema(con)
@@ -48,6 +66,10 @@ def main() -> None:
     con.execute("DELETE FROM alerts")
     con.execute("DELETE FROM users")
     con.execute("DELETE FROM user_profile")
+
+    shift = _day_aligned_shift(con)
+    print(f"  day-aligned shift: +{shift:,} s ({shift // 86400} days; "
+          f"pseudo-hours preserved)")
 
     row_counter = 1
     for i, user in enumerate(NORMAL_USERS):
@@ -59,7 +81,7 @@ def main() -> None:
 
         events = _user_events(con, user["raw_id"])
         for j, row in enumerate(events):
-            time_int = row[0]
+            time_int = row[0] + shift
             con.execute("""
                 INSERT INTO events (row_id, time, user_id, src_computer, dst_computer,
                     auth_type, logon_type, orientation, result, decision)
@@ -78,7 +100,7 @@ def main() -> None:
 
     attacker_events = _user_events(con, ATTACKER["raw_id"])
     for j, row in enumerate(attacker_events):
-        time_int = row[0]
+        time_int = row[0] + shift
         con.execute("""
             INSERT INTO events (row_id, time, user_id, src_computer, dst_computer,
                 auth_type, logon_type, orientation, result, decision)
