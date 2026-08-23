@@ -15,7 +15,7 @@ export default function Sidebar({ activePage, setActivePage, collapsed, setColla
       animate={{ width: collapsed ? 72 : 256 }}
       transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
     >
-      <div className="flex items-center gap-2 px-4 h-14 border-b border-white/[0.07]">
+      <div className="flex items-center gap-2 px-4 h-14 border-b border-[color:var(--hairline)]">
         <Shield className="w-5 h-5 text-ochre shrink-0" />
         {!collapsed && (
           <motion.span

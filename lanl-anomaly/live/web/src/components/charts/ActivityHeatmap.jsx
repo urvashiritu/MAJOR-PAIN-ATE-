@@ -4,18 +4,18 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const LEVELS = [
-  { min: 0, max: 0, fill: "rgba(255,255,255,0.03)" },
-  { min: 1, max: 2, fill: "rgba(232,163,61,0.15)" },
-  { min: 3, max: 5, fill: "rgba(232,163,61,0.35)" },
-  { min: 6, max: 9, fill: "rgba(232,163,61,0.55)" },
-  { min: 10, max: Infinity, fill: "rgba(229,72,77,0.8)" },
+  { min: 0, max: 0, cls: "heatmap-empty" },
+  { min: 1, max: 2, cls: "heatmap-l1" },
+  { min: 3, max: 5, cls: "heatmap-l2" },
+  { min: 6, max: 9, cls: "heatmap-l3" },
+  { min: 10, max: Infinity, cls: "heatmap-l4" },
 ];
 
 function getLevel(count) {
   for (const l of LEVELS) {
-    if (count >= l.min && count <= l.max) return l.fill;
+    if (count >= l.min && count <= l.max) return l.cls;
   }
-  return LEVELS[LEVELS.length - 1].fill;
+  return LEVELS[LEVELS.length - 1].cls;
 }
 
 function parseTime(ts) {
@@ -91,8 +91,7 @@ export default function ActivityHeatmap({ events = [] }) {
                   width={cellSize}
                   height={cellSize}
                   rx={3}
-                  fill={getLevel(grid[di][hi])}
-                  stroke="rgba(255,255,255,0.04)"
+                  className={`heatmap-cell ${getLevel(grid[di][hi])}`}
                   strokeWidth={0.5}
                 >
                   <title>{`${day} ${h}:00 — ${grid[di][hi]} events`}</title>

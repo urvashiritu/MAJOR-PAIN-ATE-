@@ -41,7 +41,7 @@ export default function ThreatGauge({ value = 0, label = "Threat Level" }) {
 
   const data = [
     { value: angle, fill: color },
-    { value: 180 - angle, fill: "rgba(255,255,255,0.05)" },
+    { value: 180 - angle },
   ];
 
   return (
@@ -68,6 +68,7 @@ export default function ThreatGauge({ value = 0, label = "Threat Level" }) {
                 <Cell
                   key={i}
                   fill={entry.fill}
+                  className={i === 1 ? "gauge-track" : undefined}
                   style={{ transition: "fill 0.5s ease" }}
                 />
               ))}

@@ -50,7 +50,7 @@ export default function AlertFeed({ alerts = [], onInvestigate }) {
                   Score: {(a.combined_score ?? 0).toFixed(3)}
                 </div>
                 <div
-                  className="h-1 w-16 rounded-full overflow-hidden bg-white/5"
+                  className="h-1 w-16 rounded-full overflow-hidden bg-[color:var(--wash)]"
                   title={`score ${((a.combined_score ?? 0) * 100).toFixed(0)}%`}
                 >
                   <div

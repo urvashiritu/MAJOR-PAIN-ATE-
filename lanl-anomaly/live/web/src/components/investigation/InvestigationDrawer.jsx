@@ -36,14 +36,14 @@ export default function InvestigationDrawer({ eventId, onClose }) {
 
         {/* Drawer */}
         <motion.div
-          className="relative w-full max-w-lg bg-paper-50 border-l border-white/[0.08] overflow-y-auto"
+          className="relative w-full max-w-lg bg-paper-50 border-l border-[color:var(--hairline)] overflow-y-auto"
           initial={{ x: "100%" }}
           animate={{ x: 0 }}
           exit={{ x: "100%" }}
           transition={{ type: "spring", damping: 28, stiffness: 280 }}
         >
           {/* Header */}
-          <div className="sticky top-0 z-10 bg-paper-50 border-b border-white/[0.07] p-4 flex items-start justify-between">
+          <div className="sticky top-0 z-10 bg-paper-50 border-b border-[color:var(--hairline)] p-4 flex items-start justify-between">
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <SeverityBadge level={data?.severity} />
@@ -180,7 +180,7 @@ export default function InvestigationDrawer({ eventId, onClose }) {
                 </button>
                 <button
                   onClick={onClose}
-                  className="flex-1 px-3 py-2 text-xs bg-white/5 text-ink-faint rounded hover:bg-white/10 transition-colors"
+                  className="flex-1 px-3 py-2 text-xs bg-[color:var(--wash)] text-ink-faint rounded hover:bg-[color:var(--wash-strong)] transition-colors"
                 >
                   Close
                 </button>

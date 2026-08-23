@@ -68,7 +68,7 @@ export default function KpiCards({ kpis = {}, events = [] }) {
           <motion.div variants={cardVariants} key={key}>
             <div className="panel panel-hover p-3 h-full">
               <div className="flex items-start justify-between mb-2">
-                <div className="p-2 border border-white/15">
+                <div className="p-2 border border-[color:var(--hairline)]">
                   <Icon size={15} style={{ color }} />
                 </div>
                 <span className="tape-label">{label}</span>

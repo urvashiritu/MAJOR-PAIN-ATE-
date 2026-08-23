@@ -4,7 +4,7 @@ const stateColors = {
   active: { dot: "bg-low", ping: "bg-low" },
   down: { dot: "bg-critical", ping: "bg-critical" },
   fixing: { dot: "bg-ochre", ping: "bg-ochre" },
-  idle: { dot: "bg-white/30", ping: "bg-white/20" },
+  idle: { dot: "bg-[color:var(--ink-faint)]", ping: "bg-[color:var(--ink-faint)]" },
 };
 
 const sizeClasses = {

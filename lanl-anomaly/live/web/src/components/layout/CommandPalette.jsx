@@ -135,7 +135,7 @@ export default function CommandPalette({ onNavigate, onInvestigate }) {
               <motion.kbd
                 layoutId="search-shortcut"
                 transition={sharedTransition}
-                className="absolute right-2 rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 text-[10px] font-bold text-ink-faint group-hover:text-ink-dim"
+                className="absolute right-2 rounded-sm border border-[color:var(--hairline)] bg-[color:var(--wash)] px-1.5 py-0.5 text-[10px] font-bold text-ink-faint group-hover:text-ink-dim"
               >
                 ⌘K
               </motion.kbd>
@@ -145,9 +145,9 @@ export default function CommandPalette({ onNavigate, onInvestigate }) {
               layoutId="command-palette"
               transition={sharedTransition}
               onClick={(e) => e.stopPropagation()}
-              className="absolute -top-2 -left-2 z-50 flex h-80 w-[20rem] flex-col overflow-hidden rounded-lg border border-white/20 bg-paper-100 shadow-[0_32px_64px_-15px_rgba(0,0,0,0.6)] md:w-[400px]"
+              className="absolute -top-2 -left-2 z-50 flex h-80 w-[20rem] flex-col overflow-hidden rounded-lg border border-[color:var(--hairline)] bg-paper-100 shadow-[0_32px_64px_-15px_rgba(0,0,0,0.6)] md:w-[400px]"
             >
-              <div className="flex items-center border-b border-white/10 px-4 py-3.5">
+              <div className="flex items-center border-b border-[color:var(--hairline)] px-4 py-3.5">
                 <motion.div layoutId="search-icon" transition={sharedTransition}>
                   <Search size={18} className="mr-3 text-ink-faint" strokeWidth={2.5} />
                 </motion.div>
@@ -174,7 +174,7 @@ export default function CommandPalette({ onNavigate, onInvestigate }) {
                   <motion.span
                     layoutId="search-shortcut"
                     transition={sharedTransition}
-                    className="rounded-sm border border-white/15 bg-white/5 p-0.5 px-1 text-[11px] font-bold text-ink-faint"
+                    className="rounded-sm border border-[color:var(--hairline)] bg-[color:var(--wash)] p-0.5 px-1 text-[11px] font-bold text-ink-faint"
                   >
                     Esc
                   </motion.span>
@@ -202,7 +202,7 @@ export default function CommandPalette({ onNavigate, onInvestigate }) {
                                 key={item.id}
                                 className={cn(
                                   "group flex w-full items-center justify-between rounded-sm px-3 py-2.5 text-left",
-                                  isActive ? "bg-white/10 text-ink" : "text-ink-dim hover:text-ink",
+                                  isActive ? "bg-[color:var(--wash-strong)] text-ink" : "text-ink-dim hover:text-ink",
                                 )}
                                 onMouseEnter={() => setActiveIndex(globalIndex)}
                                 onClick={() => { item.action(); setIsOpen(false); }}

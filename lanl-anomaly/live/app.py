@@ -45,7 +45,7 @@ class SignedIntConverter(IntegerConverter):
 
 app.url_map.converters["sint"] = SignedIntConverter
 
-SEV_COLORS = {"low": "#35D07F", "medium": "#F5B84B", "high": "#FF8A3D", "critical": "#F04444"}
+SEV_COLORS = {"low": "#57b06c", "medium": "#e8a33d", "high": "#ff9b9e", "critical": "#e5484d"}
 
 
 def con():
@@ -368,22 +368,22 @@ def api_investigation(event_id: int):
     # Feature contributions
     features = []
     if e.get("dst_first"):
-        features.append({"feature": "First-time Destination", "value": 1, "color": "#F04444",
+        features.append({"feature": "First-time Destination", "value": 1, "color": "#e5484d",
                          "detail": f"Never visited {e.get('dst_computer')}"})
     if e.get("src_first"):
-        features.append({"feature": "First-time Source", "value": 1, "color": "#F04444",
+        features.append({"feature": "First-time Source", "value": 1, "color": "#e5484d",
                          "detail": f"Never used {e.get('src_computer')}"})
     if e.get("dst_prior_events", 0) == 0 and not e.get("dst_first"):
-        features.append({"feature": "Unfamiliar Destination", "value": 0, "color": "#F04444",
+        features.append({"feature": "Unfamiliar Destination", "value": 0, "color": "#e5484d",
                          "detail": f"0 prior visits to {e.get('dst_computer')}"})
     if e.get("vel_1h", 0) > 10:
-        features.append({"feature": "High Velocity", "value": e["vel_1h"], "color": "#FF8A3D",
+        features.append({"feature": "High Velocity", "value": e["vel_1h"], "color": "#ff9b9e",
                          "detail": f"{e['vel_1h']} events in last hour"})
     if e.get("fail_1h", 0) > 0:
-        features.append({"feature": "Recent Failures", "value": e["fail_1h"], "color": "#FF8A3D",
+        features.append({"feature": "Recent Failures", "value": e["fail_1h"], "color": "#ff9b9e",
                          "detail": f"{e['fail_1h']:.0f} failures in last hour"})
     if e.get("hour_ratio", 0) > 0.01:
-        features.append({"feature": "Unusual Hour", "value": e["hour_ratio"], "color": "#F5B84B",
+        features.append({"feature": "Unusual Hour", "value": e["hour_ratio"], "color": "#e8a33d",
                          "detail": f"hour_ratio={e['hour_ratio']:.4f} (unusual time for this user)"})
 
     # Timeline

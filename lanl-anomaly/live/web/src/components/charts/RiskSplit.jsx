@@ -149,7 +149,7 @@ export default function RiskSplit({ data = [], title = "Risk Split" }) {
             onMouseEnter={() => setActiveIdx(i)}
             onMouseLeave={() => setActiveIdx(null)}
             className={`flex items-center gap-1.5 px-1 py-0.5 rounded transition-colors duration-150 cursor-pointer ${
-              activeIdx === i ? "bg-white/[0.06]" : ""
+              activeIdx === i ? "bg-[color:var(--wash)]" : ""
             }`}
           >
             <span

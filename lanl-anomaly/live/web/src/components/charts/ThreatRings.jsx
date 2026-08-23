@@ -44,7 +44,7 @@ export default function ThreatRings({ kpis = {} }) {
                   cy={center}
                   r={r}
                   fill="none"
-                  stroke="rgba(255,255,255,0.06)"
+                  className="ring-track"
                   strokeWidth={ringWidth}
                 />
                 <circle

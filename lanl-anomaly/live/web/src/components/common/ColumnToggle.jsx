@@ -34,7 +34,7 @@ export default function ColumnToggle({ columns, visible, onChange, className }) 
             {columns.map((col) => (
               <label
                 key={col.key}
-                className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-sm cursor-pointer hover:bg-white/5 transition-colors"
+                className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-sm cursor-pointer hover:bg-[color:var(--wash)] transition-colors"
               >
                 <input
                   type="checkbox"

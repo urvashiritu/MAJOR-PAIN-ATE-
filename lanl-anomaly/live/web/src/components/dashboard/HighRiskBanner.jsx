@@ -67,7 +67,7 @@ export default function HighRiskBanner({ alert, onInvestigate }) {
         </div>
         <button
           onClick={() => onInvestigate?.(alert.eventId)}
-          className="flex items-center gap-1.5 px-4 py-2 border text-sm font-semibold hover:bg-white/5 transition-all flex-shrink-0"
+          className="flex items-center gap-1.5 px-4 py-2 border text-sm font-semibold hover:bg-[color:var(--wash)] transition-all flex-shrink-0"
           style={{
             borderColor: isCritical ? "rgba(229,72,77,0.6)" : "rgba(255,155,158,0.5)",
             color: isCritical ? "#e5484d" : "#ff9b9e",

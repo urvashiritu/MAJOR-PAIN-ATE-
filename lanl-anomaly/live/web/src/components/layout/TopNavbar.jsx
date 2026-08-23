@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Activity } from "lucide-react";
 import { getHealth } from "../../hooks/useApi";
 import CommandPalette from "./CommandPalette";
+import SwitchButton from "../common/SwitchButton";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard" },
@@ -21,8 +22,8 @@ export default function TopNavbar({ activePage, onNavigate, onInvestigate }) {
   }, []);
 
   return (
-    <header className="sticky top-0 z-40 h-12 flex items-center justify-between px-5 border-b border-white/[0.07]"
-      style={{ background: "rgba(11,14,20,0.92)", backdropFilter: "blur(8px)" }}>
+    <header className="sticky top-0 z-40 h-12 flex items-center justify-between px-5 border-b border-[color:var(--hairline)]"
+      style={{ background: "var(--nav-bg)", backdropFilter: "blur(8px)" }}>
       <div className="flex items-center gap-4">
         {TABS.map((t) => (
           <button
@@ -39,6 +40,7 @@ export default function TopNavbar({ activePage, onNavigate, onInvestigate }) {
 
       <div className="flex items-center gap-3">
         <CommandPalette onNavigate={onNavigate} onInvestigate={onInvestigate} />
+        <SwitchButton />
         <div className="flex items-center gap-2 text-xs text-ink-dim">
           <div className={`live-dot ${online ? "" : "opacity-30"}`} />
           <span>{online ? "MODELS LOADED" : "OFFLINE"}</span>
