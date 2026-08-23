@@ -1,11 +1,12 @@
 import { motion } from "framer-motion";
-import { LayoutDashboard, Bell, Users, Shield, ChevronLeft, ChevronRight } from "lucide-react";
+import { LayoutDashboard, Bell, Users, Settings, Shield, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "alerts", label: "Alerts", icon: Bell },
   { id: "users", label: "Users", icon: Users },
+  { id: "settings", label: "Settings", icon: Settings },
 ];
 
 export default function Sidebar({ activePage, setActivePage, collapsed, setCollapsed }) {

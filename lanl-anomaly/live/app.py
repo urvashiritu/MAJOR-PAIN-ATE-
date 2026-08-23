@@ -348,6 +348,25 @@ def api_alert_ack(alert_id: int):
     return jsonify({"ok": True, "alert_id": alert_id})
 
 
+@app.route("/api/reset", methods=["POST"])
+def api_reset():
+    """Clear all live scored events + alerts. History & profiles preserved."""
+    c = con()
+    c.execute("DELETE FROM events WHERE decision != 'history'")
+    c.execute("DELETE FROM alerts")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/stats")
+def api_stats():
+    c = con()
+    total = c.execute("SELECT COUNT(*) FROM events WHERE decision != 'history'").fetchone()[0]
+    alerts = c.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
+    history = c.execute("SELECT COUNT(*) FROM events WHERE decision = 'history'").fetchone()[0]
+    users = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    return jsonify({"live_events": total, "alerts": alerts, "history_events": history, "users": users})
+
+
 @app.route("/api/investigation/<int:event_id>")
 def api_investigation(event_id: int):
     c = con()

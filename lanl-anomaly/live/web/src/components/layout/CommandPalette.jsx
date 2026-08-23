@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, LayoutDashboard, AlertTriangle, Users as UsersIcon, User, Bell } from "lucide-react";
+import { Search, LayoutDashboard, AlertTriangle, Users as UsersIcon, User, Bell, Settings } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { getUsers, getAlerts } from "../../hooks/useApi";
 
@@ -49,6 +49,7 @@ export default function CommandPalette({ onNavigate, onInvestigate }) {
       { id: "page-dashboard", title: "Dashboard", section: "Navigate", icon: <LayoutDashboard size={16} />, action: () => onNavigate("dashboard") },
       { id: "page-alerts", title: "Alerts", section: "Navigate", icon: <AlertTriangle size={16} />, action: () => onNavigate("alerts") },
       { id: "page-users", title: "Users", section: "Navigate", icon: <UsersIcon size={16} />, action: () => onNavigate("users") },
+      { id: "page-settings", title: "Settings", section: "Navigate", icon: <Settings size={16} />, action: () => onNavigate("settings") },
     ];
     const userItems = users.slice(0, 6).map((u) => ({
       id: `user-${u.user_id ?? u.name}`,

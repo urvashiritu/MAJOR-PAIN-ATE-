@@ -5,6 +5,7 @@ import TopNavbar from "./components/layout/TopNavbar";
 import DashboardPage from "./pages/DashboardPage";
 import AlertsPage from "./pages/AlertsPage";
 import UsersPage from "./pages/UsersPage";
+import SettingsPage from "./pages/SettingsPage";
 import InvestigationDrawer from "./components/investigation/InvestigationDrawer";
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
     dashboard: <DashboardPage onInvestigate={setInvestigateId} />,
     alerts: <AlertsPage onInvestigate={setInvestigateId} />,
     users: <UsersPage />,
+    settings: <SettingsPage />,
   };
 
   return (

@@ -55,6 +55,8 @@ The login website opens &mdash; persona cards, custom login form, ATTACK button.
 <div class="step"><div class="num">C</div><div>(Optional) double-click
 <span class="file"><b>open-dashboard.bat</b></span>
 to also watch the SOC dashboard live from here.</div></div>
+<div class="step"><div class="num">D</div><div><b>Between runs:</b> on the dashboard, click <b>Settings &rarr; Hold to Reset Live Data</b>
+to clear events without restarting the server.</div></div>
 <div class="note">If Windows shows a blue <b>SmartScreen</b> warning for the .bat files:
 click <b>More info &rarr; Run anyway</b>. They are our own two-line launchers.</div>
 
@@ -67,7 +69,9 @@ click <b>More info &rarr; Run anyway</b>. They are our own two-line launchers.</
 <tr><td>4</td><td><b>ATTACK</b> burst button</td><td class="bad">red alerts stream; CRITICAL banner with shimmer on the dashboard</td></tr>
 </table>
 <p style="color:#8b98a5;font-size:13px">Every event appears instantly on the dashboard
-(<code>http://IP:5000/dashboard</code>) with its risk score and the exact habits it broke.</p>
+(<code>http://IP:5000/dashboard</code>) with its risk score and the exact habits it broke.
+The login page shows a structured verdict (score, anomaly, habit breaks, reasons) and keeps
+a full event log with <b>Export CSV</b> for cross-verification.</p>
 
 <h2>If something doesn't work</h2>
 <table>

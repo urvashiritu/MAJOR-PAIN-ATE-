@@ -8,6 +8,7 @@ const TABS = [
   { id: "dashboard", label: "Dashboard" },
   { id: "alerts", label: "Alerts" },
   { id: "users", label: "Users" },
+  { id: "settings", label: "Settings" },
 ];
 
 export default function TopNavbar({ activePage, onNavigate, onInvestigate }) {
