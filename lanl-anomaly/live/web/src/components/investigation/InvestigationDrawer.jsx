@@ -67,18 +67,21 @@ export default function InvestigationDrawer({ eventId, onClose }) {
               <div className="panel p-3">
                 <div className="grid grid-cols-3 gap-3 text-center">
                   <div>
-                    <div className="kpi-label">Combined</div>
+                    <div className="kpi-label">Risk Score</div>
                     <div className="text-lg font-bold text-ink">{(data.combinedScore ?? 0).toFixed(3)}</div>
                   </div>
                   <div>
-                    <div className="kpi-label">LGB</div>
-                    <div className="text-lg font-bold text-info">{(data.lgbScore ?? 0).toFixed(3)}</div>
+                    <div className="kpi-label">Anomaly (IF)</div>
+                    <div className="text-lg font-bold text-info">{(data.ifScore ?? 0).toFixed(3)}</div>
                   </div>
                   <div>
-                    <div className="kpi-label">IF</div>
-                    <div className="text-lg font-bold text-ochre">{(data.ifScore ?? 0).toFixed(3)}</div>
+                    <div className="kpi-label">Habit Breaks</div>
+                    <div className={`text-lg font-bold ${(data.devPoints ?? 0) > 0 ? "text-critical" : "text-low"}`}>{data.devPoints ?? 0}</div>
                   </div>
                 </div>
+                {(data.devReasons ?? "").length > 0 && (
+                  <div className="mt-2 text-[11px] text-ink-dim">{data.devReasons}</div>
+                )}
               </div>
 
               {/* Event details */}

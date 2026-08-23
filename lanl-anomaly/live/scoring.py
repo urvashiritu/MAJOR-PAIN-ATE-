@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
-"""LANL live scoring — IF + LightGBM combined model.
+"""LANL live scoring — Isolation Forest + per-user habit deviation.
 
 One event in, a decision out. The scoring path:
   1. Compute 8 LANL features from user's stored history
-  2. Isolation Forest anomaly score
-  3. LightGBM probability
-  4. Combined = 0.5 * lgb_score + 0.5 * if_score
+  2. Isolation Forest anomaly score (the primary detector)
+  3. Habit-deviation points vs THIS user's baseline
+     (first-ever destination/source outside their usual set,
+      velocity above floor, repeated auth failures)
+     fused as: combined = if_score + 0.10 * min(dev_points, 3)
+
+LightGBM is loaded and its score is DISPLAYED for transparency, but it is
+NOT part of the decision: it was trained on full-scale users (~52k events
+per destination) and saturates at 1.0 on demo-scale histories.
 
 Decision policy:
-  - combined >= 0.60  -> block
-  - combined >= 0.25  -> flag
-  - otherwise         -> allow
+  - combined >= BLOCK_THRESHOLD (default 0.80) -> block
+  - combined >= FLAG_THRESHOLD  (default 0.70) -> flag
+  - otherwise                                   -> allow
 
 Features (8 — matches the original training pipeline):
   dst_first          binary   first-ever event to this destination
