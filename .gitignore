@@ -53,3 +53,6 @@ graphify-out/
 
 # Orphaned duplicate dashboard from three-folder restructure (kept locally, not in git)
 shared/
+
+# Build artifacts
+*.zip

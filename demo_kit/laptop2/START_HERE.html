@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laptop 2 — Demo Kit</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0a0e14; color:#e6edf3; font-family:"Segoe UI",system-ui,sans-serif;
+         max-width:820px; margin:0 auto; padding:32px 24px; line-height:1.55; }
+  h1 { font-size:26px; letter-spacing:.5px; margin-bottom:4px; }
+  h1 .accent { color:#f04444; }
+  .sub { color:#8b98a5; margin-bottom:28px; font-size:14px; }
+  h2 { font-size:15px; text-transform:uppercase; letter-spacing:2px; color:#58a6ff;
+       border-bottom:1px solid #1f2733; padding-bottom:6px; margin-top:34px; }
+  .step { display:flex; gap:14px; margin:14px 0; }
+  .num { flex:0 0 30px; height:30px; border:1px solid #2d3748; display:flex; align-items:center;
+         justify-content:center; font-weight:700; color:#58a6ff; }
+  code, .mono { background:#11161f; border:1px solid #1f2733; padding:2px 7px;
+                font-family:Consolas,monospace; font-size:13px; border-radius:4px; word-break:break-all; }
+  .cmd { display:block; background:#11161f; border-left:3px solid #58a6ff; padding:9px 13px;
+         margin:8px 0; font-family:Consolas,monospace; font-size:13px; overflow-x:auto; white-space:pre; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:14px; }
+  th, td { border:1px solid #1f2733; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#11161f; color:#8b98a5; font-weight:600; }
+  .ok   { color:#35d07f; font-weight:700; }
+  .warn { color:#f5b84b; font-weight:700; }
+  .bad  { color:#f04444; font-weight:700; }
+  .note { background:#141a24; border:1px solid #2d3748; padding:11px 14px; font-size:13px;
+          color:#aab6c2; margin:12px 0; }
+  .file { display:inline-block; background:#161d29; border:1px solid #2d3748; padding:6px 12px;
+          margin:4px 6px 4px 0; font-family:Consolas,monospace; font-size:13px; }
+  .file b { color:#7ee2b8; font-weight:600; }
+</style>
+</head>
+<body>
+
+<h1>MAJOR-PAIN-ATE <span class="accent">// Laptop 2 Demo Kit</span></h1>
+<p class="sub">Browser-only kit &mdash; nothing to install on this laptop. Edge works out of the box.</p>
+
+<h2>One-time setup on LAPTOP 1 (the Linux machine)</h2>
+<div class="step"><div class="num">1</div><div>Start the demo server there:<br><span class="cmd">make demo-reset&nbsp;&nbsp;&nbsp;# fresh slate (stop any running backend first)
+make demo&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# starts the server on port 5000</span></div></div>
+<div class="step"><div class="num">2</div><div>Find its IP address:<br><span class="cmd">hostname -I | awk '{print $1}'</span>
+Write it down &mdash; something like <code>192.168.1.42</code>.</div></div>
+<div class="step"><div class="num">3</div><div>If laptop 2 cannot connect later, allow the port through the firewall:<br>
+<span class="cmd">sudo ufw allow 5000/tcp</span> &nbsp;<span style="color:#8b98a5">(only needed if a firewall is active)</span></div></div>
+
+<h2>On THIS laptop (Laptop 2 / Windows 11)</h2>
+<div class="step"><div class="num">A</div><div>Make sure you are on the <b>same Wi-Fi / LAN</b> as laptop 1 (turn VPN off).</div></div>
+<div class="step"><div class="num">B</div><div>Double-click:
+<span class="file"><b>open-login-page.bat</b></span>
+Type laptop 1's IP when asked and press Enter.<br>
+The login website opens &mdash; persona cards, custom login form, ATTACK button.</div></div>
+<div class="step"><div class="num">C</div><div>(Optional) double-click
+<span class="file"><b>open-dashboard.bat</b></span>
+to also watch the SOC dashboard live from here.</div></div>
+<div class="note">If Windows shows a blue <b>SmartScreen</b> warning for the .bat files:
+click <b>More info &rarr; Run anyway</b>. They are our own two-line launchers.</div>
+
+<h2>The show &mdash; what to click, what should happen</h2>
+<table>
+<tr><th>#</th><th>Action (login page)</th><th>Expected verdict</th></tr>
+<tr><td>1</td><td>Log in as <b>alice</b>, correct password, her usual machine &times;3</td><td class="ok">ALLOW &times;3 &nbsp;(green)</td></tr>
+<tr><td>2</td><td>Same login but wrong password &times;3</td><td class="warn">escalates &rarr; alert by third strike</td></tr>
+<tr><td>3</td><td>Log in as alice from an <b>unseen machine</b> (custom form)</td><td class="bad">BLOCK &mdash; "first-ever destination outside user's usual set"</td></tr>
+<tr><td>4</td><td><b>ATTACK</b> burst button</td><td class="bad">red alerts stream; CRITICAL banner with shimmer on the dashboard</td></tr>
+</table>
+<p style="color:#8b98a5;font-size:13px">Every event appears instantly on the dashboard
+(<code>http://IP:5000/dashboard</code>) with its risk score and the exact habits it broke.</p>
+
+<h2>If something doesn't work</h2>
+<table>
+<tr><th>Symptom</th><th>Fix</th></tr>
+<tr><td>"This site can't be reached"</td><td>Same network? IP typed correctly (no extra spaces)? Firewall opened on laptop 1? VPN off?</td></tr>
+<tr><td>Page opens but no events appear on dashboard</td><td>Refresh both tabs; check laptop 1 still runs <code>make demo</code></td></tr>
+<tr><td>.bat window flashes and closes</td><td>Right-click the file &rarr; Open with &rarr; Command Prompt, read the message</td></tr>
+</table>
+
+<p class="sub" style="margin-top:30px">Full runbook lives on laptop 1: <span class="mono">docs/DEMO_SCRIPT.md</span> &middot; Rollback: tag <span class="mono">pre-demo-fix</span></p>
+
+</body>
+</html>
