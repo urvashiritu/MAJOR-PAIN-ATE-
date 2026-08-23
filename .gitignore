@@ -13,6 +13,12 @@ data/raw/rba.duckdb
 data/live.duckdb
 data/*.wal
 
+# Exception: trained LANL live-demo models are small and expensive to retrain — keep in git
+!lanl-anomaly/models/
+!lanl-anomaly/models/*.joblib
+# Superseded 4-model ensemble artifact (Exp 3a); regenerable via src/01_anomaly_ensemble.py
+lanl-anomaly/models/lanl_ensemble.joblib
+
 # DuckDB temp spill files (large, regenerated on every scan)
 .tmp/
 
