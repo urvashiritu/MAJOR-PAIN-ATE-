@@ -40,3 +40,10 @@ live/web/node_modules/
 .playwright-mcp/
 
 lanl-anomaly/data/
+
+# Local agent tooling / generated graphs
+.opencode/
+graphify-out/
+
+# Orphaned duplicate dashboard from three-folder restructure (kept locally, not in git)
+shared/
