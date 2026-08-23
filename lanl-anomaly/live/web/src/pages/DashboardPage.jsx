@@ -6,9 +6,7 @@ import AlertFeed from "../components/dashboard/AlertFeed";
 import EventTable from "../components/tables/EventTable";
 import ThreatGauge from "../components/charts/ThreatGauge";
 import ScoreTrend from "../components/charts/ScoreTrend";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
-
-const COLORS = { low: "#57b06c", medium: "#e8a33d", high: "#ff9b9e", critical: "#e5484d" };
+import RiskSplit from "../components/charts/RiskSplit";
 
 export default function DashboardPage({ onInvestigate }) {
   const { data, loading } = useDashboardData();
@@ -68,43 +66,7 @@ export default function DashboardPage({ onInvestigate }) {
           <ScoreTrend events={events} />
         </div>
         <div className="xl:col-span-4 panel p-4">
-          <div className="text-xs uppercase tracking-wider text-ink-faint mb-2 font-semibold">
-            Risk Split
-          </div>
-          <ResponsiveContainer width="100%" height={150}>
-            <PieChart>
-              <Pie
-                data={riskDist}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius={35}
-                outerRadius={60}
-                paddingAngle={2}
-              >
-                {riskDist.map((entry, i) => (
-                  <Cell key={i} fill={entry.color || COLORS[entry.name?.toLowerCase()]} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{
-                  background: "#151a24",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  borderRadius: 6,
-                  fontSize: 11,
-                }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="flex flex-wrap gap-2 mt-1 justify-center">
-            {riskDist.map((r) => (
-              <div key={r.name} className="flex items-center gap-1 text-[9px] text-ink-faint">
-                <div className="w-1.5 h-1.5 rounded-full" style={{ background: r.color }} />
-                {r.name}: {r.value}
-              </div>
-            ))}
-          </div>
+          <RiskSplit data={riskDist} />
         </div>
       </div>
 
