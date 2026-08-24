@@ -1,14 +1,27 @@
-from pathlib import Path
-from collections import defaultdict, deque
-import re
-import subprocess
-import time
-
-import joblib
-import numpy as np
-import pandas as pd
-import plotly.express as px
 import streamlit as st
+import pandas as pd
+import numpy as np
+import subprocess
+import os
+import re
+import time
+from pathlib import Path
+from datetime import datetime
+
+# ============================================================
+# OPTIONAL ACTIVITY MONITOR
+# ============================================================
+
+
+try:
+    from activity_monitor import (
+        setup_monitor_directory,
+        install_audit_rule,
+        read_events,
+    )
+    ACTIVITY_MONITOR_AVAILABLE = True
+except Exception:
+    ACTIVITY_MONITOR_AVAILABLE = False
 
 
 # ============================================================
@@ -17,9 +30,209 @@ import streamlit as st
 
 st.set_page_config(
     page_title="Identity Anomaly Detection",
-    page_icon="🛡️",
+    page_icon="◈",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
+)
+
+
+# ============================================================
+# CUSTOM CSS
+# ============================================================
+
+st.html(
+    """
+<style>
+
+@import url(
+    'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'
+);
+
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
+.stApp {
+    background:
+        radial-gradient(
+            circle at 10% 10%,
+            rgba(90, 100, 255, 0.12),
+            transparent 30%
+        ),
+        radial-gradient(
+            circle at 90% 20%,
+            rgba(0, 220, 180, 0.08),
+            transparent 30%
+        ),
+        #070a12;
+}
+
+/* Main container */
+
+.block-container {
+    max-width: 1450px;
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+}
+
+/* Hero */
+
+.hero {
+    padding: 2.2rem 2.4rem;
+    border-radius: 24px;
+    background:
+        linear-gradient(
+            135deg,
+            rgba(24, 30, 58, 0.96),
+            rgba(10, 15, 30, 0.96)
+        );
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow:
+        0 20px 60px rgba(0,0,0,0.35);
+    margin-bottom: 1.5rem;
+}
+
+.hero-title {
+    font-size: 2.7rem;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: 0.5rem;
+}
+
+.hero-subtitle {
+    color: #aeb7cc;
+    font-size: 1.05rem;
+    line-height: 1.6;
+}
+
+/* Section */
+
+.section-title {
+    font-size: 1.55rem;
+    font-weight: 750;
+    margin-top: 2rem;
+    margin-bottom: 0.25rem;
+}
+
+.section-subtitle {
+    color: #8f99ae;
+    margin-bottom: 1.1rem;
+}
+
+/* Cards */
+
+.metric-card {
+    background:
+        linear-gradient(
+            145deg,
+            rgba(23, 29, 50, 0.95),
+            rgba(12, 17, 31, 0.95)
+        );
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 18px;
+    padding: 1.15rem 1.2rem;
+    min-height: 115px;
+    transition: all 0.2s ease;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(130,140,255,0.35);
+}
+
+.metric-label {
+    color: #8e98ae;
+    font-size: 0.85rem;
+    margin-bottom: 0.35rem;
+}
+
+.metric-value {
+    font-size: 1.75rem;
+    font-weight: 750;
+}
+
+.metric-help {
+    color: #727d94;
+    font-size: 0.75rem;
+    margin-top: 0.3rem;
+}
+
+/* Status */
+
+.status-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 13px;
+    border-radius: 999px;
+    background: rgba(0, 220, 150, 0.10);
+    border: 1px solid rgba(0, 220, 150, 0.25);
+    color: #5ff0bc;
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.status-live::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #45e7ae;
+    box-shadow: 0 0 12px #45e7ae;
+}
+
+/* Model header */
+
+.model-header {
+    padding: 1.3rem 1.5rem;
+    border-radius: 18px;
+    background: rgba(20,25,44,0.85);
+    border: 1px solid rgba(255,255,255,0.07);
+    margin-bottom: 1rem;
+}
+
+.best-model {
+    padding: 1rem 1.3rem;
+    border-radius: 16px;
+    background: rgba(50, 150, 255, 0.08);
+    border: 1px solid rgba(50, 150, 255, 0.25);
+    margin: 1rem 0;
+}
+
+/* Formula */
+
+.formula {
+    background: #0b0f1b;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    font-family: monospace;
+    color: #d9e0ef;
+    margin: 0.5rem 0 1rem 0;
+}
+
+/* Tables */
+
+div[data-testid="stDataFrame"] {
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+/* Buttons */
+
+.stButton > button {
+    border-radius: 11px;
+    font-weight: 600;
+}
+
+/* Tabs */
+
+.stTabs [data-baseweb="tab"] {
+    font-weight: 600;
+}
+
+</style>
+"""
 )
 
 
@@ -27,925 +240,442 @@ st.set_page_config(
 # PATHS
 # ============================================================
 
-DATA_DIR = Path("data")
-MODEL_DIR = Path("models")
-OUTPUT_DIR = Path("outputs")
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+OUTPUT_DIR = BASE_DIR / "outputs"
+MODELS_DIR = BASE_DIR / "models"
 
-AUTH_LOG = Path("/var/log/auth.log")
+DEMO_DIR = Path.home() / "Projects" / "finalproject" / "demo_sensitive"
 
 
 # ============================================================
-# CUSTOM CSS
+# HELPERS
 # ============================================================
 
-st.markdown(
-"""
-<style>
+def load_csv(filename):
 
-/* =========================================================
-   GLOBAL
-   ========================================================= */
+    path = OUTPUT_DIR / filename
 
-.stApp {
-    background:
-        radial-gradient(
-            circle at 10% 0%,
-            rgba(80, 100, 255, 0.12),
-            transparent 30%
-        ),
-        radial-gradient(
-            circle at 90% 10%,
-            rgba(0, 220, 180, 0.08),
-            transparent 30%
-        ),
-        #070b14;
+    if not path.exists():
+        return None
 
-    color: #f5f7fb;
-}
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return None
 
 
-/* =========================================================
-   HERO
-   ========================================================= */
+def first_existing_column(df, names):
 
-.hero {
-    padding: 34px;
-    margin-bottom: 24px;
+    if df is None:
+        return None
 
-    border-radius: 20px;
+    for name in names:
+        if name in df.columns:
+            return name
 
-    background:
-        linear-gradient(
-            135deg,
-            rgba(27, 37, 70, 0.96),
-            rgba(10, 15, 28, 0.98)
-        );
-
-    border: 1px solid rgba(
-        255,
-        255,
-        255,
-        0.08
-    );
-
-    box-shadow:
-        0 20px 60px rgba(
-            0,
-            0,
-            0,
-            0.35
-        );
-}
-
-.hero-title {
-    font-size: 38px;
-    font-weight: 800;
-    line-height: 1.1;
-    letter-spacing: -1px;
-}
-
-.hero-subtitle {
-    margin-top: 10px;
-    font-size: 15px;
-    color: #9da7bd;
-}
+    return None
 
 
-/* =========================================================
-   METRIC CARDS
-   ========================================================= */
+def metric_value(df, model, possible_names):
 
-.metric-card {
-    padding: 20px;
-    min-height: 118px;
+    if df is None or df.empty:
+        return None
 
-    border-radius: 16px;
+    model_col = first_existing_column(
+        df,
+        [
+            "model",
+            "Model",
+            "algorithm",
+            "Algorithm",
+        ],
+    )
 
-    background:
-        linear-gradient(
-            145deg,
-            rgba(25, 32, 52, 0.96),
-            rgba(11, 16, 29, 0.96)
-        );
+    if model_col is None:
+        return None
 
-    border: 1px solid rgba(
-        255,
-        255,
-        255,
-        0.07
-    );
+    rows = df[
+        df[model_col]
+        .astype(str)
+        .str.lower()
+        .str.contains(
+            model.lower(),
+            regex=False,
+        )
+    ]
 
-    box-shadow:
-        0 10px 30px rgba(
-            0,
-            0,
-            0,
-            0.25
-        );
-}
+    if rows.empty:
+        return None
 
-.metric-label {
-    color: #8e99b0;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
+    for col in possible_names:
 
-.metric-value {
-    margin-top: 7px;
-    font-size: 28px;
-    font-weight: 800;
-}
+        if col in rows.columns:
 
-.metric-description {
-    margin-top: 4px;
-    color: #778197;
-    font-size: 11px;
-}
+            value = rows.iloc[0][col]
+
+            try:
+                value = float(value)
+
+                if value <= 1:
+                    value *= 100
+
+                return value
+
+            except Exception:
+                return value
+
+    return None
 
 
-/* =========================================================
-   SECTION TITLES
-   ========================================================= */
+def confusion_values(df, model):
 
-.section-title {
-    margin-top: 20px;
-    margin-bottom: 4px;
-    font-size: 25px;
-    font-weight: 750;
-}
+    if df is None or df.empty:
+        return None
 
-.section-description {
-    margin-bottom: 16px;
-    color: #8b95aa;
-    font-size: 14px;
-}
+    model_col = first_existing_column(
+        df,
+        [
+            "model",
+            "Model",
+            "algorithm",
+            "Algorithm",
+        ],
+    )
 
+    if model_col is None:
+        return None
 
-/* =========================================================
-   LIVE PANEL
-   ========================================================= */
+    rows = df[
+        df[model_col]
+        .astype(str)
+        .str.lower()
+        .str.contains(
+            model.lower(),
+            regex=False,
+        )
+    ]
 
-.live-panel {
-    padding: 20px;
+    if rows.empty:
+        return None
 
-    border-radius: 18px;
+    row = rows.iloc[0]
 
-    background:
-        linear-gradient(
-            135deg,
-            rgba(15, 25, 40, 0.98),
-            rgba(8, 12, 22, 0.98)
-        );
+    def get(names):
 
-    border: 1px solid rgba(
-        0,
-        220,
-        180,
-        0.15
-    );
-}
+        for name in names:
+            if name in row.index:
 
+                try:
+                    return int(float(row[name]))
+                except Exception:
+                    return None
 
-/* =========================================================
-   BUTTONS
-   ========================================================= */
+        return None
 
-.stButton > button {
-    border-radius: 10px;
+    tp = get(["TP", "tp", "true_positive", "true_positives"])
+    tn = get(["TN", "tn", "true_negative", "true_negatives"])
+    fp = get(["FP", "fp", "false_positive", "false_positives"])
+    fn = get(["FN", "fn", "false_negative", "false_negatives"])
 
-    border: 1px solid rgba(
-        255,
-        255,
-        255,
-        0.10
-    );
+    if all(
+        value is not None
+        for value in [tp, tn, fp, fn]
+    ):
+        return tp, tn, fp, fn
 
-    font-weight: 650;
-
-    transition:
-        transform 0.2s ease,
-        box-shadow 0.2s ease;
-}
-
-.stButton > button:hover {
-    transform: translateY(-2px);
-
-    box-shadow:
-        0 8px 25px rgba(
-            0,
-            0,
-            0,
-            0.25
-        );
-}
+    return None
 
 
-/* =========================================================
-   TABS
-   ========================================================= */
+def show_metric_card(
+    label,
+    value,
+    description="",
+    is_percent=False,
+):
 
-.stTabs [data-baseweb="tab"] {
-    font-weight: 650;
-}
+    if value is None:
+        display = "N/A"
+    elif isinstance(value, str):
+        display = value
+    elif is_percent:
+        display = f"{float(value):.2f}%"
+    elif isinstance(value, (int, np.integer)):
+        display = f"{int(value):,}"
+    else:
+        display = f"{float(value):,.2f}"
+
+    st.html(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value">{display}</div>
+            <div class="metric-help">{description}</div>
+        </div>
+        """
+    )
 
 
-/* =========================================================
-   DATAFRAME
-   ========================================================= */
+def section_title(title, subtitle=""):
 
-[data-testid="stDataFrame"] {
-    border-radius: 14px;
-    overflow: hidden;
-}
+    st.html(
+        f"""
+        <div class="section-title">{title}</div>
+        <div class="section-subtitle">{subtitle}</div>
+        """
+    )
 
-</style>
-""",
-unsafe_allow_html=True,
-)
+
+def safe_number(value):
+
+    try:
+        return int(value)
+    except Exception:
+        return None
 
 
 # ============================================================
 # HERO
 # ============================================================
 
-st.markdown(
-"""
+st.html(
+    """
 <div class="hero">
-<div class="hero-title">Identity Anomaly Detection</div>
-<div class="hero-subtitle">Multi-source authentication analytics, behavioral anomaly detection and live SSH monitoring.</div>
+
+    <div class="hero-title">
+        Identity Anomaly Detection
+    </div>
+
+    <div class="hero-subtitle">
+        Multi-source authentication analytics,
+        behavioral anomaly detection and
+        live SSH monitoring.
+    </div>
+
 </div>
-""",
-unsafe_allow_html=True,
+"""
 )
 
 
 # ============================================================
-# HELPER FUNCTIONS
+# LOAD OUTPUTS
 # ============================================================
 
-def metric_card(label, value, description=""):
-
-    html = f"""
-<div class="metric-card">
-<div class="metric-label">{label}</div>
-<div class="metric-value">{value}</div>
-<div class="metric-description">{description}</div>
-</div>
-"""
-
-    st.markdown(
-        html,
-        unsafe_allow_html=True,
-    )
-
-
-def section_title(title, description=""):
-
-    html = f"""
-<div class="section-title">{title}</div>
-<div class="section-description">{description}</div>
-"""
-
-    st.markdown(
-        html,
-        unsafe_allow_html=True,
-    )
-
-
-# ============================================================
-# LOAD CSV
-# ============================================================
-
-@st.cache_data(ttl=5)
-def load_csv(filename):
-
-    path = OUTPUT_DIR / filename
-
-    if not path.exists():
-        return pd.DataFrame()
-
-    try:
-        return pd.read_csv(path)
-    except Exception:
-        return pd.DataFrame()
-
-
-evaluation = load_csv(
-    "model_evaluation.csv"
-)
-
-normalized = load_csv(
+normalized_df = load_csv(
     "normalized_authentication_events.csv"
 )
 
-features = load_csv(
+features_df = load_csv(
     "authentication_features.csv"
 )
 
-risk_data = load_csv(
+evaluation_df = load_csv(
+    "model_evaluation.csv"
+)
+
+risk_df = load_csv(
     "test_risk_scores.csv"
 )
 
 
 # ============================================================
-# LOAD BEST MODEL
+# OVERVIEW METRICS
 # ============================================================
 
-def load_best_model():
+section_title(
+    "System Overview",
+    "Current authentication and anomaly-detection statistics.",
+)
 
-    best_file = MODEL_DIR / "best_model.txt"
+total_events = (
+    len(normalized_df)
+    if normalized_df is not None
+    else 0
+)
 
-    if not best_file.exists():
-        return None, "N/A"
+total_anomalies = None
 
-    name = (
-        best_file
-        .read_text()
-        .strip()
+if evaluation_df is not None and not evaluation_df.empty:
+
+    model_col = first_existing_column(
+        evaluation_df,
+        [
+            "model",
+            "Model",
+            "algorithm",
+            "Algorithm",
+        ],
     )
 
-    model_files = {
-        "IsolationForest":
-            "isolation_forest.joblib",
-
-        "OneClassSVM":
-            "one_class_svm.joblib",
-
-        "LOF":
-            "local_outlier_factor.joblib",
-
-        "EllipticEnvelope":
-            "elliptic_envelope.joblib",
-    }
-
-    if name not in model_files:
-        return None, name
-
-    path = (
-        MODEL_DIR /
-        model_files[name]
+    f1_col = first_existing_column(
+        evaluation_df,
+        [
+            "f1_score",
+            "F1 Score",
+            "f1",
+            "F1",
+        ],
     )
 
-    if not path.exists():
-        return None, name
+    if model_col and f1_col:
 
-    try:
-        return joblib.load(path), name
-    except Exception:
-        return None, name
+        temp = evaluation_df.copy()
 
+        temp["_f1"] = pd.to_numeric(
+            temp[f1_col],
+            errors="coerce",
+        )
 
-best_model, best_model_name = load_best_model()
+        temp = temp.dropna(
+            subset=["_f1"]
+        )
 
+        if not temp.empty:
 
-# ============================================================
-# TOP STATISTICS
-# ============================================================
+            selected_model = str(
+                temp.loc[
+                    temp["_f1"].idxmax(),
+                    model_col,
+                ]
+            )
 
-total_events = len(normalized)
+            confusion = confusion_values(
+                evaluation_df,
+                selected_model,
+            )
 
-anomalies = 0
-high_risk = 0
+            if confusion:
 
-if not risk_data.empty:
+                tp, tn, fp, fn = confusion
+                total_anomalies = tp + fn
 
-    if "risk_level" in risk_data.columns:
+if total_anomalies is None and risk_df is not None and not risk_df.empty:
 
-        anomalies = int(
+    prediction_col = first_existing_column(
+        risk_df,
+        [
+            "prediction",
+            "Prediction",
+            "anomaly",
+            "is_anomaly",
+            "label",
+        ],
+    )
+
+    if prediction_col:
+
+        values = risk_df[prediction_col]
+
+        total_anomalies = int(
             (
-                risk_data["risk_level"]
-                != "LOW"
+                pd.to_numeric(
+                    values,
+                    errors="coerce",
+                )
+                == -1
             ).sum()
         )
 
-        high_risk = int(
-            (
-                risk_data["risk_level"]
-                == "HIGH"
-            ).sum()
-        )
+        if total_anomalies == 0:
+
+            total_anomalies = int(
+                (
+                    values.astype(str)
+                    .str.lower()
+                    .isin(
+                        [
+                            "anomaly",
+                            "true",
+                            "1",
+                            "attack",
+                        ]
+                    )
+                ).sum()
+            )
 
 
-best_f1 = 0.0
+best_model = "Not available"
 
-if not evaluation.empty:
+if evaluation_df is not None and not evaluation_df.empty:
 
-    best_f1 = float(
-        evaluation.iloc[0]["f1_score"]
+    model_col = first_existing_column(
+        evaluation_df,
+        [
+            "model",
+            "Model",
+            "algorithm",
+            "Algorithm",
+        ],
     )
 
+    f1_col = first_existing_column(
+        evaluation_df,
+        [
+            "f1_score",
+            "F1 Score",
+            "f1",
+            "F1",
+        ],
+    )
 
-# ============================================================
-# TOP METRICS
-# ============================================================
+    if model_col and f1_col:
+
+        temp = evaluation_df.copy()
+
+        temp["_f1"] = pd.to_numeric(
+            temp[f1_col],
+            errors="coerce",
+        )
+
+        if temp["_f1"].max() <= 1:
+            temp["_f1"] *= 100
+
+        temp = temp.dropna(
+            subset=["_f1"]
+        )
+
+        if not temp.empty:
+
+            best_model = str(
+                temp.loc[
+                    temp["_f1"].idxmax(),
+                    model_col,
+                ]
+            )
+
 
 c1, c2, c3, c4 = st.columns(4)
 
 with c1:
-    metric_card(
+    show_metric_card(
         "Total Events",
-        f"{total_events:,}",
+        total_events,
         "Normalized authentication events",
     )
 
 with c2:
-    metric_card(
-        "Anomalies",
-        f"{anomalies:,}",
-        "Medium + high risk events",
+    show_metric_card(
+        "Total Anomalies",
+        total_anomalies,
+        "Actual anomalies in the evaluated test set",
     )
 
 with c3:
-    metric_card(
-        "High Risk",
-        f"{high_risk:,}",
-        "Events requiring attention",
+    show_metric_card(
+        "Models Evaluated",
+        (
+            len(evaluation_df)
+            if evaluation_df is not None
+            else 0
+        ),
+        "Unsupervised ML models",
     )
 
 with c4:
-    metric_card(
+    show_metric_card(
         "Best Model",
-        best_model_name,
-        f"F1 Score: {best_f1:.4f}",
-    )
-
-
-# ============================================================
-# LIVE SSH MONITOR
-# ============================================================
-
-st.divider()
-
-section_title(
-    "Live SSH Monitor",
-    "Monitor authentication events from the local Linux SSH service.",
-)
-
-
-# ============================================================
-# SSH PARSER
-# ============================================================
-
-SSH_HEADER = re.compile(
-    r"^(?P<ts>\S+)"
-    r"\s+(?P<host>\S+)"
-    r"\s+sshd(?:-session)?\[\d+\]:\s+"
-    r"(?P<msg>.*)$"
-)
-
-SSH_AUTH = re.compile(
-    r"^(?P<action>Accepted|Failed)\s+"
-    r"(?P<method>\S+)"
-    r"(?:\s+password)?\s+for\s+"
-    r"(?:(?:invalid user)\s+)?"
-    r"(?P<user>\S+)\s+from\s+"
-    r"(?P<ip>[0-9a-fA-F:.]+)\s+port\s+\d+"
-)
-
-
-def parse_ssh_line(line):
-
-    match = SSH_HEADER.match(
-        line.strip()
-    )
-
-    if not match:
-        return None
-
-    auth = SSH_AUTH.match(
-        match.group("msg")
-    )
-
-    if not auth:
-        return None
-
-    try:
-
-        timestamp = pd.to_datetime(
-            match.group("ts"),
-            utc=True,
-        )
-
-    except Exception:
-
-        return None
-
-    return {
-        "timestamp": timestamp,
-        "user_id": auth.group("user"),
-        "source_ip": auth.group("ip"),
-        "success": (
-            auth.group("action")
-            == "Accepted"
-        ),
-    }
-
-
-# ============================================================
-# SESSION STATE
-# ============================================================
-
-if "ssh_history" not in st.session_state:
-
-    st.session_state.ssh_history = defaultdict(
-        lambda: deque(maxlen=100)
-    )
-
-
-if "processed_ssh_events" not in st.session_state:
-
-    st.session_state.processed_ssh_events = set()
-
-
-if "live_results" not in st.session_state:
-
-    st.session_state.live_results = []
-
-
-# ============================================================
-# LIVE FEATURES
-# ============================================================
-
-def create_live_features(event):
-
-    user = event["user_id"]
-
-    timestamp = event["timestamp"]
-
-    history = (
-        st.session_state
-        .ssh_history[user]
-    )
-
-    hour = timestamp.hour
-
-    is_night = int(
-        hour < 6
-        or hour >= 22
-    )
-
-    is_weekend = int(
-        timestamp.weekday() >= 5
-    )
-
-    failed_before = sum(
-        1
-        for item in list(history)[-10:]
-        if not item["success"]
-    )
-
-    rapid_logins = sum(
-        1
-        for item in history
-        if (
-            timestamp
-            - item["timestamp"]
-        ).total_seconds()
-        <= 3600
-    ) + 1
-
-    today = timestamp.date()
-
-    daily_count = sum(
-        1
-        for item in history
-        if item["timestamp"].date()
-        == today
-    ) + 1
-
-    return np.array(
-        [[
-            hour,
-            is_night,
-            is_weekend,
-            0,
-            0,
-            failed_before,
-            rapid_logins,
-            daily_count,
-        ]],
-        dtype=float,
-    )
-
-
-# ============================================================
-# RISK CALCULATION
-# ============================================================
-
-def calculate_risk(model, X):
-
-    prediction = model.predict(X)[0]
-
-    decision = model.decision_function(X)[0]
-
-    risk = (
-        100
-        /
-        (
-            1
-            +
-            np.exp(
-                np.clip(
-                    decision * 5,
-                    -50,
-                    50,
-                )
-            )
-        )
-    )
-
-    risk = float(
-        np.clip(
-            risk,
-            0,
-            100,
-        )
-    )
-
-    if risk >= 75:
-        level = "HIGH"
-
-    elif risk >= 50:
-        level = "MEDIUM"
-
-    else:
-        level = "LOW"
-
-    return (
-        prediction == -1,
-        risk,
-        level,
-    )
-
-
-# ============================================================
-# READ LIVE SSH LOG
-# ============================================================
-
-def get_live_events():
-
-    if not AUTH_LOG.exists():
-        return []
-
-    try:
-
-        result = subprocess.run(
-            [
-                "sudo",
-                "-n",
-                "tail",
-                "-n",
-                "100",
-                str(AUTH_LOG),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-
-        if result.returncode != 0:
-            return []
-
-        events = []
-
-        for line in result.stdout.splitlines():
-
-            event = parse_ssh_line(line)
-
-            if event:
-                events.append(event)
-
-        return events
-
-    except Exception:
-
-        return []
-
-
-# ============================================================
-# PROCESS LIVE EVENTS
-# ============================================================
-
-if best_model is not None:
-
-    events = get_live_events()
-
-    for event in events:
-
-        event_id = (
-            str(event["timestamp"])
-            + "|"
-            + event["user_id"]
-            + "|"
-            + event["source_ip"]
-            + "|"
-            + str(event["success"])
-        )
-
-        if event_id in st.session_state.processed_ssh_events:
-            continue
-
-        st.session_state.processed_ssh_events.add(
-            event_id
-        )
-
-        X = create_live_features(event)
-
-        anomaly, risk, level = calculate_risk(
-            best_model,
-            X,
-        )
-
-        result = {
-            **event,
-            "anomaly": anomaly,
-            "risk_score": risk,
-            "risk_level": level,
-            "failed_before_success":
-                int(X[0][5]),
-            "rapid_login_rate":
-                int(X[0][6]),
-            "login_frequency_today":
-                int(X[0][7]),
-        }
-
-        st.session_state.live_results.append(
-            result
-        )
-
-        st.session_state.ssh_history[
-            event["user_id"]
-        ].append(event)
-
-
-# ============================================================
-# LIVE CONTROLS
-# ============================================================
-
-control1, control2, control3 = st.columns(3)
-
-with control1:
-
-    if st.button(
-        "Trigger Failed SSH Attempt",
-        use_container_width=True,
-    ):
-
-        demo_user = (
-            "demo_attack_"
-            + str(int(time.time()))
-        )
-
-        try:
-
-            subprocess.run(
-                [
-                    "ssh",
-                    "-o",
-                    "BatchMode=yes",
-                    "-o",
-                    "PreferredAuthentications=password",
-                    "-o",
-                    "PubkeyAuthentication=no",
-                    f"{demo_user}@localhost",
-                    "exit",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-
-            st.success(
-                "SSH authentication event generated."
-            )
-
-            time.sleep(1)
-
-            st.rerun()
-
-        except Exception as e:
-
-            st.error(str(e))
-
-
-with control2:
-
-    if st.button(
-        "Refresh Live Monitor",
-        use_container_width=True,
-    ):
-
-        st.rerun()
-
-
-with control3:
-
-    if st.button(
-        "Clear Live Session",
-        use_container_width=True,
-    ):
-
-        st.session_state.live_results = []
-
-        st.session_state.ssh_history = defaultdict(
-            lambda: deque(maxlen=100)
-        )
-
-        st.session_state.processed_ssh_events = set()
-
-        st.rerun()
-
-
-# ============================================================
-# LIVE TABLE
-# ============================================================
-
-live_results = st.session_state.live_results
-
-if live_results:
-
-    live_df = pd.DataFrame(live_results)
-
-    columns = [
-        "timestamp",
-        "user_id",
-        "source_ip",
-        "success",
-        "anomaly",
-        "risk_score",
-        "risk_level",
-    ]
-
-    st.dataframe(
-        live_df[columns]
-        .sort_values(
-            "timestamp",
-            ascending=False,
-        )
-        .head(20),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    latest = live_results[-1]
-
-    if latest["risk_level"] == "HIGH":
-
-        st.error(
-            f"HIGH RISK — "
-            f"{latest['user_id']} "
-            f"from {latest['source_ip']} "
-            f"— Risk "
-            f"{latest['risk_score']:.1f}/100"
-        )
-
-    elif latest["risk_level"] == "MEDIUM":
-
-        st.warning(
-            f"MEDIUM RISK — "
-            f"Risk {latest['risk_score']:.1f}/100"
-        )
-
-    else:
-
-        st.success(
-            f"Normal SSH activity — "
-            f"Risk {latest['risk_score']:.1f}/100"
-        )
-
-    a, b, c = st.columns(3)
-
-    with a:
-
-        metric_card(
-            "Failed Before",
-            latest["failed_before_success"],
-            "Previous failed attempts",
-        )
-
-    with b:
-
-        metric_card(
-            "Rapid Logins",
-            latest["rapid_login_rate"],
-            "Events within one hour",
-        )
-
-    with c:
-
-        metric_card(
-            "Daily Frequency",
-            latest["login_frequency_today"],
-            "User events today",
-        )
-
-else:
-
-    st.info(
-        "Waiting for SSH authentication events. "
-        "Use the trigger button or connect through SSH."
+        best_model,
+        "Highest F1 score",
     )
 
 
@@ -953,261 +683,117 @@ else:
 # DATA UNDERSTANDING
 # ============================================================
 
-st.divider()
-
 section_title(
     "Data Understanding",
-    "Understand the transformation from raw authentication logs to ML-ready data.",
+    "See how heterogeneous raw authentication logs become ML-ready data.",
 )
 
-raw_tab, parsed_tab, feature_tab = st.tabs(
+data_tab1, data_tab2, data_tab3 = st.tabs(
     [
-        "Original Raw Data",
-        "Parsed / Normalized Data",
-        "ML Features",
+        "Normalized Events",
+        "Feature Dataset",
+        "Dataset Summary",
     ]
 )
 
 
-# ============================================================
-# RAW DATA
-# ============================================================
+with data_tab1:
 
-with raw_tab:
+    if normalized_df is not None:
 
-    raw_files = {
-
-        "SSH":
-            DATA_DIR / "ssh_auth.log",
-
-        "Windows AD":
-            DATA_DIR /
-            "windows_security_events.xml",
-
-        "VPN":
-            DATA_DIR / "vpn_auth.log",
-
-        "AWS":
-            DATA_DIR /
-            "aws_cloudtrail_console_login.json",
-
-        "M365":
-            DATA_DIR /
-            "entra_signin_logs.json",
-
-        "MySQL":
-            DATA_DIR /
-            "mysql_audit_logs.json",
-
-        "Web":
-            DATA_DIR /
-            "web_authentication.jsonl",
-    }
-
-    selected_source = st.selectbox(
-        "Authentication source",
-        list(raw_files.keys()),
-    )
-
-    path = raw_files[selected_source]
-
-    st.markdown(
-        f"#### Original {selected_source} log"
-    )
-
-    if path.exists():
-
-        try:
-
-            with path.open(
-                encoding="utf-8",
-                errors="replace",
-            ) as f:
-
-                lines = []
-
-                for _ in range(8):
-
-                    line = f.readline()
-
-                    if not line:
-                        break
-
-                    lines.append(
-                        line.rstrip()
-                    )
-
-            st.code(
-                "\n".join(lines),
-                language="text",
-            )
-
-        except Exception as e:
-
-            st.error(str(e))
-
-    else:
-
-        st.warning(
-            f"{path} not found."
-        )
-
-    st.info(
-        "Each authentication source has a different "
-        "raw format. The corresponding parser extracts "
-        "the useful attributes before normalization."
-    )
-
-
-# ============================================================
-# PARSED DATA
-# ============================================================
-
-with parsed_tab:
-
-    if normalized.empty:
-
-        st.warning(
-            "Run train.py first."
-        )
-
-    else:
-
-        st.markdown(
-            "#### Common normalized authentication schema"
+        st.write(
+            f"Normalized dataset: "
+            f"**{len(normalized_df):,} events**"
         )
 
         st.dataframe(
-            normalized.head(100),
-            use_container_width=True,
+            normalized_df.head(100),
             hide_index=True,
         )
 
-        st.markdown(
-            """
-**Transformation**
-
-`Raw Source → Source Parser → Common Schema`
-
-The seven different authentication sources are converted
-into one consistent representation before feature engineering.
-"""
+        st.caption(
+            "Each source-specific parser converts its original "
+            "format into a common authentication schema."
         )
 
-        col1, col2 = st.columns(2)
+    else:
 
-        with col1:
+        st.warning(
+            "normalized_authentication_events.csv not found."
+        )
+
+
+with data_tab2:
+
+    if features_df is not None:
+
+        st.write(
+            f"Feature dataset: "
+            f"**{len(features_df):,} rows × "
+            f"{len(features_df.columns)} columns**"
+        )
+
+        st.dataframe(
+            features_df.head(100),
+            hide_index=True,
+        )
+
+        st.caption(
+            "Behavioral features are used as input to the "
+            "anomaly-detection models."
+        )
+
+    else:
+
+        st.warning(
+            "authentication_features.csv not found."
+        )
+
+
+with data_tab3:
+
+    if normalized_df is not None:
+
+        source_col = first_existing_column(
+            normalized_df,
+            [
+                "source",
+                "source_type",
+                "log_type",
+                "dataset",
+            ],
+        )
+
+        if source_col:
 
             source_counts = (
-                normalized["source"]
+                normalized_df[
+                    source_col
+                ]
                 .value_counts()
                 .reset_index()
             )
 
             source_counts.columns = [
-                "source",
-                "events",
+                "Source",
+                "Events",
             ]
 
-            fig = px.bar(
+            st.dataframe(
                 source_counts,
-                x="source",
-                y="events",
-                title="Events by Source",
-                text_auto=True,
+                hide_index=True,
             )
 
-            fig.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
+        else:
+
+            st.info(
+                "Source column was not found."
             )
-
-            st.plotly_chart(
-                fig,
-                use_container_width=True,
-            )
-
-        with col2:
-
-            success_counts = (
-                normalized["success"]
-                .value_counts()
-                .reset_index()
-            )
-
-            success_counts.columns = [
-                "result",
-                "events",
-            ]
-
-            success_counts["result"] = (
-                success_counts["result"]
-                .map(
-                    {
-                        True: "Success",
-                        False: "Failed",
-                    }
-                )
-            )
-
-            fig = px.pie(
-                success_counts,
-                names="result",
-                values="events",
-                title="Authentication Results",
-                hole=0.55,
-            )
-
-            fig.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)",
-            )
-
-            st.plotly_chart(
-                fig,
-                use_container_width=True,
-            )
-
-
-# ============================================================
-# FEATURES
-# ============================================================
-
-with feature_tab:
-
-    if features.empty:
-
-        st.warning(
-            "Run train.py first."
-        )
 
     else:
 
-        feature_columns = [
-            "hour",
-            "is_night",
-            "is_weekend",
-            "country_change",
-            "device_change",
-            "failed_before_success",
-            "rapid_login_rate",
-            "login_frequency_today",
-        ]
-
-        st.markdown(
-            "#### Behavioral features"
-        )
-
-        st.dataframe(
-            features[feature_columns].head(100),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.info(
-            "These numerical behavioral signals are "
-            "the inputs given to the anomaly-detection models."
+        st.warning(
+            "No normalized dataset available."
         )
 
 
@@ -1215,191 +801,832 @@ with feature_tab:
 # MODEL PERFORMANCE
 # ============================================================
 
-st.divider()
-
 section_title(
     "Model Performance",
-    "Comparison of all four anomaly-detection models.",
+    "Each anomaly-detection model is evaluated independently.",
 )
 
-if evaluation.empty:
 
-    st.warning(
-        "Model evaluation data not found. Run train.py first."
+MODELS = {
+    "Isolation Forest": [
+        "IsolationForest",
+        "Isolation Forest",
+    ],
+    "One-Class SVM": [
+        "OneClassSVM",
+        "One-Class SVM",
+    ],
+    "Local Outlier Factor": [
+        "LocalOutlierFactor",
+        "Local Outlier Factor",
+        "LOF",
+    ],
+    "Elliptic Envelope": [
+        "EllipticEnvelope",
+        "Elliptic Envelope",
+    ],
+}
+
+
+def find_model_name(options):
+
+    if evaluation_df is None:
+        return options[0]
+
+    model_col = first_existing_column(
+        evaluation_df,
+        [
+            "model",
+            "Model",
+            "algorithm",
+            "Algorithm",
+        ],
     )
 
-else:
+    if model_col is None:
+        return options[0]
 
-    metrics = [
-        "accuracy",
-        "precision",
-        "recall",
-        "f1_score",
-        "roc_auc",
-    ]
+    available = (
+        evaluation_df[model_col]
+        .astype(str)
+        .tolist()
+    )
 
-    display = evaluation.copy()
+    for option in options:
 
-    for column in metrics:
+        for actual in available:
 
-        display[column] = (
-            display[column] * 100
-        ).round(2)
+            if option.lower() in actual.lower():
+
+                return actual
+
+    return options[0]
+
+
+model_tabs = st.tabs(
+    list(MODELS.keys())
+)
+
+
+for tab, (display_name, options) in zip(
+    model_tabs,
+    MODELS.items(),
+):
+
+    with tab:
+
+        actual_model = find_model_name(
+            options
+        )
+
+        st.html(
+            f"""
+            <div class="model-header">
+
+                <h2 style="margin:0;">
+                    {display_name}
+                </h2>
+
+                <div style="
+                    color:#8f99ae;
+                    margin-top:5px;
+                ">
+                    Independent anomaly detection evaluation
+                </div>
+
+            </div>
+            """
+        )
+
+        # ----------------------------------------------------
+        # METRICS
+        # ----------------------------------------------------
+
+        accuracy = metric_value(
+            evaluation_df,
+            actual_model,
+            [
+                "accuracy",
+                "Accuracy",
+                "accuracy_score",
+            ],
+        )
+
+        precision = metric_value(
+            evaluation_df,
+            actual_model,
+            [
+                "precision",
+                "Precision",
+                "precision_score",
+            ],
+        )
+
+        recall = metric_value(
+            evaluation_df,
+            actual_model,
+            [
+                "recall",
+                "Recall",
+                "recall_score",
+            ],
+        )
+
+        f1 = metric_value(
+            evaluation_df,
+            actual_model,
+            [
+                "f1_score",
+                "F1 Score",
+                "f1",
+                "F1",
+            ],
+        )
+
+        roc_auc = metric_value(
+            evaluation_df,
+            actual_model,
+            [
+                "roc_auc",
+                "ROC-AUC",
+                "roc_auc_score",
+                "AUC",
+            ],
+        )
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+
+        with m1:
+            show_metric_card(
+                "Accuracy",
+                accuracy,
+                "Overall correct predictions",
+                is_percent=True,
+            )
+
+        with m2:
+            show_metric_card(
+                "Precision",
+                precision,
+                "Trustworthiness of alerts",
+                is_percent=True,
+            )
+
+        with m3:
+            show_metric_card(
+                "Recall",
+                recall,
+                "Anomalies successfully detected",
+                is_percent=True,
+            )
+
+        with m4:
+            show_metric_card(
+                "F1 Score",
+                f1,
+                "Precision / recall balance",
+                is_percent=True,
+            )
+
+        with m5:
+            show_metric_card(
+                "ROC-AUC",
+                roc_auc,
+                "Anomaly separation ability",
+                is_percent=True,
+            )
+
+        # ----------------------------------------------------
+        # CONFUSION MATRIX
+        # ----------------------------------------------------
+
+        st.markdown(
+            "### Confusion Matrix"
+        )
+
+        confusion = confusion_values(
+            evaluation_df,
+            actual_model,
+        )
+
+        if confusion:
+
+            tp, tn, fp, fn = confusion
+
+            matrix = pd.DataFrame(
+                [
+                    [tn, fp],
+                    [fn, tp],
+                ],
+                index=[
+                    "Actually Normal",
+                    "Actually Anomaly",
+                ],
+                columns=[
+                    "Predicted Normal",
+                    "Predicted Anomaly",
+                ],
+            )
+
+            st.dataframe(
+                matrix,
+            )
+
+            cm1, cm2, cm3, cm4 = st.columns(4)
+
+            with cm1:
+                show_metric_card(
+                    "True Negative",
+                    tn,
+                    "Normal → Normal",
+                )
+
+            with cm2:
+                show_metric_card(
+                    "False Positive",
+                    fp,
+                    "Normal → Anomaly",
+                )
+
+            with cm3:
+                show_metric_card(
+                    "False Negative",
+                    fn,
+                    "Anomaly → Normal",
+                )
+
+            with cm4:
+                show_metric_card(
+                    "True Positive",
+                    tp,
+                    "Anomaly → Anomaly",
+                )
+
+        else:
+
+            st.info(
+                "TP/TN/FP/FN are not currently stored "
+                "in model_evaluation.csv."
+            )
+
+            st.caption(
+                "The metric values above are still displayed "
+                "from the saved evaluation results."
+            )
+
+        # ----------------------------------------------------
+        # HOW METRICS ARE CALCULATED
+        # ----------------------------------------------------
+
+        with st.expander(
+            "How were these metrics calculated?"
+        ):
+
+            st.markdown(
+                """
+### Accuracy
+
+Measures the percentage of all predictions that were correct.
+
+`Accuracy = (TP + TN) / (TP + TN + FP + FN)`
+
+---
+
+### Precision
+
+Measures how many events flagged as anomalies were actually anomalies.
+
+`Precision = TP / (TP + FP)`
+
+High precision means fewer false alarms.
+
+---
+
+### Recall
+
+Measures how many actual anomalies were successfully detected.
+
+`Recall = TP / (TP + FN)`
+
+High recall means fewer attacks are missed.
+
+---
+
+### F1 Score
+
+Combines precision and recall using their harmonic mean.
+
+`F1 = 2 × (Precision × Recall) / (Precision + Recall)`
+
+We use F1 as the primary metric for selecting the best model because
+both missed anomalies and false alarms matter.
+
+---
+
+### ROC-AUC
+
+Measures how well the model separates anomalous events from normal
+events across different decision thresholds.
+
+Values closer to `1.0` indicate better separation.
+"""
+            )
+
+        # ----------------------------------------------------
+        # MODEL INTERPRETATION
+        # ----------------------------------------------------
+
+        with st.expander(
+            "How does this model work?"
+        ):
+
+            if display_name == "Isolation Forest":
+
+                st.write(
+                    """
+                    Isolation Forest isolates unusual observations by
+                    randomly selecting features and split points.
+
+                    Anomalies generally require fewer random splits to
+                    isolate than normal observations.
+
+                    Therefore, unusual authentication behavior tends
+                    to receive a stronger anomaly score.
+                    """
+                )
+
+            elif display_name == "One-Class SVM":
+
+                st.write(
+                    """
+                    One-Class SVM learns a boundary around the normal
+                    training data.
+
+                    Events falling outside that learned boundary are
+                    considered potential anomalies.
+                    """
+                )
+
+            elif display_name == "Local Outlier Factor":
+
+                st.write(
+                    """
+                    Local Outlier Factor compares the local density of
+                    an observation with the density around its neighbors.
+
+                    An event that is significantly less dense than its
+                    neighbors can be classified as an outlier.
+                    """
+                )
+
+            else:
+
+                st.write(
+                    """
+                    Elliptic Envelope estimates the central distribution
+                    of the training data and identifies observations
+                    that fall far outside that distribution.
+
+                    It is useful when normal observations approximately
+                    follow an elliptical distribution.
+                    """
+                )
+
+
+# ============================================================
+# BEST MODEL
+# ============================================================
+
+if best_model != "Not available":
+
+    st.html(
+        f"""
+        <div class="best-model">
+
+            <b>Selected Model:</b>
+            {best_model}
+
+            <br>
+
+            <span style="color:#8f99ae;">
+                Selected using the highest available F1 score.
+            </span>
+
+        </div>
+        """
+    )
+
+
+# ============================================================
+# LIVE SSH MONITOR
+# ============================================================
+
+section_title(
+    "Live SSH Monitor",
+    "Monitor authentication events from the local SSH service.",
+)
+
+ssh_col1, ssh_col2 = st.columns([3, 1])
+
+with ssh_col1:
+
+    st.html(
+        """
+        <span class="status-live">
+            LIVE MONITOR
+        </span>
+        """
+    )
+
+with ssh_col2:
+
+    auto_refresh = st.checkbox(
+        "Auto refresh",
+        value=False,
+    )
+
+
+# ------------------------------------------------------------
+# SSH LOG READER
+# ------------------------------------------------------------
+
+def read_ssh_events():
+
+    events = []
+
+    try:
+
+        result = subprocess.run(
+            [
+                "sudo",
+                "journalctl",
+                "-u",
+                "ssh",
+                "-n",
+                "100",
+                "--no-pager",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        if result.returncode != 0:
+            return events
+
+        for line in result.stdout.splitlines():
+
+            if not any(
+                keyword in line
+                for keyword in [
+                    "Accepted password",
+                    "Accepted publickey",
+                    "Failed password",
+                    "Invalid user",
+                    "authentication failure",
+                ]
+            ):
+                continue
+
+            status = "UNKNOWN"
+
+            if "Accepted" in line:
+
+                status = "SUCCESS"
+
+            elif (
+                "Failed password" in line
+                or "Invalid user" in line
+                or "authentication failure" in line
+            ):
+
+                status = "FAILED"
+
+            user = "unknown"
+            source_ip = "unknown"
+
+            match = re.search(
+                r"for (?:invalid user )?(\S+)",
+                line,
+            )
+
+            if match:
+                user = match.group(1)
+
+            match = re.search(
+                r"from ([^\s]+)",
+                line,
+            )
+
+            if match:
+                source_ip = match.group(1)
+
+            events.append(
+                {
+                    "Log": line,
+                    "User": user,
+                    "Source IP": source_ip,
+                    "Status": status,
+                }
+            )
+
+    except Exception:
+        pass
+
+    return events
+
+
+ssh_events = read_ssh_events()
+
+
+if ssh_events:
+
+    ssh_df = pd.DataFrame(
+        ssh_events
+    )
+
+    total_ssh = len(ssh_df)
+
+    failed_ssh = int(
+        (
+            ssh_df["Status"]
+            == "FAILED"
+        ).sum()
+    )
+
+    successful_ssh = int(
+        (
+            ssh_df["Status"]
+            == "SUCCESS"
+        ).sum()
+    )
+
+    a, b, c = st.columns(3)
+
+    with a:
+        show_metric_card(
+            "SSH Events",
+            total_ssh,
+            "Recent SSH authentication events",
+        )
+
+    with b:
+        show_metric_card(
+            "Successful",
+            successful_ssh,
+            "Accepted authentication",
+        )
+
+    with c:
+        show_metric_card(
+            "Failed",
+            failed_ssh,
+            "Failed authentication",
+        )
 
     st.dataframe(
-        display[
-            [
-                "rank",
-                "model",
-                "accuracy",
-                "precision",
-                "recall",
-                "f1_score",
-                "roc_auc",
-            ]
-        ],
-        use_container_width=True,
+        ssh_df.head(30),
         hide_index=True,
     )
 
-    chart_data = evaluation.melt(
-        id_vars="model",
-        value_vars=metrics,
-        var_name="metric",
-        value_name="score",
-    )
+else:
 
-    chart_data["score"] *= 100
-
-    fig = px.bar(
-        chart_data,
-        x="model",
-        y="score",
-        color="metric",
-        barmode="group",
-        text_auto=".1f",
-        title="Model Metric Comparison",
-    )
-
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        yaxis_title="Score (%)",
-        xaxis_title="",
-        legend_title="Metric",
-    )
-
-    fig.update_yaxes(
-        range=[0, 100]
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-    )
-
-    best = evaluation.iloc[0]
-
-    st.success(
-        f"Best model: {best['model']}  •  "
-        f"F1: {best['f1_score']:.4f}  •  "
-        f"ROC-AUC: {best['roc_auc']:.4f}"
+    st.info(
+        "No SSH authentication events were found."
     )
 
 
 # ============================================================
-# ANOMALY ANALYSIS
+# CONTROLLED SSH ATTACK DEMO
 # ============================================================
 
-st.divider()
-
-section_title(
-    "Anomaly Analysis",
-    "Risk distribution across the unseen test dataset.",
-)
-
-if risk_data.empty:
+with st.expander(
+    "Controlled SSH Attack Demonstration"
+):
 
     st.warning(
-        "Risk data not found."
+        "This generates failed authentication attempts "
+        "against localhost only."
+    )
+
+    attempts = st.slider(
+        "Failed attempts",
+        min_value=1,
+        max_value=5,
+        value=2,
+    )
+
+    if st.button(
+        "Trigger Failed SSH Attempts"
+    ):
+
+        progress = st.progress(0)
+
+        for i in range(attempts):
+
+            try:
+
+                subprocess.run(
+                    [
+                        "ssh",
+                        "-o",
+                        "BatchMode=yes",
+                        "-o",
+                        "ConnectTimeout=2",
+                        "invalid_demo_user@127.0.0.1",
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=4,
+                )
+
+            except Exception:
+                pass
+
+            progress.progress(
+                (i + 1) / attempts
+            )
+
+        st.success(
+            f"Generated {attempts} controlled failed "
+            f"SSH authentication attempt(s) against localhost."
+        )
+
+        time.sleep(1)
+
+        st.rerun()
+
+
+# ============================================================
+# LIVE FILE ACTIVITY
+# ============================================================
+
+section_title(
+    "Live Session Activity",
+    "Monitor controlled file activity after SSH authentication.",
+)
+
+
+if ACTIVITY_MONITOR_AVAILABLE:
+
+    try:
+
+        setup_monitor_directory()
+
+    except Exception:
+        pass
+
+    fc1, fc2 = st.columns(2)
+
+    with fc1:
+
+        if st.button(
+            "Enable File Monitoring"
+        ):
+
+            success, message = (
+                install_audit_rule()
+            )
+
+            if success:
+
+                st.success(
+                    message
+                )
+
+            else:
+
+                st.error(
+                    message
+                )
+
+    with fc2:
+
+        if st.button(
+            "Refresh File Activity"
+        ):
+
+            st.rerun()
+
+    activity_events = read_events()
+
+    if activity_events:
+
+        activity_df = pd.DataFrame(
+            activity_events
+        )
+
+        total_activity = len(
+            activity_events
+        )
+
+        unique_files = len(
+            set(
+                event.get(
+                    "path",
+                    "",
+                )
+                for event in activity_events
+            )
+        )
+
+        x1, x2, x3 = st.columns(3)
+
+        with x1:
+
+            show_metric_card(
+                "File Events",
+                total_activity,
+                "Detected activity",
+            )
+
+        with x2:
+
+            show_metric_card(
+                "Files Accessed",
+                unique_files,
+                "Unique paths",
+            )
+
+        with x3:
+
+            show_metric_card(
+                "Monitoring",
+                "ACTIVE",
+                "Controlled directory",
+            )
+
+        st.dataframe(
+            activity_df[
+                [
+                    "timestamp",
+                    "event_type",
+                    "path",
+                    "process",
+                    "user",
+                    "pid",
+                ]
+            ].head(50),
+            hide_index=True,
+        )
+
+    else:
+
+        st.info(
+            "No file activity detected yet."
+        )
+
+    st.caption(
+        f"Controlled monitoring directory: {DEMO_DIR}"
     )
 
 else:
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        counts = (
-            risk_data["risk_level"]
-            .value_counts()
-            .reindex(
-                [
-                    "LOW",
-                    "MEDIUM",
-                    "HIGH",
-                ],
-                fill_value=0,
-            )
-            .reset_index()
-        )
-
-        counts.columns = [
-            "risk_level",
-            "events",
-        ]
-
-        fig = px.bar(
-            counts,
-            x="risk_level",
-            y="events",
-            text_auto=True,
-            title="Risk Distribution",
-        )
-
-        fig.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-        )
-
-        st.plotly_chart(
-            fig,
-            use_container_width=True,
-        )
-
-    with col2:
-
-        fig = px.histogram(
-            risk_data,
-            x="ensemble_risk_score",
-            nbins=40,
-            title="Risk Score Distribution",
-        )
-
-        fig.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            xaxis_title="Risk Score",
-            yaxis_title="Events",
-        )
-
-        st.plotly_chart(
-            fig,
-            use_container_width=True,
-        )
+    st.warning(
+        "activity_monitor.py is not available. "
+        "Create the file provided with this project update "
+        "to enable live file monitoring."
+    )
 
 
 # ============================================================
-# FOOTER
+# LIVE TEST INSTRUCTIONS
 # ============================================================
 
-st.divider()
+with st.expander(
+    "Live Demo Instructions"
+):
 
-st.caption(
-    "Identity Anomaly Detection • "
-    "Multi-source Authentication Intelligence • "
-    "Research Prototype"
-)
+    st.markdown(
+        f"""
+### 1. Start the dashboard
+
+```bash
+streamlit run dashboard.py
+```
+
+### 2. Generate controlled failed SSH events
+
+Use the **Trigger Failed SSH Attempts** button above. It attempts SSH
+authentication against `127.0.0.1` with an invalid demonstration user.
+
+### 3. Enable controlled file monitoring
+
+Use **Enable File Monitoring** to install an audit rule for only this
+directory:
+
+```text
+{DEMO_DIR}
+```
+
+After a login session, access a file inside that directory and then use
+**Refresh File Activity** to display any audit events returned by
+`activity_monitor.py`.
+"""
+    )
+
+
+if auto_refresh:
+
+    time.sleep(5)
+    st.rerun()
