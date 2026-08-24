@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LANL Anomaly Detection — Live Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-logo">LANL Anomaly</div>
+      <div class="sidebar-item active" data-page="dashboard">
+        <span>📊</span> Dashboard
+      </div>
+      <div class="sidebar-item" data-page="alerts">
+        <span>🔔</span> Alerts
+      </div>
+      <div class="sidebar-item" data-page="users">
+        <span>👥</span> Users
+      </div>
+      <div class="sidebar-item" data-page="settings">
+        <span>⚙</span> Settings
+      </div>
+    </nav>
+
+    <!-- Main -->
+    <div class="main-area">
+      <header class="topbar">
+        <div class="topbar-left">
+          <span class="topbar-title">Live Anomaly Monitor</span>
+        </div>
+        <div class="topbar-right">
+          <div class="flex-center gap-1">
+            <div class="health-dot" id="health-dot"></div>
+            <span class="text-10 text-faint uppercase tracking-widest" id="health-label">connected</span>
+          </div>
+          <button class="theme-btn" id="theme-toggle">◑</button>
+        </div>
+      </header>
+      <div class="content" id="main-content">
+        <div class="loading"><span class="live-dot"></span><span class="text-faint text-xs ml-2">Loading...</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

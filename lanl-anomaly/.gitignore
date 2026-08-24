@@ -6,3 +6,5 @@ changelog_byopencode/
 screenshots/
 *.tmp
 .env
+.venv/
+*.png
