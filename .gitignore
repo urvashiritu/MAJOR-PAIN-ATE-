@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Environment
+.env
+
+# Temp files
+*.tmp
+data/auth.duckdb.tmp
+
+# Playwright
+.playwright-mcp/
+
+# Screenshots (generated, not source)
+dashboard-*.png
+
+# Raw source data (already ingested into auth.duckdb)
+data/*.xml
+data/*.json
+data/*.jsonl
+data/*.log
+!data/stealthy_attacks.jsonl
+
+# Old outputs (not needed — features_lanl.parquet is the real output)
+outputs/authentication_features.csv
+outputs/normalized_authentication_events.csv
+outputs/test_risk_scores.csv
+outputs/model_evaluation.csv
+
+# Old models (not used by current pipeline)
+models/best_model.txt
+models/elliptic_envelope.joblib
+models/isolation_forest.joblib
+models/local_outlier_factor.joblib
+models/one_class_svm.joblib
+
+# Old pipeline files (replaced by src/ and app.py)
+train.py
+dashboard.py
+live_ssh.py
+analysis.ipynb
+
+# Old docs (replaced by README.md and DETAILED_PROJECT_DOCS.md)
+DATASET_FINDINGS_VERIFIED.md
+dataset_scan_report.md
+COMPLETE_PROJECT_REFERENCE.md
+PROJECT_ROADMAP.md
+READMEaboutSYNTHETICTRAINING.md
+SYNTHETIC_DATASET.md

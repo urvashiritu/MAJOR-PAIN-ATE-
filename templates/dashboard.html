@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Identity Anomaly Detection — Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0f1117;--card:#1a1d27;--border:#2a2d3a;--text:#e1e4ea;--muted:#8b8fa3;--accent:#6c5ce7;--critical:#e5484d;--high:#ff9b9e;--medium:#e8a33d;--low:#57b06c;--blue:#3b82f6}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.header{background:linear-gradient(135deg,#1a1d27 0%,#252836 100%);border-bottom:1px solid var(--border);padding:1.2rem 2rem;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:1.3rem;font-weight:600}
+.header h1 span{color:var(--accent)}
+.header .status{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--muted)}
+.header .dot{width:8px;height:8px;border-radius:50%;background:var(--low);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.container{max-width:1400px;margin:0 auto;padding:1.5rem}
+.kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:1rem;margin-bottom:1.5rem}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.2rem;position:relative;overflow:hidden}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.kpi.total::before{background:var(--blue)}
+.kpi.attacks::before{background:var(--critical)}
+.kpi.normal::before{background:var(--low)}
+.kpi.auc::before{background:var(--accent)}
+.kpi.f1::before{background:var(--medium)}
+.kpi-label{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.3rem}
+.kpi-value{font-size:1.8rem;font-weight:700}
+.kpi-sub{font-size:.75rem;color:var(--muted);margin-top:.2rem}
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem}
+.chart-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.2rem}
+.chart-card h3{font-size:.9rem;font-weight:600;margin-bottom:1rem;color:var(--muted)}
+.table-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.2rem;margin-bottom:1.5rem}
+.table-card h3{font-size:.9rem;font-weight:600;margin-bottom:1rem;color:var(--muted)}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:.6rem .8rem;border-bottom:1px solid var(--border)}
+td{padding:.6rem .8rem;border-bottom:1px solid var(--border);font-size:.85rem}
+tr:hover td{background:rgba(108,92,231,.05)}
+.badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:600;text-transform:uppercase}
+.badge.critical{background:rgba(229,72,77,.15);color:var(--critical)}
+.badge.high{background:rgba(255,155,158,.15);color:var(--high)}
+.badge.medium{background:rgba(232,163,61,.15);color:var(--medium)}
+.badge.low{background:rgba(87,176,108,.15);color:var(--low)}
+.score-bar{height:4px;border-radius:2px;background:var(--border);overflow:hidden;width:80px;display:inline-block;vertical-align:middle;margin-left:6px}
+.score-fill{height:100%;border-radius:2px}
+.listener-controls{display:flex;gap:.8rem;align-items:center;margin-bottom:1.5rem}
+.btn{padding:.5rem 1rem;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-size:.85rem;transition:all .2s}
+.btn:hover{border-color:var(--accent);background:rgba(108,92,231,.1)}
+.btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.danger{border-color:var(--critical)}
+.btn.danger:hover{background:rgba(229,72,77,.15);border-color:var(--critical)}
+.port-input{width:80px;padding:.5rem;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:.85rem;text-align:center}
+.live-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:.7rem;font-weight:600;background:rgba(229,72,77,.15);color:var(--critical)}
+.live-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--critical);animation:pulse 1s infinite}
+@media(max-width:900px){.kpi-row{grid-template-columns:repeat(2,1fr)}.charts-row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🛡️ Identity <span>Anomaly Detection</span></h1>
+  <div class="status">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">Loading...</span>
+  </div>
+</div>
+
+<div class="container">
+  <!-- KPIs -->
+  <div class="kpi-row">
+    <div class="kpi total">
+      <div class="kpi-label">Total Events</div>
+      <div class="kpi-value" id="kpiTotal">—</div>
+      <div class="kpi-sub">6 sources monitored</div>
+    </div>
+    <div class="kpi attacks">
+      <div class="kpi-label">Attack Events</div>
+      <div class="kpi-value" id="kpiAttacks">—</div>
+      <div class="kpi-sub" id="kpiAttackPct">—</div>
+    </div>
+    <div class="kpi normal">
+      <div class="kpi-label">Normal Events</div>
+      <div class="kpi-value" id="kpiNormal">—</div>
+      <div class="kpi-sub">Benign traffic</div>
+    </div>
+    <div class="kpi auc">
+      <div class="kpi-label">ROC-AUC</div>
+      <div class="kpi-value" id="kpiAuc">—</div>
+      <div class="kpi-sub">IF + LightGBM ensemble</div>
+    </div>
+    <div class="kpi f1">
+      <div class="kpi-label">F1 Score</div>
+      <div class="kpi-value" id="kpiF1">—</div>
+      <div class="kpi-sub" id="kpiPR">—</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts-row">
+    <div class="chart-card">
+      <h3>Events by Source</h3>
+      <canvas id="sourceChart" height="200"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>Success vs Failure</h3>
+      <canvas id="successChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- Live Listener Controls -->
+  <div class="listener-controls">
+    <span style="font-size:.85rem;color:var(--muted)">SSH Syslog Listener:</span>
+    <input type="number" class="port-input" id="listenerPort" value="1514" min="1024" max="65535">
+    <button class="btn" id="btnStart" onclick="toggleListener('start')">Start</button>
+    <button class="btn danger" id="btnStop" onclick="toggleListener('stop')" disabled>Stop</button>
+    <span id="listenerStatus" style="font-size:.8rem;color:var(--muted)"></span>
+  </div>
+
+  <!-- Live Events -->
+  <div class="table-card">
+    <h3>Live Events <span class="live-badge" id="liveBadge" style="display:none">LIVE</span></h3>
+    <div style="max-height:400px;overflow-y:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th><th>Source</th><th>User</th><th>IP</th>
+            <th>Auth</th><th>Result</th><th>Risk</th><th>Score</th>
+          </tr>
+        </thead>
+        <tbody id="liveBody">
+          <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:2rem">
+            No live events yet. Start the SSH listener or wait for data.
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Training Data Sample -->
+  <div class="table-card">
+    <h3>Training Data — Attack IP Events (sample)</h3>
+    <div style="max-height:350px;overflow-y:auto">
+      <table>
+        <thead>
+          <tr><th>Timestamp</th><th>Source</th><th>User</th><th>IP</th><th>Auth Type</th><th>Success</th></tr>
+        </thead>
+        <tbody id="sampleBody">
+          <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:1rem">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let sourceChartInstance = null;
+let successChartInstance = null;
+
+async function loadStats() {
+  try {
+    const r = await fetch(`${API}/api/stats`);
+    const d = await r.json();
+
+    document.getElementById('kpiTotal').textContent = d.kpis.totalEvents.toLocaleString();
+    document.getElementById('kpiAttacks').textContent = d.kpis.attackEvents.toLocaleString();
+    document.getElementById('kpiAttackPct').textContent = `${d.kpis.attackPct}% of total`;
+    document.getElementById('kpiNormal').textContent = d.kpis.normalEvents.toLocaleString();
+    document.getElementById('kpiAuc').textContent = d.modelMetrics.auc.toFixed(4);
+    document.getElementById('kpiF1').textContent = d.modelMetrics.f1.toFixed(4);
+    document.getElementById('kpiPR').textContent = `P=${d.modelMetrics.precision.toFixed(3)} R=${d.modelMetrics.recall.toFixed(3)}`;
+    document.getElementById('statusText').textContent = `Models loaded · ${d.kpis.sources} sources · ${d.kpis.totalEvents.toLocaleString()} events`;
+    document.getElementById('statusDot').style.background = '#57b06c';
+
+    // Source chart
+    const srcLabels = d.sourceDistribution.map(s => s.name);
+    const srcValues = d.sourceDistribution.map(s => s.value);
+    const srcColors = ['#6c5ce7','#3b82f6','#e8a33d','#57b06c','#ff9b9e','#a78bfa'];
+    if (sourceChartInstance) sourceChartInstance.destroy();
+    sourceChartInstance = new Chart(document.getElementById('sourceChart'), {
+      type: 'doughnut',
+      data: {
+        labels: srcLabels,
+        datasets: [{ data: srcValues, backgroundColor: srcColors, borderWidth: 0 }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'right', labels: { color: '#8b8fa3', font: { size: 11 } } }
+        }
+      }
+    });
+
+    // Success chart
+    const sucLabels = d.successDistribution.map(s => s.name);
+    const sucValues = d.successDistribution.map(s => s.value);
+    if (successChartInstance) successChartInstance.destroy();
+    successChartInstance = new Chart(document.getElementById('successChart'), {
+      type: 'doughnut',
+      data: {
+        labels: sucLabels,
+        datasets: [{ data: sucValues, backgroundColor: ['#57b06c','#e5484d'], borderWidth: 0 }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'right', labels: { color: '#8b8fa3', font: { size: 11 } } }
+        }
+      }
+    });
+
+    // Live events
+    if (d.liveEvents.length > 0) {
+      renderLiveEvents(d.liveEvents);
+    }
+
+    // Training data sample
+    try {
+      const r2 = await fetch(`${API}/api/score-batch`);
+      const samples = await r2.json();
+      const sb = document.getElementById('sampleBody');
+      sb.innerHTML = '';
+      samples.slice(0, 50).forEach(ev => {
+        sb.innerHTML += `<tr>
+          <td style="font-size:.8rem">${ev.timestamp || '—'}</td>
+          <td>${ev.source || '—'}</td>
+          <td>${ev.src_user || '—'}</td>
+          <td style="font-family:monospace;font-size:.8rem">${ev.src_ip || '—'}</td>
+          <td>${ev.auth_type || '—'}</td>
+          <td>${ev.success ? '✅' : '❌'}</td>
+        </tr>`;
+      });
+    } catch(e) { /* ignore */ }
+  } catch(e) {
+    document.getElementById('statusText').textContent = 'Error loading data';
+    document.getElementById('statusDot').style.background = '#e5484d';
+  }
+}
+
+function renderLiveEvents(events) {
+  const body = document.getElementById('liveBody');
+  body.innerHTML = '';
+  document.getElementById('liveBadge').style.display = 'inline-flex';
+  events.forEach(ev => {
+    const score = ev.combined_score || 0;
+    const color = score >= 0.75 ? '#e5484d' : score >= 0.50 ? '#ff9b9e' : score >= 0.25 ? '#e8a33d' : '#57b06c';
+    body.innerHTML += `<tr>
+      <td>${ev.timestamp ? ev.timestamp.split(' ')[1] || ev.timestamp : '—'}</td>
+      <td>${ev.source || '—'}</td>
+      <td>${ev.src_user || '—'}</td>
+      <td style="font-family:monospace;font-size:.8rem">${ev.src_ip || '—'}</td>
+      <td>${ev.auth_type || '—'}</td>
+      <td>${ev.success ? '✅' : '❌'}</td>
+      <td><span class="badge ${ev.risk_level}">${ev.risk_level}</span></td>
+      <td>${score.toFixed(3)}<span class="score-bar"><span class="score-fill" style="width:${score*100}%;background:${color}"></span></span></td>
+    </tr>`;
+  });
+}
+
+async function toggleListener(action) {
+  const port = document.getElementById('listenerPort').value;
+  const r = await fetch(`${API}/api/ssh-listener`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ action, port: parseInt(port) })
+  });
+  const d = await r.json();
+  document.getElementById('listenerStatus').textContent = d.status;
+  document.getElementById('btnStart').disabled = action === 'start';
+  document.getElementById('btnStop').disabled = action === 'stop';
+}
+
+// Auto-refresh
+loadStats();
+setInterval(loadStats, 10000);
+</script>
+</body>
+</html>
