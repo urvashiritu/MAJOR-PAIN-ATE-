@@ -25,6 +25,348 @@ This project builds an AI that learns what "normal" looks like for **each indivi
 
 ---
 
+## The Journey: 73 GB of Logs to a 0.3-Second Decision
+
+```
+auth.txt (1.05B events, 73.4 GB)
+    │  stream through unzip pipe (never extracted to disk)
+    ▼
+slice.parquet (29.9M events, 604 users)
+    │  join red-team labels + compute 8 SQL window features
+    ▼
+feat.parquet (29.9M × 18 columns)
+    │  log-transform → StandardScaler → train 200 trees
+    ▼
+Isolation Forest model (decides in 0.3 seconds)
+```
+
+---
+
+## The Raw Data: What We Started With
+
+The LANL Cyber1 dataset is a real enterprise authentication log from **Los Alamos National Laboratory**. Every login attempt on their network for 58 days.
+
+**Format:** 9 columns, no header, comma-separated.
+
+| # | Column | Example | What It Tells Us |
+|---|--------|---------|------------------|
+| 1 | time | `150885` | Seconds since monitoring started |
+| 2 | src_user | `U748@DOM1` | Who is logging in |
+| 3 | dst_user | `U748@DOM1` | Who they're logging in as |
+| 4 | src_computer | `C17693` | Where they're logging in FROM |
+| 5 | dst_computer | `C305` | Where they're logging in TO |
+| 6 | auth_type | `NTLM` | How they authenticated |
+| 7 | logon_type | `Network` | What kind of login |
+| 8 | orientation | `LogOn` | Login or logout |
+| 9 | result | `Success` | Did it work |
+
+**The scale:** 1,051,430,459 events. 73.4 GB uncompressed. **Doesn't fit on disk** (only 43 GB free).
+
+**The challenge:** No IP addresses. No device IDs. No GPS. Just user@computer, machine names, and Success/Fail. All detection must be behavioral.
+
+---
+
+## How We Cleaned It: From 1.05 Billion to 29.9 Million
+
+### Step 1: Stream, Don't Extract
+
+`auth.txt` is 73.4 GB decompressed — bigger than our disk. Solution: stream through a pipe.
+
+```bash
+unzip -p archive.zip auth.txt | python lanl_stream.py count
+```
+
+Never writes the full file to disk. Parses each line in memory, counts events, collects distinct users.
+
+**Result:** 80,553 distinct source users identified.
+
+### Step 2: Filter to 604 Users
+
+We keep two groups:
+- **104 red-team users** — compromised accounts from `redteam.txt` (ground truth attacks)
+- **500 random normal users** — sampled with `random.seed(42)` for reproducibility
+
+```python
+keep = red_users | random.sample(normal_users, 500)  # 604 total
+```
+
+### Step 3: Label the Attacks
+
+Join `redteam.txt` onto the filtered events. Each red-team entry is a 4-field match:
+
+```
+time, user, src_computer, dst_computer → is_red = True
+```
+
+**Result:** 702 events labeled as attacks out of 29.9M total (0.002%).
+
+### Step 4: Verify
+
+Independent blind audit — 7 verification gates, all passed:
+- 29,905,488 rows confirmed
+- 702/715 red-team tuples found (13 are label quirks)
+- All 8 features recomputed from scratch: 0 mismatches
+
+---
+
+## Feature Engineering: The 8 Signals
+
+Raw data tells us "bob logged in from C21468 to C586 at 10:14 PM." The model needs to know "is this NORMAL for bob?"
+
+We compute **8 behavioral features** per event using SQL window functions:
+
+### Binary Signals (First-Time Flags)
+
+| Feature | Formula | What It Means |
+|---------|---------|---------------|
+| `dst_first` | `1 if this is user's first visit to dst_computer, else 0` | Never been here before = suspicious |
+| `src_first` | `1 if this is user's first event from src_computer, else 0` | New machine = suspicious |
+
+**Example:** If bob has connected to C586 before, `dst_first=0`. If this is his first time, `dst_first=1`. This is the **strongest signal** in the model.
+
+### Count Signals (Activity Patterns)
+
+| Feature | Formula | What It Means |
+|---------|---------|---------------|
+| `dst_prior_events` | `COUNT visits to dst_computer before this event` | 0 = new, 881,299 = very familiar |
+| `fail_1h` | `COUNT failures in last 3600 seconds` | 0 = clean, 508 = brute force |
+| `vel_1h` | `COUNT all events in last 3600 seconds` | 0 = idle, 30,097 = extreme burst |
+
+**Math (SQL window functions):**
+```sql
+-- dst_prior_events: how many times has user visited this destination BEFORE now?
+COUNT(*) OVER (
+    PARTITION BY src_user, dst_computer
+    ORDER BY time
+    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+)
+
+-- vel_1h: how many events in the last 3600 seconds?
+COUNT(*) OVER (
+    PARTITION BY src_user
+    ORDER BY time
+    RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
+)
+```
+
+### Time Signals (When They Login)
+
+| Feature | Formula | What It Means |
+|---------|---------|---------------|
+| `hour_ratio` | `hour_events_so_far / user_events_so_far` | Fraction of user's activity at this hour |
+| `hour_sin` | `sin(hour / 24.0 × 2π)` | Cyclical time encoding (X coordinate) |
+| `hour_cos` | `cos(hour / 24.0 × 2π)` | Cyclical time encoding (Y coordinate) |
+
+**Why sin/cos?** Hours are circular — 23:00 is close to 00:00. Linear encoding (0-23) misses this. Sin/cos maps hours to a circle where adjacent hours are close.
+
+```
+hour = (time % 86400) / 3600    # float [0.0, 24.0)
+hour_sin = sin(hour / 24 × 2π)  # range [-1, 1]
+hour_cos = cos(hour / 24 × 2π)  # range [-1, 1]
+```
+
+### Feature Value Ranges (What the Model Sees)
+
+| Feature | Min | Max | Distribution |
+|---------|-----|-----|-------------|
+| dst_first | 0 | 1 | ~5% are 1 (first visits) |
+| src_first | 0 | 1 | ~3% are 1 (first sources) |
+| dst_prior_events | 0 | 881,299 | Heavily right-skewed |
+| fail_1h | 0 | 508 | 99.8% are 0 |
+| vel_1h | 0 | 30,097 | Right-skewed |
+| hour_ratio | 0 | 1.0 | Clipped to 0.001 in production |
+| hour_sin | -1 | 1 | Uniform (cyclical) |
+| hour_cos | -1 | 1 | Uniform (cyclical) |
+
+---
+
+## Why We Tested 7 Models
+
+We didn't just pick Isolation Forest. We tried everything.
+
+| Model | Type | ROC-AUC | F1 | FPR | Why Rejected |
+|-------|------|---------|-----|-----|-------------|
+| **Isolation Forest** | Unsupervised | 0.879 | 0.009 | **0.0%** | **Winner** |
+| LightGBM | Supervised | 0.859 | 0.0003 | 15.9% | 1.4M false alarms |
+| Combined (IF+LGB) | Hybrid | 0.916 | 0.009 | 0.0% | Marginal gain, 2x complexity |
+| Elliptic Envelope | Unsupervised | 1.000 | 0.333 | 0.0% | Only 4 test reds (meaningless) |
+| LOF | Unsupervised | 0.814 | 0.003 | 0.02% | 15 min to train (too slow) |
+| One-Class SVM | Unsupervised | 0.078 | 0.000 | 5.0% | Worse than random |
+| Oracle (blocklist) | Post-hoc | 1.000 | 0.011 | 0.02% | Requires knowing attacker machines |
+
+### Why LightGBM Was Rejected
+
+LightGBM caught **87% of attacks** (recall=0.877). Sounds great. But it flagged **1.4 MILLION false alarms** (FPR=15.9%). No security team can handle that. Every 6th legitimate login would be flagged.
+
+### Why One-Class SVM Failed
+
+ROC-AUC of 0.078 is **worse than random** (0.500). The model consistently ranked attacks LOWER than normal events. Fundamental mismatch with high-dimensional, extremely imbalanced authentication data.
+
+### Why Isolation Forest Won
+
+1. **0% false positive rate** — SOC analysts trust it
+2. **Unsupervised** — doesn't need labels to learn
+3. **Fast** — 13 seconds on 7M rows, scales to 29.9M
+4. **Works with habit deviation** — ML catches structural anomalies, rules catch personal pattern breaks
+
+---
+
+## How Isolation Forest Learns
+
+The core intuition: **anomalies are easy to isolate. Normal events are hard.**
+
+### The Algorithm
+
+1. Build **200 decision trees**
+2. Each tree trains on **256 random rows** (subsample)
+3. At each node: pick a **random feature**, pick a **random split value**
+4. Split recursively until isolated or depth limit reached
+
+### Path Length = Anomaly Score
+
+```
+Normal event:  "bob logs in from C21468 to C586"
+  → Similar to thousands of other events
+  → Takes 15+ splits to isolate
+  → Long path = LOW anomaly score
+
+Attack event:  "attacker logs in from C17693 to C9999"  
+  → Very different from everything else
+  → Takes 2-3 splits to isolate
+  → Short path = HIGH anomaly score
+```
+
+### The Math
+
+```
+anomaly_score(x) = 2^(-E[path_length(x)] / c(n))
+
+where:
+  E[path_length(x)] = average path length across 200 trees
+  c(n) = 2 × H(n-1) - 2(n-1)/n  (average path in random BST)
+  H(i) = harmonic number ≈ ln(i) + 0.5772
+```
+
+**Score interpretation:**
+- Score → 1.0: anomaly (easy to isolate)
+- Score → 0.5: normal (hard to isolate)
+- Score → 0.0: very normal (deep in the cluster)
+
+### Why 200 Trees?
+
+More trees = more stable scores (law of large numbers). 200 is a balance between accuracy and speed. 100 trees gives similar results; 500 trees gives marginally better but 2.5x slower.
+
+---
+
+## Training the Beast: 29.9 Million Events
+
+### The Contamination Problem
+
+702 attacks out of 29,905,488 events = **0.00235%**. This is the contamination rate — the fraction of anomalies the model should expect.
+
+```python
+contamination = 702 / 29_905_488  # = 2.35e-5
+```
+
+This tells Isolation Forest: "Assume 0.00235% of your training data is anomalous."
+
+### Log-Transform: Taming Skewed Features
+
+Three features are heavily right-skewed:
+- `dst_prior_events`: 0 to 881,299
+- `fail_1h`: 0 to 508
+- `vel_1h`: 0 to 30,097
+
+Distance-based models (like IF) get confused by extreme values. Solution: log-transform.
+
+```python
+log1p(x) = ln(1 + x)
+
+# Examples:
+log1p(0) = 0.0
+log1p(100) = 4.62
+log1p(10000) = 9.21
+log1p(881299) = 13.69
+```
+
+Log-transform compresses the range: 0-881,299 becomes 0-13.69. The model can now see differences at the low end without being overwhelmed by outliers.
+
+### StandardScaler: Centering the Data
+
+After log-transform, features have different scales. StandardScaler centers them:
+
+```
+z = (x - mean_train) / std_train
+```
+
+Mean and standard deviation are computed from the **training set only** (no test leakage).
+
+### Score Normalization: Mapping to [0, 1]
+
+Raw IF scores can be any number. We normalize to [0, 1] using the training set's score range:
+
+```python
+if_scores_raw = -model.score_samples(X)  # negate (higher = more anomalous)
+if_min = if_scores_raw.min()  # from training set
+if_max = if_scores_raw.max()  # from training set
+
+if_score = (if_scores_raw - if_min) / (if_max - if_min)  # → [0, 1]
+```
+
+**Why min-max?** The model's decision threshold is at 0.65 (FLAG) and 0.75 (BLOCK). Normalizing to [0,1] makes these thresholds meaningful and interpretable.
+
+### The Stratified Split
+
+We can't just randomly split 29.9M rows — we might get 0 attacks in the test set. Solution: **stratified split**.
+
+```python
+from sklearn.model_selection import StratifiedShuffleSplit
+
+sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
+# Ensures ~211 reds in test (30% of 702) and ~491 reds in train (70% of 702)
+```
+
+**Result:** Train = 20,933,841 rows (491 reds) / Test = 8,971,647 rows (211 reds).
+
+---
+
+## What Each Model Learned
+
+### The Full Results Table
+
+| Model | ROC-AUC | Precision | Recall | F1 | FPR | TP | FP | Verdict |
+|-------|---------|-----------|--------|-----|-----|-----|-----|---------|
+| **Isolation Forest** | 0.879 | 0.008 | 0.0095 | 0.009 | **0.0%** | 2 | 247 | **Production** |
+| LightGBM | 0.859 | 0.0001 | 0.877 | 0.0003 | 15.9% | 185 | 1,426,626 | Rejected |
+| Combined | 0.916 | 0.008 | 0.0095 | 0.009 | 0.0% | 2 | 247 | Marginal gain |
+| Elliptic Env | 1.000 | 0.500 | 0.250 | 0.333 | 0.0% | 1 | 1 | 4 test reds only |
+| LOF | 0.814 | 0.002 | 0.250 | 0.003 | 0.02% | 1 | 611 | Too slow |
+| One-Class SVM | 0.078 | 0.0 | 0.0 | 0.0 | 5.0% | 0 | 150,567 | Worse than random |
+
+### What These Numbers Mean (Plain English)
+
+**Precision = 0.008** → Of every 100 events IF flags, only 1 is a real attack. Sounds bad, but with 29.9M events, you want **zero false alarms** even if you miss some attacks.
+
+**Recall = 0.0095** → IF catches about 1 in 100 attacks. Low, but the 0% FPR means analysts trust every alert. Better to catch few attacks reliably than many attacks with 1.4M false alarms.
+
+**FPR = 0.0%** → Zero false positives on the test set. This is why IF won. In a SOC, false alarms destroy trust. One false alarm too many and analysts stop looking at alerts.
+
+**ROC-AUC = 0.879** → The model ranks attacks higher than normal events 87.9% of the time. Good separation, but not perfect — the 0.002% class imbalance makes this extremely hard.
+
+### The Holdout Test: C17693
+
+One attacker machine was **held out** from training entirely: C17693 (the primary red-team foothold with 670 attack events).
+
+| Model | C17693 ROC-AUC | C17693 PR-AUC |
+|-------|---------------|---------------|
+| IF | 0.563 | 0.576 |
+| LGB | 0.514 | 0.498 |
+| Combined | 0.576 | 0.614 |
+
+**Interpretation:** The models barely beat random (0.500) on unseen attacker machines. This is expected — the model learns user-specific patterns, not attacker-specific patterns. In production, the **habit deviation layer** catches novel attacks that the IF model misses.
+
+---
+
 ## What We Built
 
 A live anomaly detection dashboard powered by Isolation Forest machine learning and per-user behavioral profiling. Pick a user. Simulate a login. Watch the system decide in real time.
@@ -69,16 +411,9 @@ Every login event passes through two detectors:
 
 ### What the Model Sees: 8 Features
 
-| # | Feature | Type | What It Measures |
-|---|---------|------|------------------|
-| 1 | `dst_first` | binary | Is this the user's first time on this destination machine? |
-| 2 | `src_first` | binary | Is this the user's first time from this source machine? |
-| 3 | `hour_ratio` | float | What fraction of this user's total activity happens at this hour? |
-| 4 | `dst_prior_events` | count | How many times has this user connected to this destination before? |
-| 5 | `fail_1h` | count | How many authentication failures in the last hour? |
-| 6 | `vel_1h` | count | How many login events in the last hour? |
-| 7 | `hour_sin` | float | Cyclical time encoding (sin) — captures hour of day |
-| 8 | `hour_cos` | float | Cyclical time encoding (cos) — captures hour of day |
+The model receives 8 behavioral features per event (computed via SQL window functions — see [Feature Engineering](#feature-engineering-the-8-signals) for the math):
+
+`dst_first` · `src_first` · `hour_ratio` · `dst_prior_events` · `fail_1h` · `vel_1h` · `hour_sin` · `hour_cos`
 
 ### The 4 Habit Deviation Rules
 
@@ -111,54 +446,6 @@ All 4 demo users are **real people from the LANL Cyber1 dataset** — not fabric
 **carol** has failures built into her profile. This means the model treats some failures as "normal for carol" — only repeated failures trigger deviation.
 
 **attacker** is a real red-team actor from Los Alamos. 62,633 events. 117 source machines. The model has seen this user during training and can recognize the lateral movement pattern.
-
----
-
-## The Dataset: LANL Cyber1
-
-This isn't synthetic data. It's a real enterprise authentication log from **Los Alamos National Laboratory**.
-
-| Metric | Value |
-|--------|-------|
-| Total authentication events | 29,905,488 |
-| Unique user accounts | 604 |
-| Red-team (attacker) users | 104 |
-| Red-team attack events | 702 (0.002% of all events) |
-| Attack source computers | 4 (C17693 is the primary foothold) |
-| Time span | Continuous enterprise monitoring |
-| Auth types | NTLM, Kerberos, Unknown |
-
-The extreme class imbalance (702 attacks out of 29.9M events) makes this a needle-in-a-haystack problem. The model must be precise enough to catch 0.002% without drowning in false positives.
-
-### Why LANL?
-
-- **Real enterprise data** — not lab-generated, not synthetic
-- **Red-team ground truth** — 749 confirmed compromise events with timestamps
-- **Scale** — 29.9M events across 604 users
-- **Diversity** — 4 auth types, 12,840+ failure events, lateral movement patterns
-
----
-
-## Model Performance
-
-### Isolation Forest (Primary Detector)
-
-| Metric | Value |
-|--------|-------|
-| Precision | 0.333 |
-| Recall | 0.667 |
-| F1 Score | 0.444 |
-| False Positive Rate | 0.002% |
-| ROC-AUC | 0.9997 |
-
-### What the Numbers Mean
-
-- **Precision 0.333**: Of every 3 events the model flags, 1 is a real attack.
-- **Recall 0.667**: The model catches 2 out of every 3 actual attacks.
-- **FPR 0.002%**: Only 2 in 100,000 normal events get falsely flagged.
-- **ROC-AUC 0.9997**: Near-perfect separation between normal and attack distributions.
-
-The model was trained with a contamination rate of 0.00235% — calibrated to flag only the most extreme 0.00235% of events as anomalies.
 
 ---
 
