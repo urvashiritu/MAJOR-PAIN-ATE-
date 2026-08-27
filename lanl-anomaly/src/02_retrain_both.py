@@ -247,7 +247,7 @@ def main():
     X_train_lgb = X_all[tr_idx]
     X_test_lgb = X_all[te_idx]
     n_red_train = int(y_train.sum())
-    spw = (len(y_train) - n_red_train) / n_red_train if n_red_train > 0 else 1
+    spw = 100  # lowered from 42634 to prevent LGB output saturation
     vprint(f"  scale_pos_weight = {spw:.0f} ({n_red_train:,} reds in {len(y_train):,} train)", args.verbose)
 
     lgb_model = lgb.LGBMClassifier(
