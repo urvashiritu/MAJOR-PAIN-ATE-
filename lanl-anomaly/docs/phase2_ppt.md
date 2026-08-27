@@ -85,7 +85,7 @@ Rule-based identity monitoring systems fail to detect advanced attacks that mimi
 
 1. To implement a machine learning-based system for real-time identity anomaly detection on authentication logs.
 
-2. To process authentication events and establish per-user behavioral baselines using 8 behavioral features.
+2. To process authentication events and establish per-user behavioral baselines using 9 behavioral features.
 
 3. To detect suspicious login activities using Isolation Forest anomaly detection combined with per-user habit deviation scoring.
 
@@ -134,7 +134,7 @@ Rule-based identity monitoring systems fail to detect advanced attacks that mimi
 
 | Limitation of Existing | How Proposed System Solves It |
 |------------------------|------------------------------|
-| Static thresholds miss subtle anomalies | ML model detects deviations in 8-dimensional feature space |
+| Static thresholds miss subtle anomalies | ML model detects deviations in 9-dimensional feature space |
 | Uniform rules ignore individual habits | Per-user baseline profiles track typical src/dst/hours |
 | High false positives on normal variation | Habit deviation only flags genuine deviations from user's own norm |
 | No explainability for analysts | Feature contributions and deviation reasons included in every alert |
@@ -186,7 +186,7 @@ Rule-based identity monitoring systems fail to detect advanced attacks that mimi
 Input Layer          Feature Layer         Detection Layer      Decision Layer        Output Layer
 ┌──────────┐    ┌──────────────────┐    ┌────────────────┐    ┌────────────────┐    ┌──────────────┐
 │ Auth Log │───>│ SQL Window Funcs │───>│ Isolation Forest│───>│ Score Fusion   │───>│ Dashboard    │
-│ Events   │    │ 8 Behavioral     │    │ Anomaly Score  │    │ IF + Habit Dev │    │ (React SPA)  │
+│ Events   │    │ 9 Behavioral     │    │ Anomaly Score  │    │ IF + Habit Dev │    │ (React SPA)  │
 │ (DuckDB) │    │ Features         │    │ (0 = normal,   │    │                │    │ + SSE Stream │
 │          │    │                  │    │  1 = anomaly)  │    │ block >= 0.75  │    │              │
 │          │    │ dst_first        │    │                │    │ flag  >= 0.65  │    │ Alerts       │
@@ -216,7 +216,7 @@ Input Layer          Feature Layer         Detection Layer      Decision Layer  
 Load LANL Cyber1 authentication logs (29.9M events, 604 users). Day-aligned time shift preserves pseudo-hours for live demo continuity.
 
 **Step 2 — Feature Engineering**
-Compute 8 behavioral features per event using SQL window functions over user history:
+Compute 9 behavioral features per event using SQL window functions over user history:
 - Binary: dst_first, src_first
 - Frequency: hour_ratio (hour_events / user_events)
 - Cumulative: dst_prior_events (prior visits to destination)
@@ -230,7 +230,7 @@ Train Isolation Forest on log-transformed features (dst_prior_events, fail_1h, v
 For each incoming event: compute features from stored history, apply IF score normalization (min/max from train), compute per-user habit deviation points (0–3).
 
 **Step 5 — Risk Classification**
-Combined score = IF_score + 0.10 * min(dev_points, 3). Classify: block (>= 0.75), flag (>= 0.65), allow (< 0.65).
+Combined score = IF_score + 0.15 * min(dev_points, 3). Classify: block (>= 0.75), flag (>= 0.65), allow (< 0.65).
 
 ---
 
@@ -278,7 +278,7 @@ def _compute_if_score(features: np.ndarray) -> float:
 **Key Code — Risk Classification**
 
 ```python
-combined = if_score + 0.10 * min(dev_points, 3)
+combined = if_score + 0.15 * min(dev_points, 3)
 if combined >= BLOCK_THRESHOLD:     # 0.75
     decision, level = "block", "critical"
 elif combined >= FLAG_THRESHOLD:    # 0.65
@@ -295,9 +295,9 @@ else:
 
 | Model | ROC-AUC | F1 | Precision | Recall | FPR |
 |-------|---------|-----|-----------|--------|-----|
-| Isolation Forest | 0.8792 | 0.0087 | 0.008 | 0.0095 | 0.0 |
-| LightGBM | 0.8588 | 0.0003 | 0.0001 | 0.8768 | 0.159 |
-| Combined (0.5*IF + 0.5*LGB) | **0.9158** | 0.0089 | 0.0083 | 0.0095 | 0.0 |
+| Isolation Forest | **0.9887** | 0.0401 | 0.0507 | 0.0332 | 0.0 |
+| LightGBM | 0.847 | 0.044 | 0.0228 | 0.6445 | 0.0007 |
+| Combined (0.5*IF + 0.5*LGB) | **0.9936** | 0.1012 | 0.0565 | 0.4882 | 0.0002 |
 
 **Table 7.2 — Live Scenario Measurements (flag >= 0.65, block >= 0.75)**
 
@@ -312,8 +312,8 @@ else:
 
 **Discussion:**
 
-- IF achieves strong ROC-AUC (0.88) with near-zero FPR, critical for enterprise deployment.
-- LGB has high recall (0.88) but unacceptable FPR (16%) — used for display only, not decisions.
+- IF achieves strong ROC-AUC (0.989) with near-zero FPR, critical for enterprise deployment.
+- LGB catches 64.5% of attacks with 0.07% FPR (5,833 false alarms), used alongside IF for combined scoring.
 - New machine access consistently triggers block (score 0.73–0.74), validating dst_first/src_first features.
 - Wrong password sequences escalate from allow to block within 3 attempts, confirming fail_1h effectiveness.
 - Attacker replay from C17693 source is flagged but not blocked, demonstrating the system detects behavioral anomalies without relying on source-IP blocklists.
@@ -339,7 +339,7 @@ else:
 | TC-05 | Attacker replay | C17693 source events | Score >= 0.65, decision = flag | p50 0.58, 12/15 flag | Pass |
 | TC-06 | Odd-hour login | User's rare hour | Score between normal and flagged | p50 0.45, all 10 allow | Pass |
 
-**Note:** TC-02 and TC-03 actual outputs are slightly below 0.75 threshold in some runs — habit deviation points (+0.10 per signal) push combined score into block range. This is by design.
+**Note:** TC-02 and TC-03 actual outputs are slightly below 0.75 threshold in some runs — habit deviation points (+0.15 per signal) push combined score into block range. This is by design.
 
 ---
 
@@ -372,7 +372,7 @@ else:
 **CONCLUSION**
 
 - Built a working AI-based identity anomaly detection system using Isolation Forest on the LANL Cyber1 dataset (29.9M events, 702 red-team labels).
-- Achieved ROC-AUC of 0.879 (IF) and 0.916 (combined), with near-zero false positive rate at production thresholds.
+- Achieved ROC-AUC of 0.989 (IF) and 0.994 (combined), with near-zero false positive rate at production thresholds.
 - Live demo confirms detection of credential abuse, unusual access patterns, and velocity anomalies across 24 test scenarios.
 - System provides explainable alerts with feature-level reasoning, addressing the black-box limitation of existing ML approaches.
 
@@ -382,7 +382,7 @@ else:
 
 2. **Time-window labeling** — expand the 702-event positive set by labeling events around red-team timestamps per user.
 
-3. **Multi-model ensemble in production** — evaluate whether the ensemble (ROC-AUC 0.916) can be optimized for live scoring latency.
+3. **Multi-model ensemble in production** — evaluate whether the ensemble (ROC-AUC 0.994) can be optimized for live scoring latency.
 
 ---
 

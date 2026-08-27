@@ -2,12 +2,12 @@
 """LANL live scoring — Isolation Forest + per-user habit deviation.
 
 One event in, a decision out. The scoring path:
-  1. Compute 8 LANL features from user's stored history
+  1. Compute 9 LANL features from user's stored history
   2. Isolation Forest anomaly score (the primary detector)
   3. Habit-deviation points vs THIS user's baseline
      (first-ever destination/source outside their usual set,
       velocity above floor, repeated auth failures)
-     fused as: combined = if_score + 0.10 * min(dev_points, 3)
+     fused as: combined = if_score + 0.15 * min(dev_points, 3)
 
 LightGBM is loaded and its score is DISPLAYED for transparency, but it is
 NOT part of the decision: it was trained on full-scale users (~52k events
@@ -339,7 +339,7 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
     lgb_score = _compute_lgb_score(features)
 
     # Habit-deviation signal (per-user baseline), fused as a small booster:
-    #   effective = if_score + 0.10 * min(dev_points, 3)   (max +0.30)
+    #   effective = if_score + 0.15 * min(dev_points, 3)   (max +0.45)
     profile = _load_profile(con, ev["user_id"])
     fd = {
         "dst_computer": ev["dst_computer"], "src_computer": ev["src_computer"],
