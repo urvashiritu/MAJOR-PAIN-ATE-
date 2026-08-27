@@ -2,7 +2,9 @@
 data/raw/rba-dataset.csv
 
 # LANL cyber1 dataset (7 GB+ decompressed; archive.zip source lives in ~/Downloads)
-data/raw/lanl/
+data/raw/lanl/*
+# Exception: LANL DuckDB database (tracked via Git LFS for reproducibility)
+!data/raw/lanl/lanl.duckdb
 
 # Derived / generated artifacts
 models/
@@ -46,6 +48,8 @@ live/web/node_modules/
 .playwright-mcp/
 
 lanl-anomaly/data/
+# Exception: LANL DuckDB database (tracked via Git LFS for reproducibility)
+!lanl-anomaly/data/raw/lanl/lanl.duckdb
 
 # Local agent tooling / generated graphs
 .opencode/
