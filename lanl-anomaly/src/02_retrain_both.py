@@ -51,7 +51,7 @@ FPR_BUDGET = 0.05
 HOLDOUT_ATTACKER = "C17693"
 
 IF_FEATURES = ["dst_first", "src_first", "hour_ratio", "dst_prior_events",
-               "fail_1h", "vel_1h", "hour_sin", "hour_cos"]
+               "fail_1h", "vel_1h", "hour_sin", "hour_cos", "is_ntlm"]
 
 
 def mem_msg(tag):
@@ -131,7 +131,7 @@ def main():
            CAST(dst_prior_events AS BIGINT) AS dst_prior_events,
            CAST(fail_1h AS BIGINT) AS fail_1h,
            CAST(vel_1h AS BIGINT) AS vel_1h,
-           hour, is_red, src_computer
+           hour, is_red, src_computer, is_ntlm
     FROM feat
     """
     result = con.execute(sql).fetchnumpy()
@@ -142,7 +142,7 @@ def main():
     # ── 2. Build numpy arrays ──
     t1 = time.time()
     feat_keys = ['dst_first', 'src_first', 'hour_events', 'user_events',
-                 'dst_prior_events', 'fail_1h', 'vel_1h', 'hour']
+                 'dst_prior_events', 'fail_1h', 'vel_1h', 'hour', 'is_ntlm']
     X_raw = np.column_stack([result[k].astype(np.float32) for k in feat_keys])
     y = result['is_red'].astype(bool)
     src_computers = result['src_computer']
@@ -153,7 +153,7 @@ def main():
 
     # ── 3. Derive features (in-place on copy) ──
     t1 = time.time()
-    X_all = np.empty((n, 8), dtype=np.float32)
+    X_all = np.empty((n, 9), dtype=np.float32)
     X_all[:, 0] = X_raw[:, 0]  # dst_first
     X_all[:, 1] = X_raw[:, 1]  # src_first
     ue = np.maximum(X_raw[:, 3], 1)
@@ -164,7 +164,8 @@ def main():
     h_rad = X_raw[:, 7] / 24.0 * 2 * np.pi
     X_all[:, 6] = np.sin(h_rad)  # hour_sin
     X_all[:, 7] = np.cos(h_rad)  # hour_cos
-    vprint(f"  derived 8 features {time.time()-t1:.1f}s {mem_msg('derive')}", args.verbose)
+    X_all[:, 8] = X_raw[:, 8]   # is_ntlm (binary 0/1)
+    vprint(f"  derived 9 features {time.time()-t1:.1f}s {mem_msg('derive')}", args.verbose)
 
     del X_raw, h_rad, ue, result
     gc.collect()
@@ -174,6 +175,7 @@ def main():
     X_log[:, 3] = np.log1p(X_log[:, 3])
     X_log[:, 4] = np.log1p(X_log[:, 4])
     X_log[:, 5] = np.log1p(X_log[:, 5])
+    # is_ntlm (index 8) is binary 0/1 — no log transform needed
     vprint(f"  log-transformed for IF {mem_msg('log')}", args.verbose)
 
     # ── 5. Stratified split on FULL data (all 702 reds in training) ──
@@ -214,9 +216,11 @@ def main():
     vprint(f"  IF fit done {t_if:.1f}s {mem_msg('if-fit')}", args.verbose)
 
     t2 = time.time()
-    # Score on train to get min/max (no test leakage)
+    # Score on train to get percentile-based min/max (no test leakage)
+    # Use p1/p99 instead of absolute min/max to widen live score spread
     if_scores_train_raw = -if_model.score_samples(X_train_if)
-    if_min, if_max = float(if_scores_train_raw.min()), float(if_scores_train_raw.max())
+    if_min = float(np.percentile(if_scores_train_raw, 1))
+    if_max = float(np.percentile(if_scores_train_raw, 99))
     if_range = if_max - if_min if if_max > if_min else 1.0
 
     if_scores_raw = -if_model.score_samples(X_test_if)

@@ -50,7 +50,7 @@ FLAG_THRESHOLD = float(os.environ.get("DEMO_FLAG_AT", "0.65"))
 
 LANL_FEATURES = [
     "dst_first", "src_first", "hour_ratio", "dst_prior_events",
-    "fail_1h", "vel_1h", "hour_sin", "hour_cos",
+    "fail_1h", "vel_1h", "hour_sin", "hour_cos", "is_ntlm",
 ]
 
 IF_LOG_FEATURES = ["dst_prior_events", "fail_1h", "vel_1h"]
@@ -58,7 +58,6 @@ IF_LOG_FEATURES = ["dst_prior_events", "fail_1h", "vel_1h"]
 # Training distribution bounds (p01-p99 from feat.parquet)
 # Clip features to these ranges so scoring matches training distribution
 FEATURE_CLIP = {
-    "hour_ratio": (0.0, 0.001),
     "dst_prior_events": (0, 600000),
     "vel_1h": (0, 10000),
     "fail_1h": (0, 3.0),
@@ -157,7 +156,7 @@ def load_models():
 
 
 def lanl_feature_sql(user_src: str) -> str:
-    """Compute 8 features matching the original training pipeline.
+    """Compute 9 features matching the training pipeline.
 
     Features computed from the user's event history:
       dst_first       1 if this is the first event to this destination
@@ -168,6 +167,7 @@ def lanl_feature_sql(user_src: str) -> str:
       vel_1h          events in last 3600 seconds
       hour_sin        sin(hour / 24 * 2pi)
       hour_cos        cos(hour / 24 * 2pi)
+      is_ntlm         1 if auth_type is NTLM, 0 otherwise
     """
     return f"""
     WITH user_events AS (
@@ -248,7 +248,10 @@ def lanl_feature_sql(user_src: str) -> str:
 
         -- hour_sin, hour_cos
         SIN(hour_f / 24.0 * 2 * {math.pi}) AS hour_sin,
-        COS(hour_f / 24.0 * 2 * {math.pi}) AS hour_cos
+        COS(hour_f / 24.0 * 2 * {math.pi}) AS hour_cos,
+
+        -- is_ntlm: binary flag for NTLM authentication
+        CASE WHEN auth_type = 'NTLM' THEN 1 ELSE 0 END AS is_ntlm
 
     FROM with_cumulative
     """
@@ -259,6 +262,7 @@ def _compute_if_score(features: np.ndarray) -> float:
 
     The model was trained on log1p-transformed features for:
       dst_prior_events (index 3), fail_1h (index 4), vel_1h (index 5)
+    is_ntlm (index 8) is binary — no log transform needed.
     """
     X = features.copy()
     feat_idx = {name: i for i, name in enumerate(LANL_FEATURES)}
@@ -343,7 +347,7 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         "vel_1h": int(feat_row["vel_1h"]), "fail_1h": float(feat_row["fail_1h"]),
     }
     dev_points, dev_reasons = _deviation_signals(fd, profile)
-    combined = if_score + 0.10 * min(dev_points, 3)
+    combined = if_score + 0.15 * min(dev_points, 3)
 
     if combined >= BLOCK_THRESHOLD:
         decision, level = "block", "critical"
