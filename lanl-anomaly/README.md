@@ -359,6 +359,35 @@ sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
 
 **ROC-AUC = 0.994 (combined)** → The model ranks attacks higher than normal events 99.4% of the time. Near-perfect separation.
 
+### Confusion Matrices: What's Actually Happening
+
+**Isolation Forest:**
+```
+                    Predicted Normal    Predicted Attack
+Actual Normal       8,971,305           131
+Actual Attack       204                 7
+```
+
+**LightGBM:**
+```
+                    Predicted Normal    Predicted Attack
+Actual Normal       8,965,603           5,833
+Actual Attack       75                  136
+```
+
+**Combined:**
+```
+                    Predicted Normal    Predicted Attack
+Actual Normal       8,971,127           178
+Actual Attack       108                 103
+```
+
+| Model | Catches | False Alarms | Trustworthy? |
+|-------|---------|-------------|-------------|
+| IF | 7/211 | 131 | YES — conservative but safe |
+| LGB | 136/211 | 5,833 | YES — catches 19x more |
+| Combined | 103/211 | 178 | YES — best balance |
+
 ### The Holdout Test: C17693
 
 One attacker machine was **held out** from training entirely: C17693 (the primary red-team foothold with 670 attack events).
