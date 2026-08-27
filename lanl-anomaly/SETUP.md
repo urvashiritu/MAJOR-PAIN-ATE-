@@ -114,7 +114,7 @@ lanl-anomaly/
 │   │   ├── js/components.js     # UI components
 │   │   ├── js/utils.js          # Utilities
 │   │   └── serve.py             # Static file proxy (port 8080)
-│   └── web/                     # React dashboard (optional)
+│   └── web/                     # React dashboard (optional, not used)
 ├── docs/                        # Documentation
 │   ├── model_deep_dive.md       # Technical deep dive
 │   ├── phase2_ppt.md            # Presentation slides

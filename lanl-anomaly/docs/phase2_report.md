@@ -83,7 +83,7 @@ Finally, we thank our family members and friends for their unwavering support an
 
 ## ABSTRACT
 
-Modern enterprises face identity-based cyber threats where attackers exploit valid credentials. Traditional rule-based systems fail when attacks mimic legitimate behavior. This project builds an AI-based Identity Anomaly Detection System using User and Entity Behavior Analytics (UEBA) on the LANL Cyber1 authentication dataset (29.9M events, 702 red-team labels). The system applies Isolation Forest for anomaly scoring, per-user habit deviation for behavioral context, and dynamic risk thresholds (flag >= 0.65, block >= 0.75). An interactive Flask+React dashboard visualizes alerts in real time. Testing across 24 scenarios confirms detection of credential abuse, unusual access patterns, and velocity anomalies with low false positives.
+Modern enterprises face identity-based cyber threats where attackers exploit valid credentials. Traditional rule-based systems fail when attacks mimic legitimate behavior. This project builds an AI-based Identity Anomaly Detection System using User and Entity Behavior Analytics (UEBA) on the LANL Cyber1 authentication dataset (29.9M events, 702 red-team labels). The system applies Isolation Forest for anomaly scoring, per-user habit deviation for behavioral context, and dynamic risk thresholds (flag >= 0.65, block >= 0.75). An interactive Flask+HTML/CSS/JS dashboard visualizes alerts in real time. Testing across 24 scenarios confirms detection of credential abuse, unusual access patterns, and velocity anomalies with low false positives.
 
 **Keywords:** Identity Anomaly Detection, UEBA, Isolation Forest, LANL Dataset, Behavioral Analytics, Authentication Logs
 
@@ -358,7 +358,7 @@ The system shall perform the following functions:
 | ML Libraries | scikit-learn (IsolationForest, StandardScaler), LightGBM, NumPy |
 | Database | DuckDB (embedded, zero-config) |
 | Backend Framework | Flask (Python) with SSE streaming |
-| Frontend | React 18, Vite 5, Tailwind CSS 3, Recharts |
+| Frontend | HTML, CSS, JavaScript, Chart.js |
 | Build Tools | Node.js (npm), Makefile |
 | Package Manager | pip (Python), npm (Node.js) |
 
@@ -376,7 +376,7 @@ The system follows a 5-stage pipeline architecture, as shown in Fig. 4.1.
 Input Layer          Feature Layer         Detection Layer      Decision Layer        Output Layer
 ┌──────────┐    ┌──────────────────┐    ┌────────────────┐    ┌────────────────┐    ┌──────────────┐
 │ Auth Log │───>│ SQL Window Funcs │───>│ Isolation Forest│───>│ Score Fusion   │───>│ Dashboard    │
-│ Events   │    │ 9 Behavioral     │    │ Anomaly Score  │    │ IF + Habit Dev │    │ (React SPA)  │
+│ Events   │    │ 9 Behavioral     │    │ Anomaly Score  │    │ IF + Habit Dev │    │ (HTML/CSS/JS) │
 │ (DuckDB) │    │ Features         │    │ (0 = normal,   │    │                │    │ + SSE Stream │
 │          │    │                  │    │  1 = anomaly)  │    │ block >= 0.75  │    │              │
 │          │    │ dst_first        │    │                │    │ flag  >= 0.65  │    │ Alerts       │
@@ -389,7 +389,7 @@ Input Layer          Feature Layer         Detection Layer      Decision Layer  
 └──────────┘    └──────────────────┘    └────────────────┘    └────────────────┘    └──────────────┘
 ```
 
-The Input Layer stores raw authentication events in DuckDB. The Feature Layer computes 9 behavioral features using SQL window functions over the user's event history. The Detection Layer applies the pre-trained Isolation Forest model to produce anomaly scores. The Decision Layer combines the IF score with per-user habit deviation points and classifies the event as allow, flag, or block. The Output Layer pushes the scored event to the React dashboard via SSE for real-time visualization.
+The Input Layer stores raw authentication events in DuckDB. The Feature Layer computes 9 behavioral features using SQL window functions over the user's event history. The Detection Layer applies the pre-trained Isolation Forest model to produce anomaly scores. The Decision Layer combines the IF score with per-user habit deviation points and classifies the event as allow, flag, or block. The Output Layer pushes the scored event to the HTML/CSS/JS dashboard via SSE for real-time visualization.
 
 ## 4.2 Workflow
 
@@ -477,10 +477,8 @@ The system is built using the following technologies:
 - NumPy: Numerical computation for feature transformations
 
 **Frontend:**
-- React 18: Component-based UI library for the dashboard
-- Vite 5: Build tool and development server
-- Tailwind CSS 3: Utility-first CSS framework for styling
-- Recharts: Charting library for risk distribution and trend visualizations
+- HTML, CSS, JavaScript: Vanilla frontend with no framework overhead
+- Chart.js: Interactive charts for risk distribution, threat gauge, and score trends
 
 **Build & Deployment:**
 - Makefile: Build automation with targets for training, demo, and testing
@@ -536,9 +534,9 @@ The storage layer manages persistent state in DuckDB:
 - **Alerts table:** Stores flagged and blocked events for the dashboard alert feed
 - **Demo metadata:** Stores time-shift parameters for live demo continuity
 
-### Module 4: Dashboard (`live/web/`)
+### Module 4: Dashboard (`live/vanilla-dashboard/`)
 
-The dashboard is a React single-page application (SPA) with the following components:
+The dashboard is an HTML/CSS/JS dashboard with the following components:
 
 - **KPI Cards:** Real-time counters for total events, alerts, blocked events, and affected users
 - **Alert Feed:** Live-updating list of flagged/blocked events with color-coded severity

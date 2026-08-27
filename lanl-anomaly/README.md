@@ -191,7 +191,7 @@ All 4 demo users are **real people from the LANL dataset** — not fabricated.
 | Feature Engine | SQL window functions over DuckDB |
 | Database | DuckDB (embedded, columnar) |
 | Backend | Flask (Python) with SSE streaming |
-| Frontend | React 18, Vite 5, Tailwind CSS 3, Recharts |
+| Frontend | HTML, CSS, JavaScript, Chart.js |
 
 ---
 
@@ -214,7 +214,7 @@ lanl-anomaly/
 │   ├── app.py               # Flask backend (REST + SSE)
 │   ├── db.py                # DuckDB storage + user profiles
 │   ├── seed_demo.py         # Seeds 4 real users from LANL data
-│   └── web/                 # React SPA dashboard
+│   └── vanilla-dashboard/   # HTML/CSS/JS dashboard
 ├── docs/                    # Documentation
 │   ├── model_deep_dive.md   # Full mathematical reference
 │   ├── phase2_ppt.md        # Presentation slides

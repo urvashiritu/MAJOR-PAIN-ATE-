@@ -11,7 +11,7 @@ Routes:
   GET  /api/alerts           recent alerts
   POST /api/alerts/<id>/ack  acknowledge alert
   GET  /api/health           system status
-  GET  /dashboard            serve React SPA
+  GET  /dashboard            serve HTML/CSS/JS dashboard
 
 Run:  venv/bin/python live/app.py   (then open http://127.0.0.1:5000)
 """

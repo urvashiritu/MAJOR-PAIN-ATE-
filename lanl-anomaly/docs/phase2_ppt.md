@@ -161,7 +161,7 @@ Rule-based identity monitoring systems fail to detect advanced attacks that mimi
 | ML Libraries | scikit-learn (Isolation Forest, StandardScaler), LightGBM, NumPy |
 | Database | DuckDB (embedded, zero-config) |
 | Backend Framework | Flask (Python) with SSE streaming |
-| Frontend | React 18, Vite 5, Tailwind CSS 3, Recharts |
+| Frontend | HTML, CSS, JavaScript, Chart.js |
 | Build Tools | Node.js (npm), Makefile |
 
 **Functional Requirements**
@@ -186,7 +186,7 @@ Rule-based identity monitoring systems fail to detect advanced attacks that mimi
 Input Layer          Feature Layer         Detection Layer      Decision Layer        Output Layer
 ┌──────────┐    ┌──────────────────┐    ┌────────────────┐    ┌────────────────┐    ┌──────────────┐
 │ Auth Log │───>│ SQL Window Funcs │───>│ Isolation Forest│───>│ Score Fusion   │───>│ Dashboard    │
-│ Events   │    │ 9 Behavioral     │    │ Anomaly Score  │    │ IF + Habit Dev │    │ (React SPA)  │
+│ Events   │    │ 9 Behavioral     │    │ Anomaly Score  │    │ IF + Habit Dev │    │ (HTML/CSS/JS) │
 │ (DuckDB) │    │ Features         │    │ (0 = normal,   │    │                │    │ + SSE Stream │
 │          │    │                  │    │  1 = anomaly)  │    │ block >= 0.75  │    │              │
 │          │    │ dst_first        │    │                │    │ flag  >= 0.65  │    │ Alerts       │
@@ -241,7 +241,7 @@ Combined score = IF_score + 0.15 * min(dev_points, 3). Classify: block (>= 0.75)
 | 1 | **Training Pipeline** (`src/`) | Loads features from DuckDB, trains IF + LGB models, tunes thresholds, saves model artifacts | feat.parquet (29.9M rows) | lanl_if.joblib, lanl_lgb.joblib, reports |
 | 2 | **Scoring Engine** (`live/scoring.py`) | Computes 9 features from user history via SQL, applies IF model, adds habit deviation, classifies risk | Raw auth event dict | Scored event dict (score, decision, reasons) |
 | 3 | **Storage Layer** (`live/db.py`) | DuckDB database managing users, events, alerts, user profiles, and demo metadata | SQL operations | Persistent state for dashboard |
-| 4 | **Dashboard** (`live/web/`) | React SPA with real-time SSE streaming, KPI cards, alert feed, threat gauge, investigation drawer | REST API + SSE stream | Visual alerts, user profiles, risk trends |
+| 4 | **Dashboard** (`live/vanilla-dashboard/`) | HTML/CSS/JS dashboard with real-time SSE streaming, KPI cards, alert feed, threat gauge, investigation drawer | REST API + SSE stream | Visual alerts, user profiles, risk trends |
 
 **Module Interaction:**
 - Training Pipeline produces model artifacts consumed by Scoring Engine
@@ -258,7 +258,7 @@ Combined score = IF_score + 0.15 * min(dev_points, 3). Classify: block (>= 0.75)
 - **Backend:** Python 3.12 + Flask (threaded, SSE streaming)
 - **ML:** scikit-learn (IsolationForest), LightGBM, NumPy
 - **Database:** DuckDB (embedded, columnar, zero-config)
-- **Frontend:** React 18 + Vite 5 + Tailwind CSS 3 + Recharts
+- **Frontend:** HTML, CSS, JavaScript, Chart.js
 - **Deployment:** Localhost demo, Makefile targets
 
 **Key Code — IF Score Computation**
