@@ -401,7 +401,7 @@ The workflow, illustrated in Fig. 4.2, consists of the following steps:
 
 2. **Event Storage:** The event is inserted into the DuckDB events table with a day-aligned time shift for live demo continuity.
 
-3. **Feature Computation:** SQL window functions compute 8 features from the user's stored history:
+3. **Feature Computation:** SQL window functions compute 9 features from the user's stored history:
    - dst_first: Whether this is the user's first visit to the destination computer
    - src_first: Whether this is the user's first event from the source computer
    - hour_ratio: Proportion of events in this hour relative to total user events

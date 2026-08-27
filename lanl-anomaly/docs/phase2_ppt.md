@@ -202,7 +202,7 @@ Input Layer          Feature Layer         Detection Layer      Decision Layer  
 **Data Flow:**
 1. Authentication event arrives (user_id, src_computer, dst_computer, auth_type, result)
 2. Event inserted into DuckDB events table
-3. SQL window functions compute 8 features from user's history
+3. SQL window functions compute 9 features from user's history
 4. Isolation Forest scores the feature vector (normalized 0–1)
 5. Per-user habit deviation adds context (+0.0 to +0.3)
 6. Combined score classified: allow / flag / block
@@ -239,7 +239,7 @@ Combined score = IF_score + 0.10 * min(dev_points, 3). Classify: block (>= 0.75)
 | # | Module | Description | Input | Output |
 |---|--------|-------------|-------|--------|
 | 1 | **Training Pipeline** (`src/`) | Loads features from DuckDB, trains IF + LGB models, tunes thresholds, saves model artifacts | feat.parquet (29.9M rows) | lanl_if.joblib, lanl_lgb.joblib, reports |
-| 2 | **Scoring Engine** (`live/scoring.py`) | Computes 8 features from user history via SQL, applies IF model, adds habit deviation, classifies risk | Raw auth event dict | Scored event dict (score, decision, reasons) |
+| 2 | **Scoring Engine** (`live/scoring.py`) | Computes 9 features from user history via SQL, applies IF model, adds habit deviation, classifies risk | Raw auth event dict | Scored event dict (score, decision, reasons) |
 | 3 | **Storage Layer** (`live/db.py`) | DuckDB database managing users, events, alerts, user profiles, and demo metadata | SQL operations | Persistent state for dashboard |
 | 4 | **Dashboard** (`live/web/`) | React SPA with real-time SSE streaming, KPI cards, alert feed, threat gauge, investigation drawer | REST API + SSE stream | Visual alerts, user profiles, risk trends |
 

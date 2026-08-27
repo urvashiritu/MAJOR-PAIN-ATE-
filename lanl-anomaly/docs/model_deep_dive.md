@@ -201,7 +201,7 @@ The 29.9M is the **source pool**. The model trains on **samples** from that pool
 
 # SECTION 3: HOW EACH FEATURE IS DERIVED
 
-The model uses **8 features** per event. Each is computed from the raw data using SQL window functions.
+The model uses **9 features** per event. Each is computed from the raw data using SQL window functions.
 
 ## Feature 1: `dst_first` — "Is this the first time you've been here?"
 
@@ -1084,13 +1084,13 @@ Why IF + habit deviation:
 ```
 Event arrives
     ↓
-Compute 8 features via SQL window functions
+Compute 9 features via SQL window functions
     ↓
 IF scores: if_score ∈ [0,1]
     ↓
 Habit deviation: dev_points ∈ {0,1,2,3}
     ↓
-Combined: combined = if_score + 0.10 × min(dev_points, 3)
+Combined: combined = if_score + 0.15 × min(dev_points, 3)
     ↓
 Classify:
   combined ≥ 0.75 → BLOCK
@@ -1102,4 +1102,4 @@ Classify:
 
 # SECTION 15: THE ENTIRE JOURNEY — One Paragraph
 
-We took 29.9 million raw authentication logs from Los Alamos National Laboratory, stored them in DuckDB (a database that processes data on disk without crashing your RAM), used SQL window functions to compute 8 behavioral features per event (first-time destination, first-time source, hour ratio, destination popularity, login failures, velocity, time-of-day sin/cos), split the data 70/30 with stratified sampling (preserving the 702 red events across both sets), trained an Isolation Forest model (which builds 200 decision trees each seeing only 256 random samples — that's how we handled 29.9M rows on a laptop), trained a LightGBM classifier for comparison (which saw all 20.9M training rows with scale_pos_weight=42,634 to handle the 1:42,634 class imbalance), combined them with equal weight, tuned the decision threshold to keep false positives under 5%, and saved the final model as a joblib file that scores new events in real-time by computing the same 8 features via SQL and outputting allow/flag/block decisions. The model achieves ROC-AUC of 0.879 (IF alone) and 0.916 (combined), with zero false positives on the test set. The holdout test on attacker C17693 (never seen during training) shows ROC-AUC of 0.57 — barely above random — revealing the system's real limitation: it struggles with completely novel attackers. But for known attack patterns, the system correctly identifies new machine access (score=0.73, block), wrong password escalation (score rises from 0.40 to 0.62 after 3 failures), burst detection (score=0.57-0.64, flag), and attacker replay (score=0.48-0.64, flag 12/15 events).
+We took 29.9 million raw authentication logs from Los Alamos National Laboratory, stored them in DuckDB (a database that processes data on disk without crashing your RAM), used SQL window functions to compute 9 behavioral features per event (first-time destination, first-time source, hour ratio, destination popularity, login failures, velocity, time-of-day sin/cos, NTLM flag), split the data 70/30 with stratified sampling (preserving the 702 red events across both sets), trained an Isolation Forest model (which builds 200 decision trees each seeing only 256 random samples — that's how we handled 29.9M rows on a laptop), trained a LightGBM classifier (which catches 64.5% of attacks with 0.07% FPR), combined them with weighted voting, and saved the final models as joblib files that score new events in real-time by computing the same 9 features via SQL and outputting allow/flag/block decisions. The model achieves ROC-AUC of 0.989 (IF alone) and 0.994 (combined), with near-zero false positives on the test set. IF catches 7 attacks with zero false alarms (conservative but safe). LGB catches 136 attacks with 5,833 false alarms (aggressive but catches more). Combined catches 103 attacks with only 178 false alarms (best balance). The holdout test on attacker C17693 (never seen during training) shows ROC-AUC of 0.57 — barely above random — revealing the system's real limitation: it struggles with completely novel attackers. But for known attack patterns, the system correctly identifies new machine access (score=0.73, block), wrong password escalation (score rises from 0.40 to 0.62 after 3 failures), burst detection (score=0.57-0.64, flag), and attacker replay (score=0.48-0.64, flag 12/15 events).
