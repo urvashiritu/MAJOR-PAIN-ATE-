@@ -8,3 +8,7 @@ screenshots/
 .env
 .venv/
 *.png
+.zcode/
+data
+node_modules/
+dist/

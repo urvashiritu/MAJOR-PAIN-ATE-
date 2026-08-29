@@ -61,7 +61,7 @@ git lfs pull   # downloads the actual .duckdb file
 ### Retrain IF + LGB (production dual-model)
 
 ```bash
-python src/02_retrain_both.py --verbose
+python src/03_retrain_both.py --verbose
 ```
 
 - Reads `feat` table from `lanl.duckdb`
@@ -69,20 +69,23 @@ python src/02_retrain_both.py --verbose
 - Runtime: ~5 min, requires ~6 GB RAM
 - See `reports/both_report.json` for metrics
 
-### Retrain IF only
+### Rebuild the dataset from raw (rarely needed)
+
+Only if you downloaded the original LANL archive (`archive.zip`, 7.1 GB) and want
+to reproduce the 29.9M dataset from scratch — see `docs/PROJECT_STORY.md`:
 
 ```bash
-python src/02_retrain_if.py --verbose
+# 00: stream-audit all 1.05B events (writes users.txt), then slice to 604 users
+unzip -p ~/Downloads/archive.zip auth.txt/auth.txt | python src/00_build_slice.py count
+unzip -p ~/Downloads/archive.zip auth.txt/auth.txt | python src/00_build_slice.py slice
+python src/00_build_slice.py load            # -> auth_slice table + slice.parquet
+
+# 01: compute the 9 features (self-verifying against the existing feat table)
+python src/01_build_features.py
+
+# 02: per-feature separation probe (red-team vs normal behavior, ROC-AUCs)
+python src/02_feature_probe.py
 ```
-
-### Run full ensemble comparison (4 models)
-
-```bash
-python src/01_anomaly_ensemble.py
-```
-
-- Reads `feat.parquet` (not included in repo — generate from `lanl.duckdb` first)
-- Outputs: `reports/lanl_ensemble_comparison.csv`
 
 ---
 
@@ -96,10 +99,10 @@ lanl-anomaly/
 │   ├── lanl_if.joblib           # Isolation Forest (2 MB)
 │   └── lanl_lgb.joblib          # LightGBM (1 MB)
 ├── src/                         # Training pipeline
-│   ├── 02_retrain_both.py       # Main: retrain IF + LGB
-│   ├── 02_retrain_if.py         # Retrain IF only
-│   ├── 01_anomaly_ensemble.py   # 4-model ensemble comparison
-│   └── 00_benchmark.py          # Timing benchmarks
+│   ├── 00_build_slice.py        # Stream 1.05B events -> audit + 604-user slice
+│   ├── 01_build_features.py     # 9 features via window SQL (self-verifying)
+│   ├── 02_feature_probe.py      # Per-feature separation probe (AUCs)
+│   └── 03_retrain_both.py       # Main: retrain IF + LGB
 ├── live/                        # Live scoring system
 │   ├── scoring.py               # Core scoring engine
 │   ├── app.py                   # Flask backend (port 5000)

@@ -24,7 +24,7 @@ mkdir -p data/raw/lanl
 gdown 147vxAEqS7hGj_KDSG8JJc2hLNq4lyd4c -O data/raw/lanl/lanl.duckdb
 
 # 4. Train
-python src/02_retrain_both.py --verbose
+python src/03_retrain_both.py --verbose
 ```
 
 Models save to `models/lanl_if.joblib` and `models/lanl_lgb.joblib`.
@@ -45,10 +45,22 @@ The `lanl.duckdb` file contains:
 
 ```bash
 # Retrain IF + LightGBM (production dual-model)
-python src/02_retrain_both.py --verbose
+python src/03_retrain_both.py --verbose
+```
 
-# Retrain IF only
-python src/02_retrain_if.py --verbose
+The full pipeline from raw data (rarely needed — the dataset above is ready to use):
+
+```bash
+# 00: audit the 1.05B stream -> users.txt, then slice to 604 users -> slice.csv.gz
+unzip -p ~/Downloads/archive.zip auth.txt/auth.txt | python src/00_build_slice.py count
+unzip -p ~/Downloads/archive.zip auth.txt/auth.txt | python src/00_build_slice.py slice
+python src/00_build_slice.py load          # slice.csv.gz -> auth_slice + slice.parquet
+
+# 01: compute the 9 features -> feat table + feat.parquet (self-verifying)
+python src/01_build_features.py
+
+# 02: per-feature separation probe (AUCs of attacks vs normal behavior)
+python src/02_feature_probe.py
 ```
 
 Runtime: ~5 minutes, requires ~6 GB RAM.
