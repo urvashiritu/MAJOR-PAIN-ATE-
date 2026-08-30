@@ -203,3 +203,84 @@
 - **Combined always worse than LGB alone** — IF drags it down
 - **Previous runs 1-4 numbers are INVALID** — non-deterministic splits produced different numbers each time
 - **Root cause was ORDER BY rowid** — DuckDB rowid is physical-storage-based, changes when table is rebuilt
+
+---
+
+## IF FINE-TUNE: Contamination sweep (if_finetune.py)
+> IF trains on ALL 29.9M normal events (not just train split).
+> Test on ALL 702 reds + 100k sampled normals.
+> 5 contamination values: mixed (702/29.9M), 1e-15, 1e-10, 1e-7, 0.5
+> Deterministic: same ORDER BY, RandomState(42), random_state=42
+> Runtime: 35 min
+
+### A. 9feat (original LANL)
+- IF-mixed:            TP=404  FP=615  ROC=0.9893
+- IF-normal (all 4):   TP=392  FP=426  ROC=0.9900 — identical for 1e-15, 1e-10, 1e-7, 0.5
+
+### B. 13feat
+- IF-mixed:            TP=393  FP=662  ROC=0.9903
+- IF-normal (all 4):   TP=415  FP=802  ROC=0.9891 — identical for all contamination values
+
+### C. 14feat (+pair_rank)
+- IF-mixed:            TP=440  FP=522  ROC=0.9940
+- IF-normal (all 4):   TP=389  FP=258  ROC=0.9951 — identical for all contamination values
+
+### Key findings
+- **Contamination doesn't affect score_samples()** — all 4 near-zero values produce identical results
+- **14feat is best for IF** — ROC=0.9951 (normal) vs 0.9900 (9feat)
+- **IF catches 389-440 attacks** vs LGB's 94 — 4-5x more attacks
+- **IF has more FPs** — 258-522 vs LGB's 372
+- **IF and LGB are complementary** — need overlap test to confirm ensemble value
+
+### IF vs LGB comparison
+| Model | TP | FP | ROC |
+|-------|-----|-----|-----|
+| LGB spw=3 (13feat) | 94 | 372 | 0.9994 |
+| IF-normal 14feat | 389 | 258 | 0.9951 |
+| IF-mixed 14feat | 440 | 522 | 0.9940 |
+
+---
+
+## OVERLAP TEST: IF + LGB on same test set (overlap_test.py)
+> Same GroupShuffleSplit as exp1.py (random_state=42).
+> Inner split: random_state=99, test_size=0.3 (196 reds in val for stable thresholds).
+> LGB trains on train-train (normal + attack), IF trains on train-train NORMALS ONLY.
+> Thresholds from train-val (no test leakage).
+> Test on full 5.4M rows (240 reds).
+> Runtime: ~12 min
+
+### Split sizes
+| Split | Rows | Reds |
+|-------|------|------|
+| Train | 24,505,602 | 462 |
+| Train-train | 10,307,044 | 266 |
+| Train-val | 14,198,558 | 196 |
+| Test | 5,399,886 | 240 |
+
+### Model performance
+| Model | Val | Thr | Test TP | Test FP | Test ROC |
+|-------|-----|-----|---------|---------|----------|
+| LGB (13feat) | 34/196 TP | 0.193475 | 67 | 194 | 0.9993 |
+| IF (13feat) | 28/196 TP | 0.719887 | 47 | 1,655 | 0.9931 |
+
+### Overlap analysis (240 test reds)
+| Category | Count | % |
+|----------|-------|---|
+| LGB only | 50 | 20.8% |
+| IF only | 6 | 2.5% |
+| Both | 13 | 5.4% |
+| Neither | 171 | 71.3% |
+| **Union** | **69** | **28.8%** |
+
+### FP analysis
+| Model | FP |
+|-------|-----|
+| LGB | 194 |
+| IF | 1,655 |
+
+### Key findings
+- **IF adds only 6 unique attacks** (2.5%) at cost of 1,461 extra FPs
+- **13/19 IF detections overlap with LGB** — high overlap, low complementarity
+- **Union catches 69/240 (28.8%)** vs LGB alone 63/240 (26.3%)
+- **IF is not worth the ensemble cost** — 6 extra detections per 1,461 extra FPs
+- **LGB alone is the better strategy** — higher TP/FP ratio
