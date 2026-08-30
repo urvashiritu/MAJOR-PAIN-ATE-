@@ -10,8 +10,9 @@ The events table carries LANL-native columns so the feature SQL
 computes features from raw history using fixed time windows.
 """
 import duckdb
+from pathlib import Path
 
-DB_PATH = "data/live.duckdb"
+DB_PATH = str(Path(__file__).parent / "live.duckdb")
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (

@@ -9,6 +9,8 @@ screenshots/
 .venv/
 *.png
 .zcode/
-data
+data/**/*.duckdb
+data/**/*.duckdb.wal
+data/**/*.csv.gz
 node_modules/
 dist/

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Experiment: 9 vs 13 features, tuned vs baseline LGB."""
+"""Experiment: 9 vs 13 vs 14 features, tuned vs baseline LGB."""
 import duckdb
 import numpy as np
 import time
@@ -20,15 +20,16 @@ SELECT dst_first, src_first, hour_events, user_events,
        CAST(fail_1h AS BIGINT) AS fail_1h,
        CAST(vel_1h AS BIGINT) AS vel_1h,
        hour, is_red, src_computer, src_user,
-       CASE WHEN ROW_NUMBER() OVER (PARTITION BY src_user, src_computer, dst_computer ORDER BY time) = 1
+       CASE WHEN ROW_NUMBER() OVER (PARTITION BY src_user, src_computer, dst_computer ORDER BY time, dst_user, auth_type, logon_type, orientation, result) = 1
             THEN 1.0 ELSE 0.0 END AS pair_first,
-       CASE WHEN ROW_NUMBER() OVER (PARTITION BY src_computer, dst_computer ORDER BY time) = 1
+       CASE WHEN ROW_NUMBER() OVER (PARTITION BY src_computer, dst_computer ORDER BY time, src_user, dst_user, auth_type, logon_type, orientation, result) = 1
             THEN 1.0 ELSE 0.0 END AS src_dst_pair_first,
        CAST(fail_1h AS DOUBLE) / (CAST(vel_1h AS DOUBLE) + 1.0) AS fail_rate,
        CASE WHEN dst_first = 1 AND is_ntlm THEN 1.0 ELSE 0.0 END AS dst_first_x_ntlm,
-       is_ntlm
+       is_ntlm,
+       CAST(ROW_NUMBER() OVER (PARTITION BY src_user, src_computer, dst_computer ORDER BY time, dst_user, auth_type, logon_type, orientation, result) AS DOUBLE) AS pair_rank
 FROM feat
-ORDER BY rowid
+ORDER BY time, src_user, dst_user, src_computer, dst_computer, auth_type, logon_type, orientation, result
 """).fetchnumpy()
 con.close()
 print(f"Loaded in {time.time()-t0:.1f}s")
@@ -65,6 +66,10 @@ X_13 = np.column_stack([X_9, pair_first.reshape(-1,1), src_dst_pair_first.reshap
 fnames13 = ['dst_first','src_first','hour_ratio','dst_prior_events','fail_1h',
             'vel_1h','hour_sin','hour_cos','is_ntlm',
             'pair_first','src_dst_pair_first','fail_rate','dst_first_x_ntlm']
+
+pair_rank = np.log1p(result['pair_rank'].astype(np.float32))
+X_14 = np.column_stack([X_13, pair_rank.reshape(-1,1)])
+fnames14 = fnames13 + ['log_pair_rank']
 
 holdout_mask = src_comps == 'C17693'
 gss = GroupShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
@@ -202,6 +207,60 @@ print(f"    Normal:  min={norm_p2.min():.6f} p50={np.median(norm_p2):.6f} p75={n
 
 print(f"\n  LGB-tuned-v2 feature importance:")
 for fn, imp in sorted(zip(fnames13, lgb_t2.feature_importances_), key=lambda x: -x[1]):
+    print(f"    {fn:<25} {imp:>5}")
+print(f"  [took {time.time()-t_sec:.1f}s]")
+
+# ====== E: IF normal-only vs IF mixed (13feat) ======
+t_sec = time.time()
+print("\n" + "="*70)
+print("E. IF normal-only vs IF mixed (13feat)")
+print("="*70)
+
+# IF mixed (already trained as if12 — just re-report)
+eval_it("IF-mixed (all data)", if12_scores, y_test)
+
+# IF normal-only: fit on non-red train rows only
+normal_mask = ~y_train
+X_tr_norm = X_tr12[normal_mask]
+if_norm = IsolationForest(n_estimators=200, contamination=0.05, max_samples=256, n_jobs=1, random_state=42)
+if_norm.fit(X_tr_norm)
+if_norm_scores = (-if_norm.score_samples(X_te12) - np.percentile(-if_norm.score_samples(X_tr_norm), 1)) / (np.percentile(-if_norm.score_samples(X_tr_norm), 99) - np.percentile(-if_norm.score_samples(X_tr_norm), 1))
+eval_it("IF-normal-only", if_norm_scores, y_test)
+
+print(f"  [took {time.time()-t_sec:.1f}s]")
+
+# ====== F: 14 features (+pair_rank), TUNED LGB v2 (spw=3) ======
+t_sec = time.time()
+print("\n" + "="*70)
+print("F. 14 features (+pair_rank), TUNED LGB v2 (spw=3, heavy regularization)")
+print("="*70)
+
+X_log14 = X_14.copy()
+X_log14[:, 3] = np.log1p(X_log14[:, 3])
+X_log14[:, 4] = np.log1p(X_log14[:, 4])
+X_log14[:, 5] = np.log1p(X_log14[:, 5])
+
+lgb_t3 = lgb.LGBMClassifier(
+    num_leaves=63, learning_rate=0.03, n_estimators=500,
+    scale_pos_weight=3, min_child_samples=100,
+    reg_alpha=0.5, reg_lambda=5.0,
+    random_state=42, n_jobs=1, verbose=-1
+)
+lgb_t3.fit(X_14[tr_idx], y_train)
+lgb_t3_scores = lgb_t3.predict_proba(X_14[te_idx])[:, 1]
+
+eval_it("IF-12feat", if12_scores, y_test)
+eval_it("LGB-14feat", lgb_t3_scores, y_test)
+eval_it("Comb-14feat", 0.5*if12_scores + 0.5*lgb_t3_scores, y_test)
+
+atk_p3 = lgb_t3_scores[y_test]
+norm_p3 = lgb_t3_scores[~y_test]
+print(f"\n  LGB-14feat prob distribution:")
+print(f"    Attacks: min={atk_p3.min():.4f} p25={np.percentile(atk_p3,25):.4f} p50={np.median(atk_p3):.4f} p75={np.percentile(atk_p3,75):.4f} max={atk_p3.max():.4f}")
+print(f"    Normal:  min={norm_p3.min():.6f} p50={np.median(norm_p3):.6f} p75={np.percentile(norm_p3,75):.6f} max={norm_p3.max():.6f}")
+
+print(f"\n  LGB-14feat feature importance:")
+for fn, imp in sorted(zip(fnames14, lgb_t3.feature_importances_), key=lambda x: -x[1]):
     print(f"    {fn:<25} {imp:>5}")
 print(f"  [took {time.time()-t_sec:.1f}s]")
 

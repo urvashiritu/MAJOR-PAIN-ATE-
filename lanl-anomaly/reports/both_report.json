@@ -1,3 +1,7 @@
+#This is the results of models that were presented on AUG 28 for presentation
+#it had no unique users in both test 20.9 and train 8.9 mil 
+#The 70/30 stratified split leaked 97% of red users into both train and test. The models memorized user patterns instead of learning generalizable behavior. The C17693 holdout section (ROC=0.57) is the only honest number — shows the model is basically guessing on unseen attackers.
+
 {
   "isolation_forest": {
     "pr_auc": 0.0063,
