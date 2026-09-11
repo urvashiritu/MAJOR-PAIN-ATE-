@@ -83,22 +83,32 @@ def build_vocab_from_db(con, limit=None):
 
 def load_tokens_and_reds(con, vocab, limit=None):
     cols = ", ".join(FIELDS)
-    sql = f"SELECT {cols}, is_red FROM feat ORDER BY time"
+    count_sql = "SELECT COUNT(*) FROM feat"
     if limit:
-        sql += f" LIMIT {limit}"
-    print("    fetching from DuckDB...")
-    df = con.execute(sql).fetchdf()
-    n = len(df)
-    print(f"    mapping to vocab IDs...")
-    # Build per-field value→id dicts for fast vectorized mapping
+        count_sql = f"SELECT COUNT(*) FROM (SELECT {cols}, is_red FROM feat ORDER BY time LIMIT {limit})"
+    n = con.execute(count_sql).fetchone()[0]
+
+    # Per-field value→id dicts for vectorized mapping
     field_maps = {}
     for field in FIELDS:
         field_maps[field] = {k.split(":", 1)[1]: v for k, v in vocab.items() if k.startswith(field + ":")}
+
     tokens = np.zeros((n, 6), dtype=np.int32)
-    for j, field in enumerate(FIELDS):
-        tokens[:, j] = df[field].map(field_maps[field]).values
-    is_red = df['is_red'].values.astype(bool)
-    del df
+    is_red = np.zeros(n, dtype=bool)
+    CHUNK = 1_000_000
+    loaded = 0
+    while loaded < n:
+        chunk_size = min(CHUNK, n - loaded)
+        q = f"SELECT {cols}, is_red FROM feat ORDER BY time OFFSET {loaded} LIMIT {chunk_size}"
+        df = con.execute(q).fetchdf()
+        end = loaded + len(df)
+        for j, field in enumerate(FIELDS):
+            tokens[loaded:end, j] = df[field].map(field_maps[field]).values
+        is_red[loaded:end] = df['is_red'].values.astype(bool)
+        del df
+        loaded = end
+        print(f"    {loaded/n*100:5.1f}% ({loaded:,}/{n:,})")
+
     return tokens.reshape(-1), is_red
 
 
