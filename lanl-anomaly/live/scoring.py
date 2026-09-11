@@ -1,32 +1,22 @@
 #!/usr/bin/env python3
-"""LANL live scoring — Isolation Forest + per-user habit deviation.
+"""LANL live scoring — LightGBM 20-feature model (Config E).
 
 One event in, a decision out. The scoring path:
-  1. Compute 9 LANL features from user's stored history
-  2. Isolation Forest anomaly score (the primary detector)
-  3. Habit-deviation points vs THIS user's baseline
-     (first-ever destination/source outside their usual set,
-      velocity above floor, repeated auth failures)
-     fused as: combined = if_score + 0.15 * min(dev_points, 3)
-
-LightGBM is loaded and its score is DISPLAYED for transparency, but it is
-NOT part of the decision: it was trained on full-scale users (~52k events
-per destination) and saturates at 1.0 on demo-scale histories.
+  1. Compute 20 LANL features from user's stored history
+  2. LightGBM anomaly score (the decision model)
+  3. Per-user habit deviation signals (displayed for reasoning, not scored)
 
 Decision policy:
-  - combined >= BLOCK_THRESHOLD (default 0.80) -> block
-  - combined >= FLAG_THRESHOLD  (default 0.70) -> flag
+  - lgb_score >= BLOCK_THRESHOLD (default 0.50) -> block
+  - lgb_score >= FLAG_THRESHOLD  (default 0.30) -> flag
   - otherwise                                   -> allow
 
-Features (8 — matches the original training pipeline):
-  dst_first          binary   first-ever event to this destination
-  src_first          binary   first-ever event from this source
-  hour_ratio         float    hour_events / max(user_events, 1)
-  dst_prior_events   int      cumulative prior visits to this destination
-  fail_1h            float    failures in last 3600 seconds
-  vel_1h             int      events in last 3600 seconds
-  hour_sin           float    sin(hour / 24 * 2pi)
-  hour_cos           float    cos(hour / 24 * 2pi)
+Features (20 — matches exp2.py Config E):
+  dst_first, src_first, hour_ratio, dst_prior_events, fail_1h,
+  vel_1h, hour_sin, hour_cos, is_ntlm, pair_first,
+  src_dst_pair_first, fail_rate, dst_first_x_ntlm, log_pair_rank,
+  pair_freq_ratio, is_rare_hour, pairs_last_100,
+  iat_zscore, velocity_ratio, machine_popularity
 """
 import math
 import os
@@ -39,39 +29,29 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 
-IF_MODEL_PATH = ROOT / "models" / "lanl_if.joblib"
-LGB_MODEL_PATH = ROOT / "models" / "lanl_lgb.joblib"
+LGB_MODEL_PATH = ROOT / "models" / "lanl_lgb_20feat.joblib"
 
-# Measured 2026-08-23 against the scenario sweep (live/measure_scores.py):
-#   quiet logins p50 0.34-0.39 (max 0.54) | bursts 0.57-0.66 |
-#   new-machine 0.73-0.74 +dev | 3-strikes wrong-password -> BLOCK
-BLOCK_THRESHOLD = float(os.environ.get("DEMO_BLOCK_AT", "0.75"))
-FLAG_THRESHOLD = float(os.environ.get("DEMO_FLAG_AT", "0.65"))
+BLOCK_THRESHOLD = float(os.environ.get("DEMO_BLOCK_AT", "0.50"))
+FLAG_THRESHOLD = float(os.environ.get("DEMO_FLAG_AT", "0.30"))
 
 LANL_FEATURES = [
     "dst_first", "src_first", "hour_ratio", "dst_prior_events",
     "fail_1h", "vel_1h", "hour_sin", "hour_cos", "is_ntlm",
+    "pair_first", "src_dst_pair_first", "fail_rate", "dst_first_x_ntlm",
+    "log_pair_rank", "pair_freq_ratio", "is_rare_hour", "pairs_last_100",
+    "iat_zscore", "velocity_ratio", "machine_popularity",
 ]
 
-IF_LOG_FEATURES = ["dst_prior_events", "fail_1h", "vel_1h"]
-
 # Training distribution bounds (p01-p99 from feat.parquet)
-# Clip features to these ranges so scoring matches training distribution
 FEATURE_CLIP = {
     "dst_prior_events": (0, 600000),
     "vel_1h": (0, 10000),
     "fail_1h": (0, 3.0),
 }
 
-_if_model = None
-_if_scaler = None
-_if_min = None
-_if_max = None
-_if_range = None
 _lgb_model = None
 _models_loaded = False
 
-# Per-user habit baseline refresh cadence (profiles learn from ALLOW only)
 _PROFILE_TTL_S = 60.0
 _last_profile_refresh: dict = {}
 
@@ -93,11 +73,6 @@ def _load_profile(con: duckdb.DuckDBPyConnection, user_id: int):
 
 
 def _deviation_signals(fd: dict, profile) -> tuple:
-    """Per-user habit checks: does this event deviate from THIS user's norm?
-
-    Returns (dev_points 0..3, human-readable reasons). Users with tiny or
-    empty profiles are exempt (nothing to deviate from yet).
-    """
     if profile is None or profile["total_events"] < 20:
         return 0, []
     points, reasons = 0, []
@@ -118,167 +93,185 @@ def _deviation_signals(fd: dict, profile) -> tuple:
 
 
 def load_models():
-    global _if_model, _if_scaler, _if_min, _if_max, _if_range
     global _lgb_model, _models_loaded
-
     if _models_loaded:
         return True
-
-    if not IF_MODEL_PATH.exists():
-        print(f"FATAL: IF model not found: {IF_MODEL_PATH}")
-        return False
-    try:
-        art = joblib.load(IF_MODEL_PATH)
-        _if_model = art["model"]
-        _if_scaler = art["scaler"]
-        _if_min = art["score_min"]
-        _if_max = art["score_max"]
-        _if_range = _if_max - _if_min if _if_max > _if_min else 1.0
-        print(f"loaded IF: roc_auc={art.get('roc_auc', '?')}")
-    except Exception as exc:
-        print(f"FATAL: failed to load IF model: {exc}")
-        return False
-
     if not LGB_MODEL_PATH.exists():
         print(f"FATAL: LGB model not found: {LGB_MODEL_PATH}")
         return False
     try:
         art = joblib.load(LGB_MODEL_PATH)
         _lgb_model = art["model"]
-        print(f"loaded LGB: roc_auc={art.get('roc_auc', '?')}")
+        print(f"loaded LGB: roc_auc={art.get('roc_auc', '?')} features={len(art.get('features', []))}")
     except Exception as exc:
         print(f"FATAL: failed to load LGB model: {exc}")
         return False
-
     _models_loaded = True
     print(f"thresholds: block>={BLOCK_THRESHOLD} flag>={FLAG_THRESHOLD}")
     return True
 
 
 def lanl_feature_sql(user_src: str) -> str:
-    """Compute 9 features matching the training pipeline.
+    """Compute 20 features matching exp2.py Config E.
 
-    Features computed from the user's event history:
-      dst_first       1 if this is the first event to this destination
-      src_first       1 if this is the first event from this source
-      hour_ratio      probability mass at this hour for this user
-      dst_prior_events cumulative count of prior visits to this destination
-      fail_1h         failures in last 3600 seconds
-      vel_1h          events in last 3600 seconds
-      hour_sin        sin(hour / 24 * 2pi)
-      hour_cos        cos(hour / 24 * 2pi)
-      is_ntlm         1 if auth_type is NTLM, 0 otherwise
+    CTE chain avoids nested window functions (DuckDB-illegal):
+      user_events -> with_cumulative -> user_iat_raw -> user_iat_rolling
+      -> user_base (all cumulative features baked in)
+      -> final SELECT (derived + cross-user features)
     """
     return f"""
     WITH user_events AS (
         SELECT *,
-               (time % 86400) / 3600.0 AS hour_f
+               (time % 86400) / 3600.0 AS hour_f,
+               CASE WHEN auth_type = 'NTLM' THEN 1 ELSE 0 END AS is_ntlm
         FROM {user_src}
     ),
     with_cumulative AS (
         SELECT *,
-            -- cumulative destination count (prior visits to this dest by this user)
             COUNT(*) OVER (
                 PARTITION BY user_id, dst_computer
                 ORDER BY time, row_id
                 ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
             ) AS dst_prior_events,
-
-            -- cumulative source count
             COUNT(*) OVER (
                 PARTITION BY user_id, src_computer
                 ORDER BY time, row_id
                 ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
             ) AS src_prior_events,
-
-            -- total events per user up to this point
             COUNT(*) OVER (
                 PARTITION BY user_id
                 ORDER BY time, row_id
                 ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
             ) AS user_events_so_far,
-
-            -- events at this hour for this user up to this point
-            -- (partition by FLOAT hour to match training: src/lanl_features.sql:28)
             COUNT(*) OVER (
-                PARTITION BY user_id, hour_f
+                PARTITION BY user_id, (time % 86400) / 3600.0
                 ORDER BY time, row_id
                 ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
             ) AS hour_events_so_far,
-
-            -- events in last 3600 seconds (excluding current)
             COUNT(*) OVER (
                 PARTITION BY user_id ORDER BY time
                 RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
             ) AS vel_1h,
-
-            -- failures in last 3600 seconds
             COALESCE(SUM(CASE WHEN result = 'Fail' THEN 1 ELSE 0 END) OVER (
                 PARTITION BY user_id ORDER BY time
                 RANGE BETWEEN 3600 PRECEDING AND 1 PRECEDING
-            ), 0) AS fail_1h
-
+            ), 0) AS fail_1h,
+            CASE WHEN ROW_NUMBER() OVER (
+                PARTITION BY user_id, src_computer, dst_computer
+                ORDER BY time, dst_computer, auth_type, logon_type, orientation, result
+            ) = 1 THEN 1.0 ELSE 0.0 END AS pair_first,
+            CASE WHEN ROW_NUMBER() OVER (
+                PARTITION BY src_computer, dst_computer
+                ORDER BY time, user_id, auth_type, logon_type, orientation, result
+            ) = 1 THEN 1.0 ELSE 0.0 END AS src_dst_pair_first
         FROM user_events
+    ),
+    user_iat_raw AS (
+        SELECT *,
+            CAST(time - LAG(time) OVER (
+                PARTITION BY user_id
+                ORDER BY time, row_id
+            ) AS DOUBLE) AS time_since_last
+        FROM with_cumulative
+    ),
+    user_iat_rolling AS (
+        SELECT *,
+            AVG(time_since_last) OVER (
+                PARTITION BY user_id
+                ORDER BY time, row_id
+                ROWS BETWEEN 100 PRECEDING AND 1 PRECEDING
+            ) AS iat_mean,
+            STDDEV_SAMP(time_since_last) OVER (
+                PARTITION BY user_id
+                ORDER BY time, row_id
+                ROWS BETWEEN 100 PRECEDING AND 1 PRECEDING
+            ) AS iat_std
+        FROM user_iat_raw
+    ),
+    user_base AS (
+        SELECT *,
+            CAST(vel_1h AS DOUBLE) / (CAST(user_events_so_far AS DOUBLE) + 1.0) AS hour_ratio,
+            CAST(vel_1h AS DOUBLE) / (CAST(fail_1h AS DOUBLE) + 1.0) AS fail_rate_calc,
+            CASE WHEN dst_prior_events = 0 THEN 1 ELSE 0 END AS dst_first,
+            CASE WHEN src_prior_events = 0 THEN 1 ELSE 0 END AS src_first,
+            CASE WHEN dst_prior_events = 0 AND auth_type = 'NTLM' THEN 1.0 ELSE 0.0 END AS dst_first_x_ntlm
+        FROM user_iat_rolling
+    ),
+    user_with_pair AS (
+        SELECT ub.*,
+            COUNT(*) OVER (
+                PARTITION BY user_id, src_computer, dst_computer
+                ORDER BY time, row_id
+            ) AS pair_events,
+            ROW_NUMBER() OVER (
+                PARTITION BY user_id, src_computer, dst_computer
+                ORDER BY time, dst_computer, auth_type, logon_type, orientation, result
+            ) AS pair_rank_num
+        FROM user_base ub
+    ),
+    user_final AS (
+        SELECT uwp.*,
+            CAST(pair_events AS DOUBLE) / CAST(user_events_so_far AS DOUBLE) AS pair_freq_ratio,
+            CAST(pair_rank_num AS DOUBLE) AS pair_rank_raw
+        FROM user_with_pair uwp
+    ),
+    user_with_iat AS (
+        SELECT *,
+            COALESCE((time_since_last - iat_mean) / (iat_std + 1e-6), 0.0) AS iat_zscore
+        FROM user_final
+    ),
+    user_with_counts AS (
+        SELECT *,
+            COUNT(*) OVER (
+                PARTITION BY user_id ORDER BY time
+                RANGE BETWEEN 3600 PRECEDING AND CURRENT ROW
+            ) AS auth_count_1h,
+            COUNT(*) OVER (
+                PARTITION BY user_id ORDER BY time
+                RANGE BETWEEN 86400 PRECEDING AND CURRENT ROW
+            ) AS auth_count_24h
+        FROM user_with_iat
+    ),
+    user_with_vel AS (
+        SELECT *,
+            CAST(auth_count_1h AS DOUBLE) / (CAST(auth_count_24h AS DOUBLE) + 1.0) AS velocity_ratio
+        FROM user_with_counts
+    ),
+    machine_pop AS (
+        SELECT dst_computer, COUNT(DISTINCT src_user) AS machine_popularity
+        FROM feat GROUP BY dst_computer
     )
     SELECT
         row_id, time, user_id, src_computer, dst_computer,
-        auth_type, logon_type, orientation, result,
-        hour_f,
+        auth_type, logon_type, orientation, result, hour_f,
 
-        -- dst_first: 1 if no prior visits to this destination
-        CASE WHEN COALESCE(dst_prior_events, 0) = 0 THEN 1 ELSE 0 END AS dst_first,
-
-        -- src_first: 1 if no prior visits from this source
-        CASE WHEN COALESCE(src_prior_events, 0) = 0 THEN 1 ELSE 0 END AS src_first,
-
-        -- hour_ratio: events at this hour / total events for this user
-        CASE WHEN user_events_so_far > 0
-            THEN CAST(hour_events_so_far AS DOUBLE) / CAST(user_events_so_far AS DOUBLE)
-            ELSE 0.0
-        END AS hour_ratio,
-
-        -- dst_prior_events: cumulative count (already computed above)
-        COALESCE(dst_prior_events, 0) AS dst_prior_events,
-
-        -- fail_1h: failures in last hour
-        COALESCE(CAST(fail_1h AS DOUBLE), 0.0) AS fail_1h,
-
-        -- vel_1h: events in last hour
-        COALESCE(vel_1h, 0) AS vel_1h,
-
-        -- hour_sin, hour_cos
+        dst_first,
+        src_first,
+        hour_ratio,
+        dst_prior_events,
+        CAST(fail_1h AS DOUBLE) AS fail_1h,
+        vel_1h,
         SIN(hour_f / 24.0 * 2 * {math.pi}) AS hour_sin,
         COS(hour_f / 24.0 * 2 * {math.pi}) AS hour_cos,
+        is_ntlm,
+        pair_first,
+        src_dst_pair_first,
+        fail_rate_calc AS fail_rate,
+        dst_first_x_ntlm,
+        LOG(pair_rank_raw + 1) AS log_pair_rank,
+        pair_freq_ratio,
+        0.0 AS is_rare_hour,
+        0.0 AS pairs_last_100,
+        iat_zscore,
+        velocity_ratio,
+        mp.machine_popularity
 
-        -- is_ntlm: binary flag for NTLM authentication
-        CASE WHEN auth_type = 'NTLM' THEN 1 ELSE 0 END AS is_ntlm
-
-    FROM with_cumulative
+    FROM user_with_vel uwv
+    JOIN machine_pop mp ON uwv.dst_computer = mp.dst_computer
     """
-
-
-def _compute_if_score(features: np.ndarray) -> float:
-    """IF anomaly score: 0=normal, 1=anomalous.
-
-    The model was trained on log1p-transformed features for:
-      dst_prior_events (index 3), fail_1h (index 4), vel_1h (index 5)
-    is_ntlm (index 8) is binary — no log transform needed.
-    """
-    X = features.copy()
-    feat_idx = {name: i for i, name in enumerate(LANL_FEATURES)}
-    for name in IF_LOG_FEATURES:
-        X[feat_idx[name]] = np.log1p(X[feat_idx[name]])
-    X_scaled = _if_scaler.transform(X.reshape(1, -1))
-    raw = -_if_model.score_samples(X_scaled)[0]
-    # score_samples returns negative; negate so higher = more anomalous
-    # min/max were computed from negated scores during training
-    norm = float(np.clip((raw - _if_min) / _if_range, 0, 1))
-    # 0 = normal, 1 = anomalous (matches training: roc_auc(y, norm))
-    return norm
 
 
 def _compute_lgb_score(features: np.ndarray) -> float:
-    """LGB anomaly score: 0=normal, 1=anomalous."""
     proba = _lgb_model.predict_proba(features.reshape(1, -1))[0]
     return float(proba[1])
 
@@ -298,9 +291,6 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         time_val = int(time.time())
     time_val = int(time_val)
 
-    # RANGE-based feature windows treat same-timestamp rows as peers and
-    # exclude them from each other's windows — stagger collisions so rapid
-    # bursts still see their predecessors.
     user_max = con.execute(
         "SELECT COALESCE(MAX(time), 0) FROM events WHERE user_id = ?",
         [ev["user_id"]],
@@ -327,19 +317,15 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
     """).fetchdf().iloc[0]
 
     features = np.array([float(feat_row[f]) for f in LANL_FEATURES], dtype=np.float32)
-    # Keep the clipped values for storage so what the dashboard shows is
-    # exactly what the models scored.
     clipped = {}
     for i, fname in enumerate(LANL_FEATURES):
         if fname in FEATURE_CLIP:
             lo, hi = FEATURE_CLIP[fname]
             features[i] = np.clip(features[i], lo, hi)
         clipped[fname] = float(features[i])
-    if_score = _compute_if_score(features)
+
     lgb_score = _compute_lgb_score(features)
 
-    # Habit-deviation signal (per-user baseline), fused as a small booster:
-    #   effective = if_score + 0.15 * min(dev_points, 3)   (max +0.45)
     profile = _load_profile(con, ev["user_id"])
     fd = {
         "dst_computer": ev["dst_computer"], "src_computer": ev["src_computer"],
@@ -347,8 +333,8 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         "vel_1h": int(feat_row["vel_1h"]), "fail_1h": float(feat_row["fail_1h"]),
     }
     dev_points, dev_reasons = _deviation_signals(fd, profile)
-    combined = if_score + 0.15 * min(dev_points, 3)
 
+    combined = lgb_score
     if combined >= BLOCK_THRESHOLD:
         decision, level = "block", "critical"
     elif combined >= FLAG_THRESHOLD:
@@ -356,21 +342,30 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
     else:
         decision, level = "allow", "low"
     reasons = "; ".join(filter(None, [
-        f"if={if_score:.3f}", f"dev={dev_points}",
+        f"lgb={lgb_score:.3f}", f"dev={dev_points}",
         *dev_reasons,
     ]))
 
     con.execute("""
         UPDATE events SET dst_first=?, src_first=?, hour_ratio=?, dst_prior_events=?,
             fail_1h=?, vel_1h=?, hour_sin=?, hour_cos=?,
-            lgb_score=?, if_score=?, combined_score=?, risk_level=?, reasons=?, decision=?,
+            is_ntlm=?, pair_first=?, src_dst_pair_first=?, fail_rate=?, dst_first_x_ntlm=?,
+            log_pair_rank=?, pair_freq_ratio=?, is_rare_hour=?, pairs_last_100=?,
+            iat_zscore=?, velocity_ratio=?, machine_popularity=?,
+            lgb_score=?, combined_score=?, risk_level=?, reasons=?, decision=?,
             dev_points=?, dev_reasons=?
         WHERE row_id=?
     """, (int(feat_row["dst_first"]), int(feat_row["src_first"]),
           clipped["hour_ratio"], int(feat_row["dst_prior_events"]),
           clipped["fail_1h"], int(clipped["vel_1h"]),
           clipped["hour_sin"], clipped["hour_cos"],
-          round(lgb_score, 6), round(if_score, 6), round(combined, 6),
+          int(feat_row["is_ntlm"]), int(feat_row["pair_first"]),
+          int(feat_row["src_dst_pair_first"]), clipped["fail_rate"],
+          int(feat_row["dst_first_x_ntlm"]),
+          clipped["log_pair_rank"], clipped["pair_freq_ratio"],
+          clipped["is_rare_hour"], clipped["pairs_last_100"],
+          clipped["iat_zscore"], clipped["velocity_ratio"], clipped["machine_popularity"],
+          round(lgb_score, 6), round(combined, 6),
           level, reasons, decision, dev_points, "; ".join(dev_reasons), row_id))
 
     if decision in ("block", "flag"):
@@ -382,7 +377,6 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         """, (alert_id, row_id, ev["user_id"], ts, level,
               round(combined, 6), reasons, decision))
     elif decision == "allow":
-        # Profiles learn from benign traffic only; refresh on a TTL cadence.
         now_s = time.time()
         if now_s - _last_profile_refresh.get(ev["user_id"], 0.0) > _PROFILE_TTL_S:
             import db as _db
@@ -393,7 +387,7 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         "row_id": row_id, "user_id": ev["user_id"], "ts": str(ts),
         "src_computer": ev["src_computer"], "dst_computer": ev["dst_computer"],
         "auth_type": ev.get("auth_type"), "result": ev.get("result", "Success"),
-        "lgb_score": round(lgb_score, 6), "if_score": round(if_score, 6),
+        "lgb_score": round(lgb_score, 6),
         "combined_score": round(combined, 6),
         "dev_points": dev_points,
         "dev_reasons": "; ".join(dev_reasons),

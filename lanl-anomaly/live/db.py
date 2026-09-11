@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS events (
     logon_type VARCHAR,
     orientation VARCHAR,
     result VARCHAR,
-    -- features (matching original 8-feature training)
+    -- features (13feat matching training pipeline)
     dst_first BOOLEAN,
     src_first BOOLEAN,
     hour_ratio DOUBLE,
@@ -43,6 +43,11 @@ CREATE TABLE IF NOT EXISTS events (
     fail_1h DOUBLE,
     hour_sin DOUBLE,
     hour_cos DOUBLE,
+    is_ntlm BOOLEAN,
+    pair_first BOOLEAN,
+    src_dst_pair_first BOOLEAN,
+    fail_rate DOUBLE,
+    dst_first_x_ntlm BOOLEAN,
     -- scores
     lgb_score DOUBLE,
     if_score DOUBLE,
@@ -103,6 +108,22 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("ALTER TABLE events ADD COLUMN dev_points INTEGER")
     if "dev_reasons" not in cols:
         con.execute("ALTER TABLE events ADD COLUMN dev_reasons TEXT")
+    if "is_ntlm" not in cols:
+        con.execute("ALTER TABLE events ADD COLUMN is_ntlm BOOLEAN")
+    if "pair_first" not in cols:
+        con.execute("ALTER TABLE events ADD COLUMN pair_first BOOLEAN")
+    if "src_dst_pair_first" not in cols:
+        con.execute("ALTER TABLE events ADD COLUMN src_dst_pair_first BOOLEAN")
+    if "fail_rate" not in cols:
+        con.execute("ALTER TABLE events ADD COLUMN fail_rate DOUBLE")
+    if "dst_first_x_ntlm" not in cols:
+        con.execute("ALTER TABLE events ADD COLUMN dst_first_x_ntlm BOOLEAN")
+    # 20feat migrations (Config E)
+    new_cols = ['pair_freq_ratio', 'is_rare_hour', 'pairs_last_100',
+                'pair_interval_ratio', 'iat_zscore', 'velocity_ratio', 'machine_popularity']
+    for col in new_cols:
+        if col not in cols:
+            con.execute(f"ALTER TABLE events ADD COLUMN {col} DOUBLE")
 
 
 def next_event_id(con: duckdb.DuckDBPyConnection) -> int:
