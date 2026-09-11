@@ -86,22 +86,27 @@ def load_tokens_and_reds(con, vocab, limit=None):
     sql = f"SELECT {cols}, is_red FROM feat ORDER BY time"
     if limit:
         sql += f" LIMIT {limit}"
-    rows = con.execute(sql).fetchall()
-    n = len(rows)
-    tokens = np.zeros(n * 6, dtype=np.int32)
-    is_red = np.zeros(n, dtype=bool)
-    for i, row in enumerate(rows):
-        for j, field in enumerate(FIELDS):
-            tokens[i * 6 + j] = vocab[f"{field}:{row[j]}"]
-        is_red[i] = bool(row[6])
-    return tokens, is_red
+    print("    fetching from DuckDB...")
+    df = con.execute(sql).fetchdf()
+    n = len(df)
+    print(f"    mapping to vocab IDs...")
+    # Build per-field value→id dicts for fast vectorized mapping
+    field_maps = {}
+    for field in FIELDS:
+        field_maps[field] = {k.split(":", 1)[1]: v for k, v in vocab.items() if k.startswith(field + ":")}
+    tokens = np.zeros((n, 6), dtype=np.int32)
+    for j, field in enumerate(FIELDS):
+        tokens[:, j] = df[field].map(field_maps[field]).values
+    is_red = df['is_red'].values.astype(bool)
+    del df
+    return tokens.reshape(-1), is_red
 
 
 def load_rowids(con, limit=None):
-    sql = "SELECT rowid FROM feat ORDER BY time"
+    sql = "SELECT rowid AS rid FROM feat ORDER BY time"
     if limit:
         sql += f" LIMIT {limit}"
-    return [r[0] for r in con.execute(sql).fetchall()]
+    return con.execute(sql).fetchdf()['rid'].tolist()
 
 
 def compute_surprisal(model, tokens, is_red, vocab_size, ctx, device, batch_size):
