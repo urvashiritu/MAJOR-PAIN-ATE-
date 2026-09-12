@@ -231,24 +231,31 @@ def main():
         print(f"VRAM: {vram:.1f} GB")
 
     t0 = time.time()
+    timings = []
     limit = args.dry_run if args.dry_run > 0 else None
     con = duckdb.connect(args.db)
 
+    t_step = time.time()
     print("Building vocabulary...")
     vocab, field_offsets, vocab_size = build_vocab_from_db(con, limit=None)  # always full vocab
     print(f"  Vocab size: {vocab_size:,}")
+    timings.append(("Vocab build", time.time() - t_step))
 
+    t_step = time.time()
     print(f"Loading tokens{' (dry-run: ' + str(limit) + ')' if limit else ''}...")
     tokens, is_red = load_tokens_and_reds(con, field_offsets, limit)
     n_events = len(is_red)
     print(f"  {n_events:,} events, {is_red.sum():,} red")
-    print(f"  Loaded in {time.time()-t0:.1f}s")
+    timings.append(("Token loading", time.time() - t_step))
 
+    t_step = time.time()
     print("Loading rowids for DuckDB update...")
     rowids = load_rowids(con, limit)
     con.close()
+    timings.append(("Rowid loading", time.time() - t_step))
 
     # Benign tokens for training (subsample to max_train events)
+    t_step = time.time()
     benign_event_idx = np.where(~is_red)[0]
     if len(benign_event_idx) > args.max_train:
         rng = np.random.RandomState(42)
@@ -256,6 +263,7 @@ def main():
     benign_flat = np.concatenate([np.arange(i*6, i*6+6) for i in benign_event_idx])
     benign_tokens = tokens[benign_flat]
     print(f"  Benign events for training: {len(benign_event_idx):,} ({len(benign_tokens):,} tokens)")
+    timings.append(("Train prep", time.time() - t_step))
 
     # Train
     train_ds = SeqDataset(benign_tokens, CONTEXT_WINDOW)
@@ -271,6 +279,7 @@ def main():
 
     print(f"\nTraining for {args.epochs} epochs...")
     use_amp = device.type == "cuda"
+    t_train_total = 0.0
     model.train()
     for epoch in range(args.epochs):
         ep_loss = 0.0
@@ -287,7 +296,10 @@ def main():
             optimizer.step()
             ep_loss += loss.item()
             n_batches += 1
-        print(f"  Epoch {epoch+1}/{args.epochs}: loss={ep_loss/n_batches:.4f} ({time.time()-t_ep:.1f}s)")
+        ep_time = time.time() - t_ep
+        t_train_total += ep_time
+        print(f"  Epoch {epoch+1}/{args.epochs}: loss={ep_loss/n_batches:.4f} ({ep_time:.1f}s)")
+    timings.append((f"Training ({args.epochs} epochs)", t_train_total))
 
     # Free training memory before scoring
     del train_dl, train_ds, benign_tokens, x, y
@@ -295,8 +307,12 @@ def main():
         torch.cuda.empty_cache()
 
     # Compute surprisal
+    t_step = time.time()
     print("\nComputing surprisal scores...")
     surprisal_scores = compute_surprisal(model, tokens, is_red, vocab_size, CONTEXT_WINDOW, device, args.batch_size)
+    score_time = time.time() - t_step
+    events_per_sec = n_events / score_time
+    timings.append((f"Scoring ({n_events:,} events)", score_time))
 
     # Stats
     red_s = surprisal_scores[is_red]
@@ -313,6 +329,7 @@ def main():
     if limit:
         print(f"\n[Dry-run] Skipping DuckDB write + verification.")
     else:
+        t_step = time.time()
         print("\nSaving surprisal to DuckDB...")
         con = duckdb.connect(args.db)
         has_col = con.execute(
@@ -334,19 +351,22 @@ def main():
         """)
         con.execute("DROP TABLE _map")
         con.close()
+        timings.append(("DuckDB write", time.time() - t_step))
 
+        t_step = time.time()
         con = duckdb.connect(args.db)
         n_null = con.execute("SELECT COUNT(*) FROM feat WHERE lstm_surprisal IS NULL").fetchone()[0]
         n_red_null = con.execute("SELECT COUNT(*) FROM feat WHERE is_red AND lstm_surprisal IS NULL").fetchone()[0]
         sample = con.execute("SELECT lstm_surprisal FROM feat WHERE is_red LIMIT 5").fetchall()
         con.close()
+        timings.append(("Verification", time.time() - t_step))
 
         print(f"\nVerification:")
         print(f"  NULL lstm_surprisal: {n_null:,} (should be 0)")
         print(f"  NULL on red events:  {n_red_null:,} (should be 0)")
         print(f"  Sample red scores: {[f'{s[0]:.4f}' for s in sample]}")
 
-    # Save model
+    t_step = time.time()
     model_dir = os.path.join(ROOT, "models") if os.path.isdir(os.path.join(ROOT, "models")) else ROOT
     model_path = os.path.join(model_dir, "lanl_lstm_surprisal.pt")
     torch.save({
@@ -356,7 +376,20 @@ def main():
         "vocab_size": vocab_size,
     }, model_path)
     print(f"  Model saved: {model_path}")
-    print(f"\nTotal time: {time.time()-t0:.0f}s")
+    timings.append(("Model save", time.time() - t_step))
+
+    # Timing summary
+    total = time.time() - t0
+    print(f"\n{'=' * 50}")
+    print(f"TIMING BREAKDOWN")
+    print(f"{'=' * 50}")
+    for label, dt in timings:
+        print(f"  {label:<30} {dt:>7.1f}s")
+    print(f"  {'─' * 38}")
+    print(f"  {'Total':<30} {total:>7.1f}s")
+    if "Scoring" in timings[0][0] or any("Scoring" in t[0] for t in timings):
+        print(f"  {'Throughput':<30} {events_per_sec:>7.0f} events/s")
+    print(f"{'=' * 50}")
 
 
 if __name__ == "__main__":
