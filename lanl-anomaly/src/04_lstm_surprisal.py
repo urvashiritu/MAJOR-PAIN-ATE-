@@ -35,7 +35,7 @@ FIELDS = ["src_user", "src_computer", "dst_computer", "auth_type", "logon_type",
 CONTEXT_WINDOW = 50
 HIDDEN_DIM = 128
 NUM_LAYERS = 2
-BATCH_SIZE = 64
+BATCH_SIZE = 512
 DEFAULT_EPOCHS = 2
 LR = 0.001
 
@@ -124,42 +124,86 @@ def load_rowids(con, limit=None):
 
 
 def compute_surprisal(model, tokens, is_red, vocab_size, ctx, device, batch_size):
+    """
+    Compute one surprisal score per event.
+
+    Each event consists of 6 tokens. We build a context ending immediately
+    before the event, append the event's 6 tokens, run the sequence once,
+    and score each of the 6 event tokens from the corresponding autoregressive
+    prediction position.
+
+    This is vectorized across the batch: no Python loop over individual
+    events or over the six target tokens.
+    """
     n_events = len(is_red)
     scores = np.zeros(n_events, dtype=np.float32)
+
     model.eval()
-    criterion = nn.CrossEntropyLoss()
+    use_amp = device.type == "cuda"
+
+    # We need ctx previous tokens + 6 event tokens. The model predicts the
+    # next token at every timestep, so the six event-token losses correspond
+    # to the final six prediction positions.
+    seq_len = ctx + 6
 
     with torch.no_grad():
         for start in range(0, n_events, batch_size):
             end = min(start + batch_size, n_events)
             bs = end - start
 
+            # Build:
+            #   [previous context of length ctx] + [current event's 6 tokens]
+            #
+            # For events near the beginning, left-pad with token 0 just like
+            # the original implementation.
+            event_starts = (np.arange(start, end, dtype=np.int64) * 6)
+            ctx_starts = np.maximum(0, event_starts - ctx)
+
+            # Vectorized fixed-length context construction.
+            # This creates a (bs, ctx) array without a Python loop over events.
             contexts = np.zeros((bs, ctx), dtype=np.int32)
-            targets = np.zeros((bs, 6), dtype=np.int32)
-            for i in range(bs):
-                tok_start = (start + i) * 6
-                ctx_start = max(0, tok_start - ctx)
-                c = tokens[ctx_start:tok_start]
-                if len(c) < ctx:
-                    c = np.concatenate([np.zeros(ctx - len(c), dtype=np.int32), c])
-                contexts[i] = c
-                targets[i] = tokens[tok_start:tok_start + 6]
 
-            x = torch.from_numpy(contexts).to(device)
-            t = torch.from_numpy(targets).to(device).long()
+            lengths = event_starts - ctx_starts
+            rows = np.arange(bs)
+            cols = ctx - lengths
 
-            logits = model(x)[:, -1, :]  # (bs, vocab_size)
+            for k in range(ctx):
+                src_idx = event_starts - ctx + k
+                valid = src_idx >= 0
+                if valid.any():
+                    contexts[valid, k] = tokens[src_idx[valid]]
 
-            # Per-event loss: mean cross-entropy over 6 target tokens
-            event_losses = torch.zeros(bs, device=device)
-            for j in range(6):
-                pe = nn.functional.cross_entropy(logits, t[:, j], reduction='none')
-                event_losses += pe
-            event_losses /= 6.0
-            scores[start:end] = event_losses.cpu().numpy()
+            event_tokens = tokens[event_starts[:, None] + np.arange(6)].astype(np.int32)
+            sequence = np.concatenate([contexts, event_tokens], axis=1)
+
+            x = torch.from_numpy(sequence).to(device=device, dtype=torch.long)
+
+            # Target for each timestep is the next token.
+            # We only need the final 6 predictions:
+            #   position ctx-1 predicts event token 1
+            #   position ctx   predicts event token 2
+            #   ...
+            #   position ctx+4 predicts event token 6
+            target = torch.from_numpy(event_tokens).to(device=device, dtype=torch.long)
+
+            with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=use_amp):
+                logits = model(x)[:, -7:-1, :]  # (bs, 6, vocab_size)
+
+                # Cross entropy over the six event-token predictions.
+                # Flatten so this becomes one vectorized operation.
+                loss = nn.functional.cross_entropy(
+                    logits.reshape(-1, vocab_size),
+                    target.reshape(-1),
+                    reduction="none",
+                ).reshape(bs, 6)
+
+                event_losses = loss.mean(dim=1)
+
+            scores[start:end] = event_losses.float().cpu().numpy()
 
             if (start // batch_size) % 50 == 0:
-                print(f"    {end/n_events*100:5.1f}% ({end:,}/{n_events:,})")
+                elapsed_pct = end / n_events * 100
+                print(f"    {elapsed_pct:5.1f}% ({end:,}/{n_events:,})")
 
     return scores
 
@@ -211,7 +255,7 @@ def main():
 
     # Train
     train_ds = SeqDataset(benign_tokens, CONTEXT_WINDOW)
-    train_dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=True)
+    train_dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=(device.type == 'cuda'))
     print(f"  Train samples: {len(train_ds):,}")
 
     model = SurprisalLSTM(vocab_size, HIDDEN_DIM, NUM_LAYERS).to(device)
@@ -228,7 +272,8 @@ def main():
         n_batches = 0
         t_ep = time.time()
         for x, y in train_dl:
-            x, y = x.to(device), y.to(device)
+            x = x.to(device, non_blocking=True)
+            y = y.to(device, non_blocking=True)
             optimizer.zero_grad()
             logits = model(x)
             loss = criterion(logits.reshape(-1, vocab_size), y.reshape(-1).long())
