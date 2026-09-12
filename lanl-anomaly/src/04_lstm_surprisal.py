@@ -8,9 +8,9 @@ Tokenization: each event = 6 tokens (src_user, src_computer, dst_computer,
 auth_type, logon_type, orientation). Each field gets its own ID range.
 
 Usage:
-  python src/04_lstm_surprisal.py              # train + score all events
-  python src/04_lstm_surprisal.py --epochs 1   # quick test
-  python src/04_lstm_surprisal.py --dry-run 10000  # run on first N events only
+  python src/04_lstm_surprisal.py                          # train + score all events
+  python src/04_lstm_surprisal.py --model path/to/model.pt # load trained model, skip training
+  python src/04_lstm_surprisal.py --dry-run 10000          # run on first N events only
 """
 import argparse
 import time
@@ -218,6 +218,7 @@ def main():
     ap.add_argument("--train-batch", type=int, default=TRAIN_BATCH)
     ap.add_argument("--batch-size", type=int, default=INFER_BATCH, help="Inference batch size")
     ap.add_argument("--max-train", type=int, default=500_000, help="Max benign events for training")
+    ap.add_argument("--model", type=str, default=None, help="Load saved model .pt, skip training")
     args = ap.parse_args()
 
     if os.environ.get("FORCE_CPU"):
@@ -233,15 +234,34 @@ def main():
     t0 = time.time()
     timings = []
     limit = args.dry_run if args.dry_run > 0 else None
-    con = duckdb.connect(args.db)
+    use_amp = device.type == "cuda"
+
+    if args.model:
+        # Load from saved .pt — skip vocab build + training
+        t_step = time.time()
+        print(f"Loading model from {args.model}...")
+        ckpt = torch.load(args.model, map_location=device, weights_only=False)
+        vocab = ckpt["vocab"]
+        field_offsets = ckpt["field_offsets"]
+        vocab_size = ckpt["vocab_size"]
+        model = SurprisalLSTM(vocab_size, HIDDEN_DIM, NUM_LAYERS).to(device)
+        model.load_state_dict(ckpt["model_state_dict"])
+        n_params = sum(p.numel() for p in model.parameters())
+        print(f"  Vocab size: {vocab_size:,}")
+        print(f"  Model params: {n_params:,} ({n_params * 4 / 1024**2:.1f} MB)")
+        timings.append(("Model load", time.time() - t_step))
+    else:
+        # Train from scratch
+        con = duckdb.connect(args.db)
+
+        t_step = time.time()
+        print("Building vocabulary...")
+        vocab, field_offsets, vocab_size = build_vocab_from_db(con, limit=None)
+        print(f"  Vocab size: {vocab_size:,}")
+        timings.append(("Vocab build", time.time() - t_step))
 
     t_step = time.time()
-    print("Building vocabulary...")
-    vocab, field_offsets, vocab_size = build_vocab_from_db(con, limit=None)  # always full vocab
-    print(f"  Vocab size: {vocab_size:,}")
-    timings.append(("Vocab build", time.time() - t_step))
-
-    t_step = time.time()
+    con = duckdb.connect(args.db) if not args.model or limit else con
     print(f"Loading tokens{' (dry-run: ' + str(limit) + ')' if limit else ''}...")
     tokens, is_red = load_tokens_and_reds(con, field_offsets, limit)
     n_events = len(is_red)
@@ -254,57 +274,59 @@ def main():
     con.close()
     timings.append(("Rowid loading", time.time() - t_step))
 
-    # Benign tokens for training (subsample to max_train events)
-    t_step = time.time()
-    benign_event_idx = np.where(~is_red)[0]
-    if len(benign_event_idx) > args.max_train:
-        rng = np.random.RandomState(42)
-        benign_event_idx = rng.choice(benign_event_idx, size=args.max_train, replace=False)
-    benign_flat = np.concatenate([np.arange(i*6, i*6+6) for i in benign_event_idx])
-    benign_tokens = tokens[benign_flat]
-    print(f"  Benign events for training: {len(benign_event_idx):,} ({len(benign_tokens):,} tokens)")
-    timings.append(("Train prep", time.time() - t_step))
+    if not args.model:
+        # Benign tokens for training (subsample to max_train events)
+        t_step = time.time()
+        benign_event_idx = np.where(~is_red)[0]
+        if len(benign_event_idx) > args.max_train:
+            rng = np.random.RandomState(42)
+            benign_event_idx = rng.choice(benign_event_idx, size=args.max_train, replace=False)
+        benign_flat = np.concatenate([np.arange(i*6, i*6+6) for i in benign_event_idx])
+        benign_tokens = tokens[benign_flat]
+        print(f"  Benign events for training: {len(benign_event_idx):,} ({len(benign_tokens):,} tokens)")
+        timings.append(("Train prep", time.time() - t_step))
 
-    # Train
-    train_ds = SeqDataset(benign_tokens, CONTEXT_WINDOW)
-    train_dl = DataLoader(train_ds, batch_size=args.train_batch, shuffle=True, num_workers=0, pin_memory=(device.type == 'cuda'))
-    print(f"  Train samples: {len(train_ds):,} (batch={args.train_batch})")
+        # Train
+        train_ds = SeqDataset(benign_tokens, CONTEXT_WINDOW)
+        train_dl = DataLoader(train_ds, batch_size=args.train_batch, shuffle=True, num_workers=0, pin_memory=(device.type == 'cuda'))
+        print(f"  Train samples: {len(train_ds):,} (batch={args.train_batch})")
 
-    model = SurprisalLSTM(vocab_size, HIDDEN_DIM, NUM_LAYERS).to(device)
-    n_params = sum(p.numel() for p in model.parameters())
-    print(f"  Model params: {n_params:,} ({n_params * 4 / 1024**2:.1f} MB)")
+        model = SurprisalLSTM(vocab_size, HIDDEN_DIM, NUM_LAYERS).to(device)
+        n_params = sum(p.numel() for p in model.parameters())
+        print(f"  Model params: {n_params:,} ({n_params * 4 / 1024**2:.1f} MB)")
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+        criterion = nn.CrossEntropyLoss()
 
-    print(f"\nTraining for {args.epochs} epochs...")
-    use_amp = device.type == "cuda"
-    t_train_total = 0.0
-    model.train()
-    for epoch in range(args.epochs):
-        ep_loss = 0.0
-        n_batches = 0
-        t_ep = time.time()
-        for x, y in train_dl:
-            x = x.to(device, non_blocking=True)
-            y = y.to(device, non_blocking=True)
-            optimizer.zero_grad()
-            with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=use_amp):
-                logits = model(x)
-                loss = criterion(logits.reshape(-1, vocab_size), y.reshape(-1).long())
-            loss.backward()
-            optimizer.step()
-            ep_loss += loss.item()
-            n_batches += 1
-        ep_time = time.time() - t_ep
-        t_train_total += ep_time
-        print(f"  Epoch {epoch+1}/{args.epochs}: loss={ep_loss/n_batches:.4f} ({ep_time:.1f}s)")
-    timings.append((f"Training ({args.epochs} epochs)", t_train_total))
+        print(f"\nTraining for {args.epochs} epochs...")
+        t_train_total = 0.0
+        model.train()
+        for epoch in range(args.epochs):
+            ep_loss = 0.0
+            n_batches = 0
+            t_ep = time.time()
+            for x, y in train_dl:
+                x = x.to(device, non_blocking=True)
+                y = y.to(device, non_blocking=True)
+                optimizer.zero_grad()
+                with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=use_amp):
+                    logits = model(x)
+                    loss = criterion(logits.reshape(-1, vocab_size), y.reshape(-1).long())
+                loss.backward()
+                optimizer.step()
+                ep_loss += loss.item()
+                n_batches += 1
+            ep_time = time.time() - t_ep
+            t_train_total += ep_time
+            print(f"  Epoch {epoch+1}/{args.epochs}: loss={ep_loss/n_batches:.4f} ({ep_time:.1f}s)")
+        timings.append((f"Training ({args.epochs} epochs)", t_train_total))
 
-    # Free training memory before scoring
-    del train_dl, train_ds, benign_tokens, x, y
-    if device.type == "cuda":
-        torch.cuda.empty_cache()
+        # Free training memory before scoring
+        del train_dl, train_ds, benign_tokens, x, y
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+    else:
+        print(f"\n[Skipping training — loaded from {args.model}]")
 
     # Compute surprisal
     t_step = time.time()
@@ -338,12 +360,12 @@ def main():
         if not has_col:
             con.execute("ALTER TABLE feat ADD COLUMN lstm_surprisal DOUBLE")
 
-        con.execute("CREATE TABLE _map(rid INTEGER, score DOUBLE)")
-        INSERT_BATCH = 500_000
-        for i in range(0, len(rowids), INSERT_BATCH):
-            chunk_r = rowids[i:i + INSERT_BATCH]
-            chunk_s = surprisal_scores[i:i + INSERT_BATCH]
-            con.executemany("INSERT INTO _map VALUES (?, ?)", list(zip(chunk_r, chunk_s.tolist())))
+        rowids_arr = np.array(rowids, dtype=np.int32)
+        con.execute("DROP TABLE IF EXISTS _map")
+        con.execute("""
+            CREATE TABLE _map AS
+            SELECT unnest($1)::INTEGER AS rid, unnest($2)::DOUBLE AS score
+        """, [rowids_arr, surprisal_scores.astype(np.float64)])
 
         con.execute("""
             UPDATE feat SET lstm_surprisal = m.score
@@ -369,13 +391,14 @@ def main():
     t_step = time.time()
     model_dir = os.path.join(ROOT, "models") if os.path.isdir(os.path.join(ROOT, "models")) else ROOT
     model_path = os.path.join(model_dir, "lanl_lstm_surprisal.pt")
-    torch.save({
-        "model_state_dict": model.state_dict(),
-        "vocab": vocab,
-        "field_offsets": field_offsets,
-        "vocab_size": vocab_size,
-    }, model_path)
-    print(f"  Model saved: {model_path}")
+    if not args.model:
+        torch.save({
+            "model_state_dict": model.state_dict(),
+            "vocab": vocab,
+            "field_offsets": field_offsets,
+            "vocab_size": vocab_size,
+        }, model_path)
+        print(f"  Model saved: {model_path}")
     timings.append(("Model save", time.time() - t_step))
 
     # Timing summary
