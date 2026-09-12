@@ -35,7 +35,8 @@ FIELDS = ["src_user", "src_computer", "dst_computer", "auth_type", "logon_type",
 CONTEXT_WINDOW = 50
 HIDDEN_DIM = 128
 NUM_LAYERS = 2
-BATCH_SIZE = 512
+TRAIN_BATCH = 128
+INFER_BATCH = 512
 DEFAULT_EPOCHS = 2
 LR = 0.001
 
@@ -214,7 +215,8 @@ def main():
     ap.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     ap.add_argument("--dry-run", type=int, default=0)
     ap.add_argument("--lr", type=float, default=LR)
-    ap.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    ap.add_argument("--train-batch", type=int, default=TRAIN_BATCH)
+    ap.add_argument("--batch-size", type=int, default=INFER_BATCH, help="Inference batch size")
     ap.add_argument("--max-train", type=int, default=500_000, help="Max benign events for training")
     args = ap.parse_args()
 
@@ -225,6 +227,8 @@ def main():
     print(f"Device: {device}")
     if device.type == "cuda":
         print(f"GPU: {torch.cuda.get_device_name(0)}")
+        vram = torch.cuda.get_device_properties(0).total_mem / 1024**3
+        print(f"VRAM: {vram:.1f} GB")
 
     t0 = time.time()
     limit = args.dry_run if args.dry_run > 0 else None
@@ -255,8 +259,8 @@ def main():
 
     # Train
     train_ds = SeqDataset(benign_tokens, CONTEXT_WINDOW)
-    train_dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=(device.type == 'cuda'))
-    print(f"  Train samples: {len(train_ds):,}")
+    train_dl = DataLoader(train_ds, batch_size=args.train_batch, shuffle=True, num_workers=0, pin_memory=(device.type == 'cuda'))
+    print(f"  Train samples: {len(train_ds):,} (batch={args.train_batch})")
 
     model = SurprisalLSTM(vocab_size, HIDDEN_DIM, NUM_LAYERS).to(device)
     n_params = sum(p.numel() for p in model.parameters())
@@ -266,6 +270,7 @@ def main():
     criterion = nn.CrossEntropyLoss()
 
     print(f"\nTraining for {args.epochs} epochs...")
+    use_amp = device.type == "cuda"
     model.train()
     for epoch in range(args.epochs):
         ep_loss = 0.0
@@ -275,13 +280,19 @@ def main():
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
             optimizer.zero_grad()
-            logits = model(x)
-            loss = criterion(logits.reshape(-1, vocab_size), y.reshape(-1).long())
+            with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=use_amp):
+                logits = model(x)
+                loss = criterion(logits.reshape(-1, vocab_size), y.reshape(-1).long())
             loss.backward()
             optimizer.step()
             ep_loss += loss.item()
             n_batches += 1
         print(f"  Epoch {epoch+1}/{args.epochs}: loss={ep_loss/n_batches:.4f} ({time.time()-t_ep:.1f}s)")
+
+    # Free training memory before scoring
+    del train_dl, train_ds, benign_tokens, x, y
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
 
     # Compute surprisal
     print("\nComputing surprisal scores...")
