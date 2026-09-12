@@ -81,42 +81,46 @@ def build_vocab_from_db(con, limit=None):
     return vocab, field_offsets, offset
 
 
-def load_tokens_and_reds(con, vocab, limit=None):
-    cols = ", ".join(FIELDS)
+def load_tokens_and_reds(con, field_offsets, limit=None):
     count_sql = "SELECT COUNT(*) FROM feat"
     if limit:
-        count_sql = f"SELECT COUNT(*) FROM (SELECT {cols}, is_red FROM feat ORDER BY time LIMIT {limit})"
+        count_sql = f"SELECT COUNT(*) FROM (SELECT 1 FROM feat ORDER BY time, rowid LIMIT {limit})"
     n = con.execute(count_sql).fetchone()[0]
+    print(f"  Loading {n:,} events with ENUM tokenization...")
 
-    # Per-field value→id dicts for vectorized mapping
-    field_maps = {}
     for field in FIELDS:
-        field_maps[field] = {k.split(":", 1)[1]: v for k, v in vocab.items() if k.startswith(field + ":")}
+        con.execute(f"""
+            CREATE OR REPLACE TYPE {field}_enum AS ENUM (
+                SELECT DISTINCT {field} FROM feat ORDER BY {field}
+            )
+        """)
 
-    tokens = np.zeros((n, 6), dtype=np.int32)
-    is_red = np.zeros(n, dtype=bool)
-    CHUNK = 1_000_000
-    loaded = 0
-    while loaded < n:
-        chunk_size = min(CHUNK, n - loaded)
-        q = f"SELECT {cols}, is_red FROM feat ORDER BY time OFFSET {loaded} LIMIT {chunk_size}"
-        df = con.execute(q).fetchdf()
-        end = loaded + len(df)
-        for j, field in enumerate(FIELDS):
-            tokens[loaded:end, j] = df[field].map(field_maps[field]).values
-        is_red[loaded:end] = df['is_red'].values.astype(bool)
-        del df
-        loaded = end
-        print(f"    {loaded/n*100:5.1f}% ({loaded:,}/{n:,})")
+    rank_exprs = []
+    for field in FIELDS:
+        rank_exprs.append(
+            f"enum_code({field}::{field}_enum) + {field_offsets[field]} AS {field}_id"
+        )
+    rank_exprs.append("is_red")
+
+    query = f"SELECT {', '.join(rank_exprs)} FROM feat ORDER BY time, rowid"
+    if limit:
+        query = f"SELECT * FROM ({query}) LIMIT {limit}"
+
+    data = con.execute(query).fetchnumpy()
+    tokens = np.column_stack([data[f"{f}_id"] for f in FIELDS]).astype(np.int32)
+    is_red = data["is_red"].astype(bool)
+
+    for field in FIELDS:
+        con.execute(f"DROP TYPE IF EXISTS {field}_enum")
 
     return tokens.reshape(-1), is_red
 
 
 def load_rowids(con, limit=None):
-    sql = "SELECT rowid AS rid FROM feat ORDER BY time"
+    sql = "SELECT rowid AS rid FROM feat ORDER BY time, rowid"
     if limit:
         sql += f" LIMIT {limit}"
-    return con.execute(sql).fetchdf()['rid'].tolist()
+    return con.execute(sql).fetchnumpy()['rid'].tolist()
 
 
 def compute_surprisal(model, tokens, is_red, vocab_size, ctx, device, batch_size):
@@ -170,21 +174,24 @@ def main():
     ap.add_argument("--max-train", type=int, default=500_000, help="Max benign events for training")
     args = ap.parse_args()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if os.environ.get("FORCE_CPU"):
+        device = torch.device("cpu")
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
     if device.type == "cuda":
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
     t0 = time.time()
     limit = args.dry_run if args.dry_run > 0 else None
-    con = duckdb.connect(args.db, read_only=True)
+    con = duckdb.connect(args.db)
 
     print("Building vocabulary...")
     vocab, field_offsets, vocab_size = build_vocab_from_db(con, limit=None)  # always full vocab
     print(f"  Vocab size: {vocab_size:,}")
 
     print(f"Loading tokens{' (dry-run: ' + str(limit) + ')' if limit else ''}...")
-    tokens, is_red = load_tokens_and_reds(con, vocab, limit)
+    tokens, is_red = load_tokens_and_reds(con, field_offsets, limit)
     n_events = len(is_red)
     print(f"  {n_events:,} events, {is_red.sum():,} red")
     print(f"  Loaded in {time.time()-t0:.1f}s")
@@ -272,7 +279,7 @@ def main():
         con.execute("DROP TABLE _map")
         con.close()
 
-        con = duckdb.connect(args.db, read_only=True)
+        con = duckdb.connect(args.db)
         n_null = con.execute("SELECT COUNT(*) FROM feat WHERE lstm_surprisal IS NULL").fetchone()[0]
         n_red_null = con.execute("SELECT COUNT(*) FROM feat WHERE is_red AND lstm_surprisal IS NULL").fetchone()[0]
         sample = con.execute("SELECT lstm_surprisal FROM feat WHERE is_red LIMIT 5").fetchall()
