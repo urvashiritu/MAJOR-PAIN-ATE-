@@ -390,8 +390,10 @@ def main():
         print(f"  Sample red scores: {[f'{s[0]:.4f}' for s in sample]}")
 
     t_step = time.time()
+    import datetime
     model_dir = os.path.join(ROOT, "models") if os.path.isdir(os.path.join(ROOT, "models")) else ROOT
-    model_path = os.path.join(model_dir, "lanl_lstm_surprisal.pt")
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_path = os.path.join(model_dir, f"lanl_lstm_{args.epochs}ep_bs{args.train_batch}_{timestamp}.pt")
     if not args.model:
         torch.save({
             "model_state_dict": model.state_dict(),
