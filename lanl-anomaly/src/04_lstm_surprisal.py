@@ -259,9 +259,10 @@ def main():
         vocab, field_offsets, vocab_size = build_vocab_from_db(con, limit=None)
         print(f"  Vocab size: {vocab_size:,}")
         timings.append(("Vocab build", time.time() - t_step))
+        con.close()
 
     t_step = time.time()
-    con = duckdb.connect(args.db) if not args.model or limit else con
+    con = duckdb.connect(args.db)
     print(f"Loading tokens{' (dry-run: ' + str(limit) + ')' if limit else ''}...")
     tokens, is_red = load_tokens_and_reds(con, field_offsets, limit)
     n_events = len(is_red)
