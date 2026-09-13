@@ -1,13 +1,15 @@
 """
-eval_lstm.py — Evaluate LSTM scores on held-out test set (RUN 7 / RUN 8 / RUN 10)
+eval_lstm.py — Evaluate LSTM scores on held-out test set (RUN 7 / RUN 8 / RUN 9 / RUN 10 / RUN 11)
 
 Same GroupShuffleSplit(random_state=42) as exp2.py -> 462 train / 240 test.
 LSTM scores already in DuckDB. LGB loaded from joblib.
 
 Usage:
-  ./venv/bin/python eval_lstm.py              # RUN 7: lstm_surprisal
-  ./venv/bin/python eval_lstm.py --ae-score   # RUN 8/9: lstm_ae_recon_error
-  ./venv/bin/python eval_lstm.py --latent-features  # RUN 10: 37feat (20+16latent+recon)
+  ./venv/bin/python eval_lstm.py                        # RUN 7: lstm_surprisal (20feat)
+  ./venv/bin/python eval_lstm.py --ae-score             # RUN 8/9: 20feat + AE recon
+  ./venv/bin/python eval_lstm.py --latent-features      # RUN 10: 37feat (20+16latent+recon)
+  ./venv/bin/python eval_lstm.py --features v2          # RUN 11: 22feat (20+auth_counts+smoothed_AE)
+  ./venv/bin/python eval_lstm.py --features v2-raw      # RUN 11: 22feat (20+auth_counts+raw_AE)
 """
 import argparse
 import time
@@ -21,6 +23,8 @@ from sklearn.metrics import roc_auc_score, average_precision_score, precision_re
 ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 ap.add_argument("--ae-score", action="store_true", help="Use LSTM-AE reconstruction error instead of surprisal")
 ap.add_argument("--latent-features", action="store_true", help="Use 37 features: 20 orig + 16 latent PCA + recon error")
+ap.add_argument("--features", choices=["v2", "v2-raw"], default=None,
+                help="v2: 20orig + auth_counts + smoothed_AE | v2-raw: same but raw AE")
 cli_args = ap.parse_args()
 
 t_start = time.time()
@@ -154,7 +158,9 @@ SELECT uv.dst_first, uv.src_first, uv.hour_events, uv.user_events,
        CAST(uv.auth_count_1h AS DOUBLE) / (CAST(uv.auth_count_24h AS DOUBLE) + 1.0) AS velocity_ratio,
        mp.machine_popularity,
        uv.lstm_surprisal,
-       uv.lstm_ae_recon_error
+       uv.lstm_ae_recon_error,
+       CAST(uv.auth_count_1h AS DOUBLE) AS auth_count_1h,
+       CAST(uv.auth_count_24h AS DOUBLE) AS auth_count_24h
 FROM user_velocity uv
 JOIN user_totals ut ON uv.src_user = ut.src_user
 JOIN pair_counts pc ON uv.src_user = pc.src_user
@@ -303,6 +309,8 @@ velocity_ratio = result['velocity_ratio'].astype(np.float32)
 machine_popularity = result['machine_popularity'].astype(np.float32)
 lstm_surprisal = result['lstm_surprisal'].astype(np.float64)
 lstm_ae_recon_error = result['lstm_ae_recon_error'].astype(np.float64)
+auth_count_1h = result['auth_count_1h'].astype(np.float32)
+auth_count_24h = result['auth_count_24h'].astype(np.float32)
 
 del result, pair_interval_ratio
 import gc; gc.collect()
@@ -365,6 +373,68 @@ print(f"  X_21 shape={X_21.shape}  {X_21.nbytes/1024/1024:.0f} MB")
 assert X_21.shape == (n, 21)
 assert not np.any(np.isnan(X_21))
 assert not np.any(np.isinf(X_21))
+
+# ============================================================
+# STEP 2c: V2 FEATURES (auth_counts + temporal smoothing)
+# ============================================================
+if cli_args.features:
+    section_header("STEP 2c: V2 FEATURES")
+    t0_v2 = timer_start()
+
+    # Temporal smoothing: 10-event rolling mean of AE recon error per user
+    print("  Computing smoothed AE recon error (10-event rolling mean per user)...")
+    ae_smoothed = np.zeros(n, dtype=np.float32)
+    window = 10
+
+    # Find user boundaries (src_users already sorted from SQL ORDER BY)
+    change_mask = np.zeros(n, dtype=bool)
+    change_mask[0] = True
+    change_mask[1:] = src_users[1:] != src_users[:-1]
+    u_starts = np.where(change_mask)[0]
+    u_ends = np.append(u_starts[1:], n)
+
+    for i in range(len(u_starts)):
+        s, e = u_starts[i], u_ends[i]
+        n_u = e - s
+        ae_slice = lstm_ae_recon_error[s:e].astype(np.float32)
+        if n_u <= window:
+            # Not enough events for full window, use all available
+            ae_smoothed[s:e] = ae_slice.mean()
+        else:
+            # Prefix sum for fast rolling mean
+            cs = np.cumsum(ae_slice)
+            # First window-1 elements: partial windows
+            for j in range(window - 1):
+                ae_smoothed[s + j] = cs[j] / (j + 1)
+            # Full windows: use prefix sum difference
+            ae_smoothed[s + window - 1:e] = (cs[window - 1:] - np.concatenate([[0], cs[:n_u - window]])) / window
+
+    print(f"  Smoothed AE stats: mean={ae_smoothed.mean():.6f} std={ae_smoothed.std():.6f}")
+    print(f"  Raw AE stats:      mean={lstm_ae_recon_error.mean():.6f} std={lstm_ae_recon_error.std():.6f}")
+
+    # Build X_23: X_21 + auth_count_1h + auth_count_24h + smoothed AE (replacing raw AE)
+    # Use smoothed AE as the AE feature instead of raw
+    X_21_no_ae = X_21[:, :20]  # first 20 features (exclude raw AE)
+    if cli_args.features == 'v2':
+        X_23 = np.column_stack([X_21_no_ae, ae_smoothed.reshape(-1,1),
+                                auth_count_1h.reshape(-1,1), auth_count_24h.reshape(-1,1)])
+        fnames23 = fnames21[:20] + ['lstm_ae_smoothed', 'auth_count_1h', 'auth_count_24h']
+    else:  # v2-raw
+        X_23 = np.column_stack([X_21_no_ae, lstm_ae_recon_error.reshape(-1,1).astype(np.float32),
+                                auth_count_1h.reshape(-1,1), auth_count_24h.reshape(-1,1)])
+        fnames23 = fnames21[:20] + ['lstm_ae_recon_error', 'auth_count_1h', 'auth_count_24h']
+
+    print(f"  X_23 shape={X_23.shape}  {X_23.nbytes/1024/1024:.0f} MB")
+    assert X_23.shape == (n, 23)
+    assert not np.any(np.isnan(X_23))
+    assert not np.any(np.isinf(X_23))
+
+    del auth_count_1h, auth_count_24h, ae_smoothed, change_mask, u_starts, u_ends
+    import gc; gc.collect()
+
+    timer_end("STEP 2c: V2 features", t0_v2)
+    print(f"  [{time.time()-t_start:6.1f}s] V2 features built")
+
 timer_end("STEP 2: Feature build", t0)
 print(f"  [{time.time()-t_start:6.1f}s] Features built")
 del iat_zscore, velocity_ratio, machine_popularity, pairs_last
@@ -431,6 +501,11 @@ if cli_args.latent_features:
     X = X_37
     fnames = fnames37
     n_features = 37
+    del X_21
+elif cli_args.features:
+    X = X_23
+    fnames = fnames23
+    n_features = 23
     del X_21
 else:
     X = X_21

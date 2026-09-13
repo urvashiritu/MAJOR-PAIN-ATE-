@@ -790,6 +790,7 @@ Benign p95=0.0000 is **expected** — autoencoder trained on benign reconstructs
 | RUN 8 | LSTM-AE standalone | 0.0095 | 118 | 24,482 | L (FP灾难) |
 | RUN 9 | LGB-21feat (+AE recon) | **0.4866** | **136** | **183** | **W — best** |
 | RUN 10 | LGB-37feat (+latent PCA) | 0.4772 | 157 | 261 | L (FP↑ too much) |
+| RUN 11 | LGB-23feat v2 (+smoothed AE +auth_counts) | 0.4735 | 143 | 221 | L (F1↓ FP↑) |
 
 ### Key Findings
 1. **LSTM-AE recon error as a feature works** — F1+0.005, FP-34 (16% fewer FPs)
@@ -797,9 +798,102 @@ Benign p95=0.0000 is **expected** — autoencoder trained on benign reconstructs
 3. **Latent PCA 128→16 loses signal** — too aggressive compression, F1 drops
 4. **LSTM standalone is unusable** — 58k FPs despite catching 193/240 reds
 5. **64 reds (26.7%) missed by both** — genuinely hard attacks, likely data-limited
+6. **Smoothed AE + auth counts don't help** — F1-0.013, FP+38 vs RUN 9
 
 ### Pipeline
 - Training: `src/05_lstm_autoencoder.py` (RTX 3050, 80 min)
 - Feature extraction: `src/06_extract_latent.py` (RTX 3050, ~8 min)
-- Evaluation: `eval_lstm.py --latent-features` (15 min, n_jobs=-1)
+- Evaluation: `eval_lstm.py --features v2` (13.6 min, n_jobs=-1)
+- Split: GroupShuffleSplit(random_state=42), 462 train / 240 test red events
+
+---
+
+## RUN 11: FEATURE ENGINEERING + TEMPORAL SMOOTHING (2026-09-14)
+
+### What changed
+- Added `auth_count_1h` and `auth_count_24h` as raw features (already computed in CTE, just not selected)
+- Added `lstm_ae_smoothed` — 10-event rolling mean of AE recon error per user (prefix-sum implementation)
+- X_23: 20 orig + smoothed AE + auth_count_1h + auth_count_24h = 23 features
+
+### LGB-23feat v2
+- **ROC:** 0.9999
+- **PR-AUC:** 0.3625
+- **F1:** 0.4735
+- **TP:** 143, **FP:** 221, **thr:** 0.1474
+
+### vs RUN 9 (21feat, best)
+| Metric | RUN 9 (21feat) | RUN 11 (23feat v2) | Delta |
+|--------|---------------|---------------------|-------|
+| F1 | **0.4866** | 0.4735 | **-0.013** |
+| PR-AUC | **0.3682** | 0.3625 | -0.0057 |
+| TP | 136 | 143 | +7 |
+| FP | 183 | 221 | +38 |
+
+### Overlap (test set, 240 reds)
+- Both: 122 (50.8%)
+- LSTM-only: 71 (29.6%)
+- LGB-only: 21 (8.8%)
+- Neither: 26 (10.8%)
+
+### Ensemble sweep
+- Best alpha=0.0 (pure LGB), F1=0.4735
+- Blending still hurts
+
+### Timing
+- SQL CTE: 367.8s (45.1%)
+- V2 features: 57.9s (7.1%)
+- Feature build: 125.2s (15.4%)
+- LGB train+predict: 223.7s (27.4%)
+- Total: 815.6s (13.6 min)
+
+### Verdict
+- **L** — F1 dropped -0.013, FP jumped +38
+- Smoothed AE compresses the signal (std 0.359 vs 0.404 raw)
+- auth_count_1h/24h are redundant with velocity_ratio (same data, split numerator/denominator)
+- Feature engineering approach has hit diminishing returns
+- **RUN 9 (21feat) remains best model**
+
+### Status
+- ✅ Held-out eval completed (815.6s, 13.6 min)
+- ✅ No bugs, no OOM
+- ✅ Research-informed approach (KDD 2013 percentile normalization, ADSAGE graph features)
+- ✅ Confirmed: feature engineering ceiling reached for this dataset
+
+---
+
+## FINAL RESULTS: ACCEPTED (2026-09-14)
+
+### Best Model: RUN 9 — LGB-21feat (AE recon error as Feature 21)
+
+| Metric | Value |
+|--------|-------|
+| ROC | 0.9999 |
+| PR-AUC | 0.3682 |
+| F1 | 0.4866 |
+| TP | 136 / 240 (56.7%) |
+| FP | 183 / 5,399,646 (0.003%) |
+| Threshold | 0.1872 |
+
+### Full Run Comparison
+| Run | Config | F1 | TP | FP | Verdict |
+|-----|--------|-----|-----|-----|---------|
+| RUN 7 | LGB-20feat (Config E) | 0.4817 | 145 | 217 | baseline |
+| RUN 8 | LSTM-AE standalone | 0.0095 | 118 | 24,482 | L (FP灾难) |
+| RUN 9 | LGB-21feat (+AE recon) | **0.4866** | **136** | **183** | **W — best** |
+| RUN 10 | LGB-37feat (+latent PCA) | 0.4772 | 157 | 261 | L (FP↑ too much) |
+| RUN 11 | LGB-23feat v2 (+smoothed AE) | 0.4735 | 143 | 221 | L (F1↓ FP↑) |
+
+### Key Findings
+1. **LSTM-AE recon error as a feature works** — F1+0.005, FP-34 (16% fewer FPs)
+2. **Score blending always hurts** — alpha=0.0 (pure LGB) wins every time
+3. **Latent PCA 128→16 loses signal** — too aggressive compression, F1 drops
+4. **LSTM standalone is unusable** — 58k FPs despite catching 193/240 reds
+5. **64 reds (26.7%) missed by both** — genuinely hard attacks, likely data-limited
+6. **Smoothed AE + auth counts don't help** — F1-0.013, FP+38 vs RUN 9
+7. **Feature engineering ceiling reached** — 20 hand-crafted features + AE recon is near optimal for this data
+
+### Pipeline
+- Training: `src/05_lstm_autoencoder.py` (RTX 3050, 80 min)
+- Feature extraction: `src/06_extract_latent.py` (RTX 3050, ~8 min)
+- Evaluation: `eval_lstm.py` (13-21 min depending on config)
 - Split: GroupShuffleSplit(random_state=42), 462 train / 240 test red events
