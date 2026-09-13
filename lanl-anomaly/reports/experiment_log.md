@@ -410,3 +410,136 @@
 - **IF confirmed useless** — IF adds only 6 unique attacks at cost of 1,461 extra FPs (from overlap_test)
 - **Best pipeline config:** GroupShuffleSplit, spw=3, 20 features, LGB-only scoring (no IF)
 - **Next:** Settle training pipeline to 20feat, update live scoring, then iterate on reducing FP or catching the 84 missed attacks
+
+---
+
+## RUN 7: LSTM SURPRISAL (2026-09-12 training, 2026-09-13 scoring+eval)
+> **Approach:** Train LSTM surprisal model on benign events only, score all 29.9M events, evaluate on held-out test set.
+> **Why:** LGB catches 150/240 test reds (62.5%) — LSTM learns sequential patterns that LGB features miss.
+> **Split:** Same GroupShuffleSplit(random_state=42) as Runs 1-6. 462 train / 240 test red.
+
+### Training (Google Colab, Tesla T4, 14.6GB VRAM)
+- **Notebook:** `finetune3.ipynb` (3 training runs, final run used)
+- **Script:** `src/04_lstm_surprisal.py` (trains + scores in one shot)
+- **Model:** `SurprisalLSTM` — 128 hidden, 2 layers, context window=50 tokens
+- **Vocab:** ENUM tokenization, 16,874 unique tokens
+- **Training data:** 500,000 benign events (3,000,000 tokens) — NO red events in training
+- **Training:** 2 epochs, batch size 128, ~2,999,950 samples
+- **Epoch 1 loss:** 2.1484 (635.5s)
+- **Epoch 2 loss:** 1.4864 (636.9s)
+- **Model params:** 4,600,810 (17.6 MB)
+- **Model file:** `models/lanl_lstm_2ep_bs128_20260912_133015.pt`
+
+### Scoring (local RTX 3050 6GB, ~30 min)
+- Loaded saved .pt weights (skipped training, used `--model` flag)
+- Scored all 29,905,488 events autoregressively (50-token context window)
+- Throughput: 16,850 events/s
+- Wrote `lstm_surprisal` column to local DuckDB (`data/raw/lanl/lanl.duckdb`)
+
+### Training-set stats (ALL events, NOT held-out — caveat emptor)
+- **Benign:** mean=1.5654, p95=2.4526
+- **Red:** mean=8.0219, p95=11.3828
+- **Red > benign p95:** 701/702 (99.9%) — **this is on ALL events, not held-out**
+- **IMPORTANT:** These numbers include test set events. Honest generalization measured below.
+
+### Standalone LSTM on test set
+- **ROC-AUC:** 0.9905
+- **PR-AUC:** 0.0022
+- **F1:** 0.0065
+- **TP:** 193 / 240 (80.4%)
+- **FP:** 58,963
+- **Threshold:** 4.5493
+- **Test benign mean:** 1.9887, p95: 2.8200
+- **Test red mean:** 6.8820, p95: 9.9360
+- **Verdict:** Excellent recall, catastrophic precision. Catches 80.4% of reds but floods with 58k FPs (256x more than LGB). ROC is high — it ranks attacks correctly, just can't threshold cleanly.
+
+### Standalone LGB on test set (for comparison)
+- **ROC-AUC:** 0.9999
+- **PR-AUC:** 0.3530
+- **F1:** 0.4715
+- **TP:** 145 / 240 (60.4%)
+- **FP:** 230
+- **Threshold:** 0.1263
+- **Verdict:** Near-perfect ranking, clean FP profile. Matches Run 6 Config E (minor LGB non-determinism: TP=145 vs 150).
+
+### Overlap analysis (LSTM vs LGB on 240 test reds)
+- **Both catch:** 122 (50.8%)
+- **LSTM-only:** 71 (29.6%) — LSTM's unique value, catches attacks LGB misses
+- **LGB-only:** 23 (9.6%) — LGB's unique value
+- **Neither:** 24 (10.0%) — both miss these
+- **Verdict:** Models are highly complementary. 71 reds caught ONLY by LSTM = real sequential signal. 23 caught ONLY by LGB = real feature signal. 24 missed by both = genuinely hard attacks.
+
+### Ensemble sweep (alpha * LSTM + (1-alpha) * LGB)
+- **Best alpha:** 0.0 (pure LGB)
+- **Best F1:** 0.4715 (TP=145, FP=230)
+- **Verdict:** Blending scores FAILS. Even alpha=0.1 drops F1 to 0.4606. LSTM's 58k FPs poison any blend. The ensemble approach of blending raw scores is dead.
+
+### Runtime
+- **Total:** 1068s (17.8 min)
+- **Query:** 120.5s | **Features:** 108.5s | **Split:** 41.4s | **LGB train:** 493.8s | **LGB predict:** 258.1s | **Eval:** 44.9s
+
+### Status (updated 2026-09-13)
+- ✅ Model trained on Colab T4 (2ep, bs128, 17.6 MB)
+- ✅ Model downloaded locally (`models/lanl_lstm_2ep_bs128_20260912_133015.pt`)
+- ✅ All 29.9M events scored locally on RTX 3050, saved to DuckDB
+- ✅ `eval_lstm.py` built and executed — honest held-out test metrics captured
+- ✅ Key finding: LSTM catches 71 reds LGB misses but at 58k FP cost
+- ✅ Score blending (ensemble sweep) fails — need feature-level or pipeline integration
+
+---
+
+## RESEARCH FINDINGS: What to do with LSTM (2026-09-13)
+
+### Sources
+- Ketepalli et al. 2025 — LSTMAE + LightGBM hybrid IDS (SciencePubCo)
+- Nature s41598-025-25992-4 — Attentional LSTM + gradient boosting ensemble for smart grids
+- Patsnap synthesis — 60+ patents/papers on false alarm reduction in anomaly detection
+- Striim blog — LSTM-AE for anomaly detection (0 FPs on taxi data)
+- Huazhong University 2020 — LSTM-AE with Mahalanobis Distance + 99% CI threshold
+- Reddit r/MachineLearning, r/algotrading, r/datascience — practitioner discussions
+- Safran patent (2021) — two-stage alarm confirmation architecture
+- Siemens patent (2023) — temporal smoothing of anomaly scores
+
+### Why score blending failed
+LSTM's 58k FPs are not randomly distributed — they're systematic (LSTM flags any "unusual" event, not just attacks). Blending with LGB scores just drags LGB's clean decision boundary into LSTM's noisy territory. The models need **structural** integration, not score-level blending.
+
+### Recommended next steps (ranked by ROI)
+
+#### 1. Add LSTM surprisal as Feature 21 to LGB (stacking)
+- **What:** Add `lstm_surprisal` as column 21 in X_20, retrain LGB
+- **Why:** LGB learns *when* LSTM is trustworthy. If LSTM flags an event AND LGB's features also look suspicious, the combined signal is stronger. If LSTM flags but LGB features look normal, LGB learns to ignore it.
+- **Source:** Ketepalli 2025 (LSTMAE+LightGBM), stacking literature
+- **Effort:** 5 min code change, ~10 min retrain
+- **Risk:** Low — worst case, LGB ignores the feature
+- **Expected:** Moderate improvement (LGB already has 0.9999 ROC, adding LSTM features may push F1 from 0.47 → 0.50+)
+
+#### 2. Two-stage pipeline (LGB first, LSTM second)
+- **What:** LGB as first filter. Run LSTM only on events where LGB score is in uncertain zone (e.g. 0.05-0.3).
+- **Why:** LSTM catches 71 reds LGB misses. Many of those are probably in LGB's uncertainty zone. Running LSTM only on ~5-10% of events cuts FP from 58k to ~3-6k while keeping most unique catches.
+- **Source:** Safran patent (2021), Patsnap 60+ paper synthesis, MDPI two-stage (2025)
+- **Effort:** Moderate (threshold tuning, pipeline refactor)
+- **Risk:** Medium — need to find right LGB uncertainty threshold
+- **Expected:** Best ROI. Could get LSTM's 71 unique catches at 10x lower FP cost
+
+#### 3. Temporal smoothing of LSTM scores
+- **What:** Smooth LSTM surprisal over a sliding window (e.g. 5-10 events) before thresholding
+- **Why:** Transient FP spikes (benign unusual events) get absorbed, sustained deviations (real attacks) persist
+- **Source:** Siemens patent (2023), Patsnap synthesis
+- **Effort:** Tiny (post-processing, no retraining)
+- **Risk:** Low
+- **Expected:** Small improvement (maybe 10-20% FP reduction)
+
+#### 4. Retrain as LSTM Autoencoder (reconstruction error)
+- **What:** Replace next-token surprisal with LSTM-AE reconstruction error as anomaly score
+- **Why:** LSTM-AE learns "what normal looks like" not "what comes next". Reconstruction error is cleaner because it measures holistic sequence deviation, not per-token surprise. Literature shows 0 FPs on clean datasets.
+- **Source:** Striim blog, Huazhong 2020, ResearchGate (LSTM-AE outperforms LSTM), multiple MDPI papers
+- **Effort:** Significant (retrain on Colab T4, new architecture)
+- **Risk:** Medium — needs GPU time, may need hyperparameter tuning
+- **Expected:** Biggest improvement but requires investment
+
+#### 5. Skip: Weighted loss function
+- **What:** Modify LSTM loss to penalize FPs more heavily
+- **Why skipping:** Risks killing the 80% recall we have. The FP problem is architectural (next-token prediction is inherently noisy), not a loss function problem. Better to fix the architecture (Option 4) than patch the loss.
+
+### Decision needed
+Which options to implement? Options 1+2 are complementary and use existing model (no retraining). Option 3 is trivial post-processing. Option 4 requires Colab GPU.

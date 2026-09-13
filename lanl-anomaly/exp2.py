@@ -19,6 +19,7 @@ import os
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score
 import lightgbm as lgb
+import joblib
 import sys
 import warnings
 warnings.filterwarnings('ignore')
@@ -525,6 +526,16 @@ if only_config is None or only_config == 'E':
  total_e = time.time() - t_sec
  print(f"\n  [{time.time()-t_start:6.1f}s] Config E done: train={train_time_e:.1f}s  predict={pred_time_e:.1f}s  total={total_e:.1f}s")
  trained['E'] = {'model': lgb_e, 'X': X_20, 'train': train_e, 'test': test_e, 'total': total_e, 'train_time': train_time_e, 'pred_time': pred_time_e, 'fnames': fnames20}
+
+ os.makedirs("models", exist_ok=True)
+ joblib.dump({
+     "model": lgb_e, "model_type": "lightgbm",
+     "threshold": test_e['thr'], "features": fnames20,
+     "roc_auc": test_e['roc'], "pr_auc": test_e['pr'],
+     "f1": test_e['f1'], "tp": test_e['tp'], "fp": test_e['fp'],
+     "scale_pos_weight": 3,
+ }, "models/lanl_lgb_20feat.joblib")
+ print(f"  saved models/lanl_lgb_20feat.joblib")
 
 # ============================================================
 # OVERLAP ANALYSIS (test set only, red events only)
