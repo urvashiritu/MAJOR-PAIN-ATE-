@@ -767,3 +767,39 @@ Benign p95=0.0000 is **expected** — autoencoder trained on benign reconstructs
 ### DuckDB write fix
 - 06_extract_latent.py: replaced unnest+temp table with pandas batched UPDATE
 - DuckDB write: timeout → ~9s (benchmarked), actual 244s on full table
+
+---
+
+## FINAL RESULTS: ACCEPTED (2026-09-13)
+
+### Best Model: RUN 9 — LGB-21feat (AE recon error as Feature 21)
+
+| Metric | Value |
+|--------|-------|
+| ROC | 0.9999 |
+| PR-AUC | 0.3682 |
+| F1 | 0.4866 |
+| TP | 136 / 240 (56.7%) |
+| FP | 183 / 5,399,646 (0.003%) |
+| Threshold | 0.1872 |
+
+### Full Run Comparison
+| Run | Config | F1 | TP | FP | Verdict |
+|-----|--------|-----|-----|-----|---------|
+| RUN 7 | LGB-20feat (Config E) | 0.4817 | 145 | 217 | baseline |
+| RUN 8 | LSTM-AE standalone | 0.0095 | 118 | 24,482 | L (FP灾难) |
+| RUN 9 | LGB-21feat (+AE recon) | **0.4866** | **136** | **183** | **W — best** |
+| RUN 10 | LGB-37feat (+latent PCA) | 0.4772 | 157 | 261 | L (FP↑ too much) |
+
+### Key Findings
+1. **LSTM-AE recon error as a feature works** — F1+0.005, FP-34 (16% fewer FPs)
+2. **Score blending always hurts** — alpha=0.0 (pure LGB) wins every time
+3. **Latent PCA 128→16 loses signal** — too aggressive compression, F1 drops
+4. **LSTM standalone is unusable** — 58k FPs despite catching 193/240 reds
+5. **64 reds (26.7%) missed by both** — genuinely hard attacks, likely data-limited
+
+### Pipeline
+- Training: `src/05_lstm_autoencoder.py` (RTX 3050, 80 min)
+- Feature extraction: `src/06_extract_latent.py` (RTX 3050, ~8 min)
+- Evaluation: `eval_lstm.py --latent-features` (15 min, n_jobs=-1)
+- Split: GroupShuffleSplit(random_state=42), 462 train / 240 test red events
