@@ -716,3 +716,54 @@ Benign p95=0.0000 is **expected** — autoencoder trained on benign reconstructs
 - ✅ Held-out eval completed (1289.8s, 21 min)
 - ✅ No OOM (OOM fix v3: aggressive del + separate dst_computer streaming query)
 - ✅ Two NameError bugs found and fixed during verification
+
+---
+
+## RUN 10: AE LATENT FEATURES 128→16 PCA (2026-09-13)
+
+### What changed
+- Trained LSTM-AE (128-dim bottleneck) on 29.9M events
+- PCA 128→16 on all events (IncrementalPCA, 99.94% explained variance)
+- Added 16 latent features (latent_0..latent_15) + recon error to LGB → 37 features total
+- `eval_lstm.py --latent-features`
+
+### LGB-37feat (20 orig + 16 latent + recon error)
+- **ROC:** 0.9999
+- **PR-AUC:** 0.3752
+- **F1:** 0.4772
+- **TP:** 157, **FP:** 261, **thr:** 0.0716
+
+### vs RUN 9 (21feat)
+| Metric | RUN 9 (21feat) | RUN 10 (37feat) | Delta |
+|--------|---------------|-----------------|-------|
+| F1 | 0.4866 | 0.4772 | **-0.009** |
+| TP | 136 | 157 | **+21** |
+| FP | 183 | 261 | **+78** |
+| ROC | 0.9999 | 0.9999 | same |
+
+### Overlap (test set, 240 reds)
+- Both: 132 (55.0%)
+- LSTM-only: 61 (25.4%)
+- LGB-only: 25 (10.4%)
+- Neither: 22 (9.2%)
+
+### Ensemble sweep
+- Best alpha=0.0 (pure LGB), F1=0.4772
+- Blending still hurts
+
+### Timing breakdown (new per-step timing)
+- STEP 1 SQL CTE: 341.5s (37.7%)
+- STEP 2 Feature build: 67.2s (7.4%)
+- STEP 2b Latent load: 80.7s (8.9%)
+- STEP 5 LGB train+predict: 311.9s (34.4%)
+- Total: 906.1s (15.1 min)
+
+### Verdict
+- **L** — F1 dropped -0.009, FP jumped +78 (43% more FPs)
+- TP +21 doesn't justify FP cost (precision tanks)
+- Latent PCA 128→16 loses too much signal
+- `n_jobs=1` bug fixed for future runs (was single-threaded)
+
+### DuckDB write fix
+- 06_extract_latent.py: replaced unnest+temp table with pandas batched UPDATE
+- DuckDB write: timeout → ~9s (benchmarked), actual 244s on full table

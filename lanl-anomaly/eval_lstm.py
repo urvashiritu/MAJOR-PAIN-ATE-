@@ -24,6 +24,7 @@ ap.add_argument("--latent-features", action="store_true", help="Use 37 features:
 cli_args = ap.parse_args()
 
 t_start = time.time()
+step_timings = []  # (label, seconds)
 
 def mem_mb():
     import psutil
@@ -33,6 +34,14 @@ def section_header(title):
     print(f"\n{'='*70}")
     print(f"  {title}")
     print(f"{'='*70}")
+
+def timer_start():
+    return time.time()
+
+def timer_end(label, t0):
+    dt = time.time() - t0
+    step_timings.append((label, dt))
+    return dt
 
 def eval_it(name, scores, y_true):
     roc = roc_auc_score(y_true, scores)
@@ -162,11 +171,11 @@ ORDER BY uv.time, uv.src_user, uv.dst_user, uv.src_computer, uv.dst_computer,
 # STEP 1: SQL CTE chain (streaming via DBAPI cursor)
 # ============================================================
 section_header("STEP 1: LOAD FEATURES + LSTM SCORES")
-t0 = time.time()
+t0 = timer_start()
 
 DB_PATH = 'data/raw/lanl/lanl.duckdb'
 con = duckdb.connect(DB_PATH, read_only=True)
-con.execute("SET threads = 2")
+con.execute("SET threads = 4")
 con.execute("SET memory_limit = '6GB'")
 con.execute("SET preserve_insertion_order = false")
 
@@ -215,11 +224,12 @@ src_users = result['src_user'].copy()
 n_red = int(y.sum())
 print(f"  Rows: {n:,}  Red: {n_red}")
 print(f"  RAM: {mem_mb():.0f} MB")
-print(f"  [{time.time()-t_start:6.1f}s] Query done in {time.time()-t0:.1f}s")
+timer_end("STEP 1: SQL CTE query", t0)
+print(f"  [{time.time()-t_start:6.1f}s] Query done")
 
 # Stream dst_computer separately (not in main SELECT to save memory)
 section_header("STEP 1b: LOAD dst_computer")
-t0_db = time.time()
+t0_db = timer_start()
 con_db = duckdb.connect(DB_PATH, read_only=True)
 con_db.execute("SET threads = 2")
 con_db.execute("SET memory_limit = '6GB'")
@@ -244,13 +254,14 @@ while filled_dc < n:
 cur_db.close()
 con_db.close()
 import gc; gc.collect()
-print(f"  dst_computer loaded: {time.time()-t0_db:.1f}s  RSS={mem_mb():.0f}MB")
+timer_end("STEP 1b: dst_computer load", t0_db)
+print(f"  dst_computer loaded: {step_timings[-1][1]:.1f}s  RSS={mem_mb():.0f}MB")
 
 # ============================================================
 # STEP 2: Build X_21 features (copy from exp2.py)
 # ============================================================
 section_header("STEP 2: BUILD X_21 FEATURES")
-t0 = time.time()
+t0 = timer_start()
 
 feat9 = ['dst_first', 'src_first', 'hour_events', 'user_events',
          'dst_prior_events', 'fail_1h', 'vel_1h', 'hour', 'is_ntlm']
@@ -354,7 +365,8 @@ print(f"  X_21 shape={X_21.shape}  {X_21.nbytes/1024/1024:.0f} MB")
 assert X_21.shape == (n, 21)
 assert not np.any(np.isnan(X_21))
 assert not np.any(np.isinf(X_21))
-print(f"  [{time.time()-t_start:6.1f}s] Features built in {time.time()-t0:.1f}s")
+timer_end("STEP 2: Feature build", t0)
+print(f"  [{time.time()-t_start:6.1f}s] Features built")
 del iat_zscore, velocity_ratio, machine_popularity, pairs_last
 import gc; gc.collect()
 
@@ -363,7 +375,7 @@ import gc; gc.collect()
 # ============================================================
 if cli_args.latent_features:
     section_header("STEP 2b: LOAD LATENT FEATURES (16 PCA dims)")
-    t0_lat = time.time()
+    t0_lat = timer_start()
 
     con_lat = duckdb.connect(DB_PATH, read_only=True)
     con_lat.execute("SET threads = 2")
@@ -412,7 +424,8 @@ if cli_args.latent_features:
     assert not np.any(np.isnan(X_37))
     assert not np.any(np.isinf(X_37))
     print(f"  Latent stats: min={X_37[:, 21:].min():.4f} max={X_37[:, 21:].max():.4f} mean={X_37[:, 21:].mean():.4f}")
-    print(f"  [{time.time()-t_start:6.1f}s] Latent features loaded in {time.time()-t0_lat:.1f}s")
+    timer_end("STEP 2b: Latent load", t0_lat)
+    print(f"  [{time.time()-t_start:6.1f}s] Latent features loaded")
 
     # Use X_37 for the rest of the pipeline
     X = X_37
@@ -428,7 +441,7 @@ else:
 # STEP 3: Train/test split (same as exp2.py)
 # ============================================================
 section_header("STEP 3: TRAIN/TEST SPLIT")
-t0 = time.time()
+t0 = timer_start()
 gss = GroupShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
 for tr_idx, te_idx in gss.split(X, y, groups=src_users):
     pass
@@ -441,13 +454,14 @@ assert n_test_red == 240, f"Expected 240 test red, got {n_test_red}"
 print(f"  Train: {len(tr_idx):,} rows ({n_train_red} red)")
 print(f"  Test:  {len(te_idx):,} rows ({n_test_red} red)")
 print(f"  Verified: {n_train_red}+{n_test_red}={n_train_red+n_test_red} red")
-print(f"  [{time.time()-t_start:6.1f}s] Split done in {time.time()-t0:.1f}s")
+timer_end("STEP 3: Train/test split", t0)
+print(f"  [{time.time()-t_start:6.1f}s] Split done")
 
 # ============================================================
 # STEP 4: LOAD LSTM scores from DuckDB
 # ============================================================
 section_header("STEP 4: LOAD LSTM SCORES")
-t0 = time.time()
+t0 = timer_start()
 
 if cli_args.ae_score:
     score_col = "lstm_ae_recon_error"
@@ -470,20 +484,21 @@ lstm_red_test = lstm_test[y_test]
 print(f"  Test set: {len(lstm_test):,} rows, {int(y_test.sum())} red")
 print(f"  LSTM on test reds: mean={np.mean(lstm_red_test):.4f} p95={np.percentile(lstm_red_test, 95):.4f}")
 print(f"  LSTM on test benign: mean={np.mean(lstm_test[~y_test]):.4f} p95={np.percentile(lstm_test[~y_test], 95):.4f}")
-print(f"  [{time.time()-t_start:6.1f}s] LSTM scores loaded in {time.time()-t0:.1f}s")
+timer_end("STEP 4: LSTM scores", t0)
+print(f"  [{time.time()-t_start:6.1f}s] LSTM scores loaded")
 
 # ============================================================
 # STEP 5: Train LGB on train set, predict on test set
 # ============================================================
 section_header("STEP 5: TRAIN + PREDICT LGB")
-t0 = time.time()
+t0 = timer_start()
 
 t_train = time.time()
 lgb_model = lgb.LGBMClassifier(
     num_leaves=63, learning_rate=0.03, n_estimators=500,
     scale_pos_weight=3, min_child_samples=100,
     reg_alpha=0.5, reg_lambda=5.0,
-    random_state=42, n_jobs=1, verbose=-1
+    random_state=42, n_jobs=-1, verbose=-1
 )
 lgb_model.fit(X[tr_idx], y_train)
 print(f"  LGB train: {time.time()-t_train:.1f}s")
@@ -491,12 +506,14 @@ print(f"  LGB train: {time.time()-t_train:.1f}s")
 lgb_train_scores = lgb_model.predict_proba(X[tr_idx])[:, 1]
 lgb_test_scores = lgb_model.predict_proba(X[te_idx])[:, 1]
 print(f"  LGB predict: {time.time()-t_train:.1f}s total")
-print(f"  [{time.time()-t_start:6.1f}s] LGB done in {time.time()-t0:.1f}s")
+timer_end("STEP 5: LGB train+predict", t0)
+print(f"  [{time.time()-t_start:6.1f}s] LGB done")
 
 # ============================================================
 # STEP 6: EVALUATE STANDALONE MODELS ON TEST SET
 # ============================================================
 section_header("STEP 6: STANDALONE EVALUATION")
+t0 = timer_start()
 print(f"  Test set: {len(te_idx):,} rows ({n_test_red} red)\n")
 
 print("  LSTM standalone:")
@@ -504,11 +521,13 @@ lstm_eval = eval_it("LSTM", lstm_test, y_test)
 
 print("\n  LGB standalone:")
 lgb_eval = eval_it(f"LGB-{n_features}feat", lgb_test_scores, y_test)
+timer_end("STEP 6: Standalone eval", t0)
 
 # ============================================================
 # STEP 7: OVERLAP ANALYSIS (test set, red events only)
 # ============================================================
 section_header("STEP 7: OVERLAP ANALYSIS (LSTM vs LGB)")
+t0 = timer_start()
 
 # LSTM catches
 prec, rec, thr = precision_recall_curve(y_test, lstm_test)
@@ -541,11 +560,13 @@ print(f"    LSTM-only:{lstm_only:>3} ({100*lstm_only/n_test_red:.1f}%)")
 print(f"    LGB-only: {lgb_only:>3} ({100*lgb_only/n_test_red:.1f}%)")
 print(f"    Neither:  {neither:>3} ({100*neither/n_test_red:.1f}%)")
 print(f"    Sum:      {both+lstm_only+lgb_only+neither} == {n_test_red}")
+timer_end("STEP 7: Overlap analysis", t0)
 
 # ============================================================
 # STEP 8: ENSEMBLE SWEEP
 # ============================================================
 section_header("STEP 8: ENSEMBLE SWEEP (alpha * LSTM + (1-alpha) * LGB)")
+t0 = timer_start()
 
 # Normalize scores to [0,1] range for blending
 lstm_norm = (lstm_test - lstm_test.min()) / (lstm_test.max() - lstm_test.min() + 1e-10)
@@ -564,7 +585,8 @@ for alpha in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
         best_result = result
 
 print(f"\n  Best: alpha={best_alpha:.1f} F1={best_result['f1']:.4f} TP={best_result['tp']} FP={best_result['fp']}")
-print(f"  [{time.time()-t_start:6.1f}s] Ensemble sweep done in {time.time()-t0:.1f}s")
+timer_end("STEP 8: Ensemble sweep", t0)
+print(f"  [{time.time()-t_start:6.1f}s] Ensemble sweep done")
 
 # ============================================================
 # STEP 9: SUMMARY
@@ -582,4 +604,12 @@ print(f"  Ensemble:")
 print(f"    Best:  alpha={best_alpha:.1f} F1={best_result['f1']:.4f} TP={best_result['tp']} FP={best_result['fp']}")
 print(f"  Overlap:")
 print(f"    Both={both} LSTM-only={lstm_only} LGB-only={lgb_only} Neither={neither}")
-print(f"\n  Total runtime: {time.time()-t_start:.1f}s")
+
+total = time.time() - t_start
+print(f"\n  TIMING BREAKDOWN")
+print(f"  {'─'*50}")
+for label, dt in step_timings:
+    print(f"    {label:<30} {dt:>7.1f}s  ({100*dt/total:4.1f}%)")
+print(f"    {'─'*48}")
+print(f"    {'Total':<30} {total:>7.1f}s")
+print(f"\n  Total runtime: {total:.1f}s ({total/60:.1f} min)")
