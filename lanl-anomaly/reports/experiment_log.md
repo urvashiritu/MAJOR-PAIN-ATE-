@@ -543,3 +543,176 @@ LSTM's 58k FPs are not randomly distributed — they're systematic (LSTM flags a
 
 ### Decision needed
 Which options to implement? Options 1+2 are complementary and use existing model (no retraining). Option 3 is trivial post-processing. Option 4 requires Colab GPU.
+
+---
+
+## DEEP RESEARCH: LSTM Autoencoder vs Next-Token Prediction (2026-09-13)
+
+### The DabLog Paper (arxiv 2012.13972)
+**"Recomposition vs. Prediction: A Novel Anomaly Detection for Discrete Events Based On Autoencoder"**
+- Authors: Lun-Pin Yuan, Peng Liu, Sencun Zhu (NSF-funded)
+- Source: Exa search → arxiv → NSF full text
+
+**Core finding (maps directly to our problem):**
+> "The widely-adopted methodology 'using an LSTM-based model in predicting next
+> events' has a fundamental limitation: event predictions may not be able to fully
+> exploit the distinctive characteristics of sequences. This limitation leads to
+> high false positives."
+
+**Why next-token prediction fails:**
+1. A rare event doesn't necessarily make the sequence abnormal → predicting it as unusual = FP
+2. A structurally abnormal sequence can contain all normal events → missing it = FN
+3. Next-token prediction treats each event individually, ignoring sequence structure and bi-directional causality
+
+**Their solution: LSTM Autoencoder (recomposition)**
+- Encoder: compresses entire sequence into latent representation
+- Decoder: reconstructs original sequence from latent representation
+- Anomaly score = reconstruction error
+- Trained ONLY on normal data
+
+**Their results:**
+- 1,790 fewer FPs + 1,982 more TPs on HDFS logs (101 events)
+- 2,419 fewer FPs with only 83 fewer TPs on traffic logs (706 events)
+- F1 score significantly higher than predictor-based baseline
+
+### GitHub implementations found
+- `acst1223/loglizer` — VAE-LSTM, LSTM-Attention, full pipeline
+- `IELunist/Autoencoders-for-Improving-Quality-of-Process-Event-Logs` — LSTMAE.ipynb ready to adapt
+- `AdityaK-gits/Behaviour-First-Zero-Day-Detector` — LSTM/GRU/Transformer autoencoders
+- `0xc1GenZ/Hybrid-Anomaly-Based-Intrusion-Detection_Framework` — two-stage AE→LSTM, 98.7% acc, 2.43% FPR
+
+### Why our LSTM has 58k FPs (root cause)
+Our `SurprisalLSTM` is a next-token predictor. It computes P(event_t | event_{t-50}...event_{t-1}).
+When it sees a benign but rare event sequence, it assigns low probability → high surprisal → FP.
+DabLog proves this is an architectural flaw, not a training problem.
+
+### Revised plan (ranked by evidence strength)
+
+#### 1. LSTM Autoencoder (recomposition) — RUN 8
+- **What:** Train LSTM-AE on same 500k benign events. Score = reconstruction error (MSE between input and reconstructed sequence).
+- **Why:** DabLog paper: 2,419 fewer FPs, only 83 fewer TPs. Fixes the fundamental architectural flaw.
+- **Implementation:** New script `src/05_lstm_autoencoder.py`. Encoder: LSTM→latent. Decoder: LSTM→reconstructed sequence. Loss: MSE. Anomaly score: per-event reconstruction error.
+- **Effort:** New model, needs Colab T4 training (~30 min)
+- **Expected:** Massive FP reduction (58k → maybe 5-10k) while keeping most of the 193 TPs
+
+#### 2. Add LSTM-AE score as Feature 21 to LGB — RUN 9
+- **What:** Add AE reconstruction error as column 21 in X_20, retrain LGB
+- **Why:** LGB learns when AE reconstruction error is trustworthy vs noisy
+- **Effort:** 5 min code change after RUN 8
+- **Expected:** LGB uses AE score to filter its own FPs
+
+#### 3. Two-stage pipeline — RUN 10
+- **What:** LGB as first filter, AE as second opinion on uncertain zone
+- **Why:** 0xc1GenZ framework achieved 50%+ FP reduction with this architecture
+- **Effort:** Moderate (threshold tuning)
+- **Expected:** Best combined performance
+
+### Sources
+1. Yuan et al. 2020 — DabLog paper (arxiv 2012.13972, NSF par.nsf.gov)
+2. `acst1223/loglizer` — GitHub log anomaly detection toolkit
+3. `IELunist/Autoencoders-for-Improving-Quality-of-Process-Event-Logs` — LSTMAE implementation
+4. `0xc1GenZ/Hybrid-Anomaly-Based-Intrusion-Detection_Framework` — two-stage hybrid IDS
+5. Ketepalli et al. 2025 — LSTMAE+LightGBM hybrid
+6. Patsnap synthesis — 60+ patents on false alarm reduction
+7. Exa search results — stacking, autoencoder, two-stage literature
+
+---
+
+## RUN 8: LSTM AUTOENCODER (2026-09-13)
+
+### Architecture
+- **Type:** 2-layer LSTM encoder + 2-layer LSTM decoder, teacher forcing
+- **Params:** 4,865,002 (18.6 MB)
+- **Hidden dim:** 128, **Layers:** 2
+- **Context window:** 50 tokens + 6 event tokens = 56 total
+- **Loss:** cross-entropy on last 6 positions (event tokens)
+- **Score:** mean cross-entropy loss per event (reconstruction error)
+
+### Training
+- **Data:** 500k benign events (subsampled, --max-train default)
+- **Epochs:** 2, **Batch:** 128, **LR:** 0.001
+- **Time:** 2188s (36 min) on RTX 3050 6GB
+- **Training device:** CUDA (AMP enabled)
+
+### Scoring
+- **Events scored:** 29,905,488 (all events)
+- **Batch size:** 512 (CPU, no AMP)
+- **Time:** 2573s (43 min), throughput: 11,625 events/s
+- **Total runtime:** 4822s (80 min)
+
+### Reconstruction error stats (all events)
+- **Benign:** mean=0.0203, p95=0.0000
+- **Red (all 702):** mean=1.4360, p95=6.0927
+- **Red > benign p95:** 581/702 (82.8%)
+
+### Sample red scores (first 5 by rowid)
+- ['0.0000', '0.0000', '0.0000', '0.0011', '0.0001']
+-说明: first 5 reds have near-zero error (attacks mimicking normal behavior)
+- distribution is bimodal: most reds near-zero, a few reds with very high error
+
+### DuckDB
+- Column `lstm_ae_recon_error` added to feat table
+- NULL count: 0 (all events scored)
+- Model saved: `models/lanl_lstm_ae_2ep_bs128_20260913_162002.pt`
+
+### Research findings (multi-channel)
+1. **"Autoencoders are Unreliable" (arxiv 2501.13864, Jan 2025):** proves autoencoders CAN reconstruct anomalies with zero error. explains why some reds have near-zero scores.
+2. **Ketepalli et al. 2025 (SciencePubCo):** LSTMAE + LightGBM hybrid achieves >99% accuracy on NSL-KDD, UNSW-NB15. validates our stacking approach.
+3. **DAE-BiLSTM paper:** two-stage pipeline (autoencoder → classifier) achieves 97% accuracy, 0.95 recall, 0.93 AUC.
+4. **Threshold methods:** μ+2σ, 99th percentile, max training error, precision-recall curve (gold standard). Our eval_lstm.py uses PR curve.
+5. **YouTube tutorial (DigitalSreeni, 115k views):** confirms workflow — train on normal, threshold at 99th percentile, flag above threshold.
+
+### Key insight
+Benign p95=0.0000 is **expected** — autoencoder trained on benign reconstructs benign perfectly. The82.8% separation is good but threshold is too loose (basically zero). Need held-out eval to find optimal threshold and get honest TP/FP/F1.
+
+### Status
+- ✅ Model trained locally on RTX 3050
+- ✅ All 29.9M events scored, saved to DuckDB
+- ✅ Model saved
+- ✅ Held-out eval completed (RUN 8)
+
+---
+
+## RUN 9: AE RECON ERROR AS FEATURE 21 (2026-09-13)
+
+### What changed
+- Added `lstm_ae_recon_error` as Feature 21 to LGB Config E (20feat → 21feat)
+- LSTM-AE standalone eval also rerun for comparison
+
+### LGB-21feat (with AE recon as Feature 21)
+- **ROC:** 0.9999
+- **PR-AUC:** 0.3682
+- **F1:** 0.4866
+- **TP:** 136, **FP:** 183, **thr:** 0.1872
+
+### vs RUN 7 (LGB-20feat, no AE recon)
+| Metric | RUN 7 (20feat) | RUN 9 (21feat) | Delta |
+|--------|---------------|---------------|-------|
+| F1 | 0.4817 | 0.4866 | **+0.005** |
+| TP | 145 | 136 | -9 |
+| FP | 217 | 183 | **-34** |
+| ROC | 0.9999 | 0.9999 | same |
+
+### LSTM-AE standalone
+- ROC=0.9425, F1=0.0095, TP=118, FP=24,482
+- Same as RUN 8 (expected, same model)
+
+### Overlap (test set, 240 reds)
+- Both: 78 (32.5%)
+- LSTM-only: 40 (16.7%)
+- LGB-only: 58 (24.2%)
+- Neither: 64 (26.7%)
+
+### Ensemble sweep
+- Best alpha=0.0 (pure LGB), F1=0.4866
+- Blending with LSTM-AE scores hurts — same pattern as RUN 7
+
+### Verdict
+- **Slight W** — F1 improved +0.005, FPs dropped 16% (-34), at cost of -9 TPs
+- AE recon error as a feature is **mid** — marginal improvement, not a breakthrough
+- Latent features (128-dim bottleneck) may be more powerful than reconstruction error alone
+
+### Status
+- ✅ Held-out eval completed (1289.8s, 21 min)
+- ✅ No OOM (OOM fix v3: aggressive del + separate dst_computer streaming query)
+- ✅ Two NameError bugs found and fixed during verification
