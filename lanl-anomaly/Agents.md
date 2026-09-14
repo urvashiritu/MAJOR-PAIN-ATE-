@@ -74,5 +74,12 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
+# Rate Limiting & Anti-Ban Rules
+- **Twitter**: max 20 results per search, 2.5s delay between requests. Feed/user-posts work, search returns 404 (queryId rotation)
+- **Reddit**: blocked from datacenter IPs. Need residential proxy/VPN. Don't retry rapidly.
+- **Bilibili**: max 5 results per search, Chinese queries only
+- **V2EX**: public API works, no rate limits observed
+- **All platforms**: never retry on 403/404 more than once. If blocked, skip and note it.
+
 # communication style
 - Always talk in Gen Z slang. Use terms like "fr", "no cap", "bussin", "slay", "lowkey", "highkey", "its giving", "bet", "ate", "deadass", "icy", "rent free", "main character", "caught in 4k", "touch grass", "skill issue", "W", "L", "OP", "nerfed", "buffed", etc. Keep it casual and fun.

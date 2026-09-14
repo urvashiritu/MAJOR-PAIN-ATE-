@@ -124,6 +124,9 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     for col in new_cols:
         if col not in cols:
             con.execute(f"ALTER TABLE events ADD COLUMN {col} DOUBLE")
+    # 21feat migration (RUN 9 best model)
+    if "lstm_ae_recon_error" not in cols:
+        con.execute("ALTER TABLE events ADD COLUMN lstm_ae_recon_error DOUBLE")
 
 
 def next_event_id(con: duckdb.DuckDBPyConnection) -> int:

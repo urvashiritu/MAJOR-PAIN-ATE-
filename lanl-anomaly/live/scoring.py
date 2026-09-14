@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
-"""LANL live scoring — LightGBM 20-feature model (Config E).
+"""LANL live scoring — LightGBM 21-feature model (RUN 9 best).
 
 One event in, a decision out. The scoring path:
   1. Compute 20 LANL features from user's stored history
-  2. LightGBM anomaly score (the decision model)
-  3. Per-user habit deviation signals (displayed for reasoning, not scored)
+  2. Compute LSTM-AE reconstruction error (Feature 21)
+  3. LightGBM anomaly score (the decision model)
+  4. Per-user habit deviation signals (displayed for reasoning, not scored)
 
 Decision policy:
   - lgb_score >= BLOCK_THRESHOLD (default 0.50) -> block
   - lgb_score >= FLAG_THRESHOLD  (default 0.30) -> flag
   - otherwise                                   -> allow
 
-Features (20 — matches exp2.py Config E):
+Features (21 — RUN 9 best model):
   dst_first, src_first, hour_ratio, dst_prior_events, fail_1h,
   vel_1h, hour_sin, hour_cos, is_ntlm, pair_first,
   src_dst_pair_first, fail_rate, dst_first_x_ntlm, log_pair_rank,
   pair_freq_ratio, is_rare_hour, pairs_last_100,
-  iat_zscore, velocity_ratio, machine_popularity
+  iat_zscore, velocity_ratio, machine_popularity, lstm_ae_recon_error
 """
 import math
 import os
 import time
+from collections import defaultdict
 from pathlib import Path
 
 import duckdb
@@ -29,7 +31,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 
-LGB_MODEL_PATH = ROOT / "models" / "lanl_lgb_20feat.joblib"
+LGB_MODEL_PATH = ROOT / "models" / "lanl_lgb_21feat.joblib"
+LSTM_AE_PATH = ROOT / "models" / "lanl_lstm_ae_2ep_bs128_20260913_162002.pt"
 
 BLOCK_THRESHOLD = float(os.environ.get("DEMO_BLOCK_AT", "0.50"))
 FLAG_THRESHOLD = float(os.environ.get("DEMO_FLAG_AT", "0.30"))
@@ -39,7 +42,7 @@ LANL_FEATURES = [
     "fail_1h", "vel_1h", "hour_sin", "hour_cos", "is_ntlm",
     "pair_first", "src_dst_pair_first", "fail_rate", "dst_first_x_ntlm",
     "log_pair_rank", "pair_freq_ratio", "is_rare_hour", "pairs_last_100",
-    "iat_zscore", "velocity_ratio", "machine_popularity",
+    "iat_zscore", "velocity_ratio", "machine_popularity", "lstm_ae_recon_error",
 ]
 
 # Training distribution bounds (p01-p99 from feat.parquet)
@@ -49,7 +52,17 @@ FEATURE_CLIP = {
     "fail_1h": (0, 3.0),
 }
 
+AE_FIELDS = ["src_user", "src_computer", "dst_computer",
+             "auth_type", "logon_type", "orientation"]
+AE_CTX = 50
+AE_HIDDEN = 128
+AE_LAYERS = 2
+
 _lgb_model = None
+_ae_model = None
+_ae_vocab = None
+_ae_field_offsets = None
+_ae_device = None
 _models_loaded = False
 
 _PROFILE_TTL_S = 60.0
@@ -93,7 +106,7 @@ def _deviation_signals(fd: dict, profile) -> tuple:
 
 
 def load_models():
-    global _lgb_model, _models_loaded
+    global _lgb_model, _ae_model, _ae_vocab, _ae_field_offsets, _ae_device, _models_loaded
     if _models_loaded:
         return True
     if not LGB_MODEL_PATH.exists():
@@ -106,9 +119,103 @@ def load_models():
     except Exception as exc:
         print(f"FATAL: failed to load LGB model: {exc}")
         return False
+
+    # Load LSTM-AE for recon error computation
+    if LSTM_AE_PATH.exists():
+        try:
+            import torch
+            _ae_device = torch.device("cpu")
+            ckpt = torch.load(str(LSTM_AE_PATH), map_location="cpu", weights_only=False)
+            _ae_vocab = ckpt["vocab"]
+            _ae_field_offsets = ckpt["field_offsets"]
+            from lstm_ae_model import LSTMAutoencoder
+            _ae_model = LSTMAutoencoder(ckpt["vocab_size"], AE_HIDDEN, AE_LAYERS)
+            _ae_model.load_state_dict(ckpt["model_state_dict"])
+            _ae_model.eval()
+            del ckpt
+            print(f"loaded LSTM-AE: vocab={len(_ae_vocab):,} fields={list(_ae_field_offsets.keys())}")
+        except Exception as exc:
+            print(f"WARN: LSTM-AE load failed ({exc}), recon_error will be 0")
+            _ae_model = None
+    else:
+        print(f"WARN: LSTM-AE not found at {LSTM_AE_PATH}, recon_error will be 0")
+
     _models_loaded = True
     print(f"thresholds: block>={BLOCK_THRESHOLD} flag>={FLAG_THRESHOLD}")
     return True
+
+
+# In-memory token buffer per user for LSTM-AE context window.
+# Keys: user_id -> list of token IDs (6 per event, flattened).
+_token_buf: dict = defaultdict(list)
+_TOKEN_BUF_MAX = AE_CTX + 6  # keep enough for context
+
+
+def _tokenize_event(ev: dict, raw_id: str) -> list:
+    """Tokenize one event's 6 fields using the LSTM-AE vocab."""
+    values = [raw_id, ev.get("src_computer", ""),
+              ev.get("dst_computer", ""), ev.get("auth_type", ""),
+              ev.get("logon_type", ""), ev.get("orientation", "")]
+    tokens = []
+    for field, val in zip(AE_FIELDS, values):
+        key = f"{field}:{val}"
+        tid = _ae_vocab.get(key)
+        if tid is None:
+            tid = _ae_field_offsets[field]  # offset = first token in field range = unknown
+        tokens.append(tid)
+    return tokens
+
+
+def compute_recon_error(con, ev: dict, raw_id: str) -> float:
+    """Compute LSTM-AE reconstruction error for a single event.
+
+    Uses an in-memory sliding window of the user's recent token IDs
+    as context (last AE_CTX tokens = ~8 prior events).
+    """
+    if _ae_model is None:
+        return 0.0
+
+    import torch
+    import torch.nn as nn
+
+    uid = ev["user_id"]
+
+    # Tokenize current event
+    event_tokens = _tokenize_event(ev, raw_id)
+
+    # Get context from buffer (last AE_CTX tokens)
+    buf = _token_buf[uid]
+    ctx_len = min(AE_CTX, len(buf))
+    if ctx_len > 0:
+        context = buf[-ctx_len:]
+    else:
+        context = [0] * AE_CTX
+
+    # Pad context if needed
+    if ctx_len < AE_CTX:
+        context = [0] * (AE_CTX - ctx_len) + context
+
+    # Build sequence: [50 context] + [6 event] = 56 tokens
+    seq = context + event_tokens
+    x = torch.tensor([seq], dtype=torch.long)
+
+    with torch.no_grad():
+        logits = _ae_model(x)  # (1, 56, vocab_size)
+        event_logits = logits[:, -6:, :]  # (1, 6, vocab_size)
+        target = x[:, -6:]  # (1, 6)
+        loss = nn.functional.cross_entropy(
+            event_logits.reshape(-1, logits.shape[-1]),
+            target.reshape(-1),
+            reduction="none",
+        ).reshape(1, 6)
+        recon_error = float(loss.mean())
+
+    # Update buffer: append new tokens, trim to max
+    buf.extend(event_tokens)
+    if len(buf) > _TOKEN_BUF_MAX:
+        _token_buf[uid] = buf[-_TOKEN_BUF_MAX:]
+
+    return recon_error
 
 
 def lanl_feature_sql(user_src: str) -> str:
@@ -298,6 +405,11 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
     if time_val <= user_max:
         time_val = user_max + 1
 
+    # Get raw_id for LSTM-AE tokenization
+    raw_row = con.execute("SELECT raw_id FROM users WHERE user_id = ?",
+                          [ev["user_id"]]).fetchone()
+    raw_id = raw_row[0] if raw_row else str(ev["user_id"])
+
     con.execute("""
         INSERT INTO events (row_id, ts, time, user_id, src_computer, dst_computer,
             auth_type, logon_type, orientation, result, decision)
@@ -316,7 +428,11 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         WHERE row_id = {row_id}
     """).fetchdf().iloc[0]
 
-    features = np.array([float(feat_row[f]) for f in LANL_FEATURES], dtype=np.float32)
+    # Feature 21: LSTM-AE reconstruction error
+    recon_error = compute_recon_error(con, ev, raw_id)
+
+    features = np.array([float(feat_row[f]) for f in LANL_FEATURES[:-1]] + [recon_error],
+                        dtype=np.float32)
     clipped = {}
     for i, fname in enumerate(LANL_FEATURES):
         if fname in FEATURE_CLIP:
@@ -342,7 +458,7 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
     else:
         decision, level = "allow", "low"
     reasons = "; ".join(filter(None, [
-        f"lgb={lgb_score:.3f}", f"dev={dev_points}",
+        f"lgb={lgb_score:.3f}", f"recon={recon_error:.3f}", f"dev={dev_points}",
         *dev_reasons,
     ]))
 
@@ -352,6 +468,7 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
             is_ntlm=?, pair_first=?, src_dst_pair_first=?, fail_rate=?, dst_first_x_ntlm=?,
             log_pair_rank=?, pair_freq_ratio=?, is_rare_hour=?, pairs_last_100=?,
             iat_zscore=?, velocity_ratio=?, machine_popularity=?,
+            lstm_ae_recon_error=?,
             lgb_score=?, combined_score=?, risk_level=?, reasons=?, decision=?,
             dev_points=?, dev_reasons=?
         WHERE row_id=?
@@ -365,6 +482,7 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
           clipped["log_pair_rank"], clipped["pair_freq_ratio"],
           clipped["is_rare_hour"], clipped["pairs_last_100"],
           clipped["iat_zscore"], clipped["velocity_ratio"], clipped["machine_popularity"],
+          round(recon_error, 6),
           round(lgb_score, 6), round(combined, 6),
           level, reasons, decision, dev_points, "; ".join(dev_reasons), row_id))
 
@@ -388,9 +506,10 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         "src_computer": ev["src_computer"], "dst_computer": ev["dst_computer"],
         "auth_type": ev.get("auth_type"), "result": ev.get("result", "Success"),
         "lgb_score": round(lgb_score, 6),
+        "lstm_recon_error": round(recon_error, 6),
         "combined_score": round(combined, 6),
         "dev_points": dev_points,
         "dev_reasons": "; ".join(dev_reasons),
         "risk_level": level, "reasons": reasons, "decision": decision,
-        "features": {f: float(feat_row[f]) for f in LANL_FEATURES},
+        "features": {f: float(features[i]) for i, f in enumerate(LANL_FEATURES)},
     }

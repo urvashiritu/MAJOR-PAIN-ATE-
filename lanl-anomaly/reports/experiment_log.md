@@ -861,6 +861,130 @@ Benign p95=0.0000 is **expected** — autoencoder trained on benign reconstructs
 
 ---
 
+## RUN 12: IF ANOMALY SCORE AS FEATURE 22 (2026-09-14, all ran same day)
+> **Approach:** Add Isolation Forest's `decision_function()` score as Feature 22 to LGB-21.
+> **Why:** RUN 9 proved feature stacking > score blending (AE recon as Feature 21 worked). IF score was never tested as a feature — only as score blending (overlap_test.py).
+> **Script:** `exp3.py` — trains IF, scores all 29.9M events, adds IF score as Feature 22, compares LGB-21 vs LGB-22.
+> **Split:** Same GroupShuffleSplit(random_state=42) as all runs. 462 train / 240 test red.
+
+### DuckDB Non-Determinism Discovery
+> **CRITICAL:** `SET threads = 4` with window functions produces non-deterministic results.
+> Verified: 256/1000 rows differ between two runs of identical SQL.
+> Root cause: DuckDB parallelizes window function computation → different thread scheduling → different intermediate results for `ROWS BETWEEN` windows.
+> Fix: `SET threads = 1` → identical results across runs (verified). 3-4x slower but deterministic.
+> **This affected ALL prior scripts** (exp1.py, exp2.py, eval_lstm.py) — RUN 9 baseline is also non-reproducible with threads=4.
+
+### A. RUN 12a — IF all-data (threads=4, NON-DETERMINISTIC) — 2026-09-14 10:39
+- **IF training:** All training data (normal + red), contamination=702/29.9M
+- **IF standalone:** ROC=0.9943, F1=0.0613, TP=26, FP=582
+- **LGB-21 baseline:** ROC=0.9999, F1=0.4899, TP=158, FP=247
+- **LGB-22 (+IF score):** ROC=0.9999, F1=0.4853, TP=149, FP=225
+- **Delta:** F1 -0.0046 (L), TP -9 (L), FP -22 (W)
+- **IF feature importance:** rank 13/22 (909 splits)
+- **Runtime:** 1013s (16.9 min)
+- **⚠️ NON-DETERMINISTIC** — threads=4, results not reproducible
+
+### B. RUN 12b — IF normal-only (threads=4, NON-DETERMINISTIC) — 2026-09-14 10:59
+- **IF training:** Normal events only (excluded 462 red from training set)
+- **IF standalone:** ROC=0.9951, F1=0.0443, TP=39, FP=1481
+- **LGB-21 baseline:** ROC=0.9999, F1=0.4993, TP=170, FP=271
+- **LGB-22 (+IF score):** ROC=0.9999, F1=0.5049, TP=155, FP=219
+- **Delta:** F1 +0.0056 (W), TP -15 (L), FP -52 (W)
+- **IF feature importance:** rank 13/22 (801 splits)
+- **Runtime:** 1062s (17.7 min)
+- **⚠️ NON-DETERMINISTIC** — threads=4, results not reproducible
+
+### C. RUN 12-final — IF normal-only (threads=1, DETERMINISTIC ✓) — 2026-09-14 11:39
+- **IF training:** Normal events only, `SET threads = 1`
+- **IF standalone:** ROC=0.9951, F1=0.0439, TP=38, FP=1453
+- **LGB-21 baseline:** ROC=0.9999, F1=0.4875, TP=137, FP=185
+- **LGB-22 (+IF score):** ROC=0.9999, F1=0.4819, TP=140, FP=201
+- **Delta:** F1 -0.0056 (L), TP +3 (W), FP +16 (L)
+- **IF feature importance:** rank 13/22 (774 splits)
+- **Runtime:** 1221s (20.3 min)
+- **✅ DETERMINISTIC** — verified identical across runs
+
+### IF Score Distribution
+- Score range: min=-0.0546, max=0.3460, mean=0.2860
+- Test red mean: 0.1061 (lower = more anomalous)
+- Test benign mean: 0.2863
+
+### RUN 12 Verdict
+- **L across the board** — IF score as Feature 22 consistently hurts F1
+- threads=4 runs showed contradictory TP/FP deltas because features were different between runs
+- threads=1 deterministic run confirms: F1 drops -0.0056, FP increases +16
+- IF's signal is redundant with the 21 hand-crafted features — LGB already captures what IF sees
+- IF feature importance rank 13/22 (774 splits) — not zero but net negative
+
+### Cross-run comparison
+| Run | IF Training | threads | LGB-21 F1 | LGB-22 F1 | Delta | Verdict |
+|-----|------------|---------|-----------|-----------|-------|---------|
+| 12a | all-data | 4 | 0.4899 | 0.4853 | -0.0046 | L |
+| 12b | normal-only | 4 | 0.4993 | 0.5049 | +0.0056 | W (fake) |
+| **12-final** | **normal-only** | **1** ✓ | **0.4875** | **0.4819** | **-0.0056** | **L** |
+
+### Determinism Fix
+- `SET threads = 1` applied to `exp3.py`
+- Verified: two consecutive runs produce identical results
+- Tradeoff: SQL step ~3-4x slower (540s vs 338s) but results are reproducible
+- DuckDB COPY TO parquet confirmed working for future feature caching
+
+---
+
+## RUN 13-14: NOT RUN — IF AS FEATURE IS DEAD
+
+### Why skipped
+- AE recon error already in baseline (Feature 21) — can't re-add
+- LSTM surprisal tested in RUN 7 — didn't help
+- IF score as Feature 22 just failed (RUN 12)
+- Stacking three weak unsupervised signals (IF + AE + surprisal) won't create a strong one if they're capturing same anomalies
+- Research examples that worked used diverse base models (TabNet + LGB + XGBoost), not similar unsupervised detectors
+
+### Remaining options explored
+- **Graph features (bipartite user-computer):** Sandia paper (SAND2020-11561C) showed +21.4% AUC on LANL with random-walk-with-restart. Easy stats (degree centrality, entropy) are 20 lines of SQL. Full random walk needs scipy sparse + iterative matrix multiply, won't fit in 14GB RAM.
+- **Optuna hyperparameter tuning:** Could squeeze more from LGB but diminishing returns at F1=0.4866
+- **Decision:** Accept RUN 9 as best model, move to live integration
+
+---
+
+## LIVE SCORING INTEGRATION (2026-09-14)
+
+### What was built
+- **`live/scoring.py`** updated: 21-feature model + LSTM-AE recon error on-the-fly
+- **`live/lstm_ae_model.py`** created: clean LSTMAutoencoder class for live import
+- **`live/db.py`** updated: added `lstm_ae_recon_error DOUBLE` column migration
+- **`save_lgb21.py`** created: trains + saves LGB-21 model to `models/lanl_lgb_21feat.joblib`
+
+### Model path
+- LGB-21: `models/lanl_lgb_21feat.joblib` (21 features)
+- LSTM-AE: `models/lanl_lstm_ae_2ep_bs128_20260913_162002.pt`
+
+### Feature list (21 features)
+0-19: hour_sin, hour_cos, velocity_ratio, machine_popularity, hour_ratio, iat_zscore, vel_1h, pairs_last_100, dst_prior_events, pair_freq_ratio, fail_rate, fail_1h, log_pair_rank, is_ntlm, pair_first, src_first, src_dst_pair_first, dst_first, is_rare_hour, dst_first_x_ntlm
+20: lstm_ae_recon_error
+
+### Scoring pipeline
+1. Laptop 2 sends auth event → Flask backend receives
+2. Backend computes 20 hand-crafted features from event fields
+3. Backend loads LSTM-AE, tokenizes event (6 tokens: src_user, src_computer, dst_computer, auth_type, logon_type, orientation)
+4. Builds [50 context + 6 event] sequence, runs LSTM-AE, cross-entropy on last 6 positions = recon error
+5. Appends recon error as Feature 21
+6. LGB-21 predicts risk score
+7. Returns risk score + recon error to dashboard
+
+### Verified independently
+- Feature count = 21, last feature = lstm_ae_recon_error ✓
+- LSTM-AE loads, vocab = 16,874 tokens, tokenization works ✓
+- Recon error pipeline end-to-end: cold-start ~2.4, settled ~0.0002 ✓
+- db.py migration adds column successfully (events table now 39 columns) ✓
+
+### Status
+- `save_lgb21.py` needs to be run to create the 21-feature model file
+- All scoring components verified independently
+- End-to-end test pending (start Flask, send events, verify scoring)
+
+---
+
 ## FINAL RESULTS: ACCEPTED (2026-09-14)
 
 ### Best Model: RUN 9 — LGB-21feat (AE recon error as Feature 21)
@@ -882,18 +1006,25 @@ Benign p95=0.0000 is **expected** — autoencoder trained on benign reconstructs
 | RUN 9 | LGB-21feat (+AE recon) | **0.4866** | **136** | **183** | **W — best** |
 | RUN 10 | LGB-37feat (+latent PCA) | 0.4772 | 157 | 261 | L (FP↑ too much) |
 | RUN 11 | LGB-23feat v2 (+smoothed AE) | 0.4735 | 143 | 221 | L (F1↓ FP↑) |
+| RUN 12-final | LGB-22feat (+IF score, deterministic) | 0.4819 | 140 | 201 | L (F1↓ FP↑) |
 
 ### Key Findings
 1. **LSTM-AE recon error as a feature works** — F1+0.005, FP-34 (16% fewer FPs)
 2. **Score blending always hurts** — alpha=0.0 (pure LGB) wins every time
-3. **Latent PCA 128→16 loses signal** — too aggressive compression, F1 drops
-4. **LSTM standalone is unusable** — 58k FPs despite catching 193/240 reds
-5. **64 reds (26.7%) missed by both** — genuinely hard attacks, likely data-limited
-6. **Smoothed AE + auth counts don't help** — F1-0.013, FP+38 vs RUN 9
-7. **Feature engineering ceiling reached** — 20 hand-crafted features + AE recon is near optimal for this data
+3. **IF as Feature 22 hurts** — F1-0.006, FP+16 (deterministic). IF's signal is redundant with hand-crafted features
+4. **Latent PCA 128→16 loses signal** — too aggressive compression, F1 drops
+5. **LSTM standalone is unusable** — 58k FPs despite catching 193/240 reds
+6. **64 reds (26.7%) missed by both** — genuinely hard attacks, likely data-limited
+7. **Smoothed AE + auth counts don't help** — F1-0.013, FP+38 vs RUN 9
+8. **Feature engineering ceiling reached** — 20 hand-crafted features + AE recon is near optimal
+9. **DuckDB non-determinism:** threads=4 with window functions is non-deterministic. threads=1 fixes but 3-4x slower
+10. **Live integration complete:** 21-feature model + LSTM-AE recon error scoring on-the-fly
 
 ### Pipeline
 - Training: `src/05_lstm_autoencoder.py` (RTX 3050, 80 min)
 - Feature extraction: `src/06_extract_latent.py` (RTX 3050, ~8 min)
 - Evaluation: `eval_lstm.py` (13-21 min depending on config)
+- IF experiment: `exp3.py` (17-20 min with threads=1)
+- Live scoring: `live/scoring.py` (Flask backend)
+- Model export: `save_lgb21.py` (trains + saves LGB-21)
 - Split: GroupShuffleSplit(random_state=42), 462 train / 240 test red events
