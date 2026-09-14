@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "live"))
 import db as db  # noqa: E402
 
 SLICE = ROOT / "data" / "raw" / "lanl" / "slice.parquet"
-DB_PATH = ROOT / "data" / "live.duckdb"
+DB_PATH = str(Path(__file__).parent / "live.duckdb")
 
 NORMAL_USERS = [
     {"raw_id": "U10059@DOM1", "name": "alice"},

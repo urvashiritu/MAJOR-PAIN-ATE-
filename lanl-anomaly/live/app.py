@@ -475,7 +475,7 @@ def api_users():
 
 # ---------------- SPA ----------------
 
-WEB = ROOT / "live" / "web" / "dist"
+WEB = ROOT / "live" / "vanilla-dashboard"
 
 
 if __name__ == "__main__":
