@@ -16,6 +16,7 @@ import time
 import os
 import numpy as np
 import duckdb
+import joblib
 import lightgbm as lgb
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve
@@ -25,6 +26,8 @@ ap.add_argument("--ae-score", action="store_true", help="Use LSTM-AE reconstruct
 ap.add_argument("--latent-features", action="store_true", help="Use 37 features: 20 orig + 16 latent PCA + recon error")
 ap.add_argument("--features", choices=["v2", "v2-raw"], default=None,
                 help="v2: 20orig + auth_counts + smoothed_AE | v2-raw: same but raw AE")
+ap.add_argument("--save-model", action="store_true",
+                help="Save trained LGB model to models/lanl_lgb_21feat.joblib (only with default 21feat)")
 cli_args = ap.parse_args()
 
 t_start = time.time()
@@ -597,6 +600,31 @@ lstm_eval = eval_it("LSTM", lstm_test, y_test)
 print("\n  LGB standalone:")
 lgb_eval = eval_it(f"LGB-{n_features}feat", lgb_test_scores, y_test)
 timer_end("STEP 6: Standalone eval", t0)
+
+if cli_args.save_model and n_features == 21:
+    import pathlib
+    out = pathlib.Path("models/lanl_lgb_21feat.joblib")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump({
+        "model": lgb_model,
+        "features": list(fnames21),
+        "roc_auc": lgb_eval["roc"],
+        "pr_auc": lgb_eval["pr"],
+        "f1": lgb_eval["f1"],
+        "tp": lgb_eval["tp"],
+        "fp": lgb_eval["fp"],
+        "threshold": lgb_eval["thr"],
+        "hyperparams": {
+            "num_leaves": 63, "learning_rate": 0.03, "n_estimators": 500,
+            "scale_pos_weight": 3, "min_child_samples": 100,
+            "reg_alpha": 0.5, "reg_lambda": 5.0,
+        },
+    }, out)
+    print(f"\n  Model saved to {out}")
+    print(f"  Features: {list(fnames21)}")
+    print(f"  ROC={lgb_eval['roc']:.4f} F1={lgb_eval['f1']:.4f} TP={lgb_eval['tp']} FP={lgb_eval['fp']}")
+elif cli_args.save_model and n_features != 21:
+    print(f"\n  WARNING: --save-model only saves with default 21feat, skipping (current: {n_features}feat)")
 
 # ============================================================
 # STEP 7: OVERLAP ANALYSIS (test set, red events only)

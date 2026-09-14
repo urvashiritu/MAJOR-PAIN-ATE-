@@ -150,6 +150,10 @@ def load_models():
 _token_buf: dict = defaultdict(list)
 _TOKEN_BUF_MAX = AE_CTX + 6  # keep enough for context
 
+# In-memory dst_computer buffer per user for pairs_last_100 (Feature 17).
+_pairs_buf: dict = defaultdict(list)
+_PAIRS_BUF_MAX = 100
+
 
 def _tokenize_event(ev: dict, raw_id: str) -> list:
     """Tokenize one event's 6 fields using the LSTM-AE vocab."""
@@ -433,6 +437,16 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
 
     features = np.array([float(feat_row[f]) for f in LANL_FEATURES[:-1]] + [recon_error],
                         dtype=np.float32)
+
+    # Feature 17: pairs_last_100 — distinct destinations in sliding window of last 100 events
+    uid = ev["user_id"]
+    pb = _pairs_buf[uid]
+    pb.append(ev["dst_computer"])
+    if len(pb) > _PAIRS_BUF_MAX:
+        _pairs_buf[uid] = pb[-_PAIRS_BUF_MAX:]
+        pb = _pairs_buf[uid]
+    features[16] = float(len(set(pb)))
+
     clipped = {}
     for i, fname in enumerate(LANL_FEATURES):
         if fname in FEATURE_CLIP:
