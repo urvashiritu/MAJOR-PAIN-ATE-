@@ -34,8 +34,8 @@ ROOT = Path(__file__).resolve().parents[1]
 LGB_MODEL_PATH = ROOT / "models" / "lanl_lgb_21feat.joblib"
 LSTM_AE_PATH = ROOT / "models" / "lanl_lstm_ae_2ep_bs128_20260913_162002.pt"
 
-BLOCK_THRESHOLD = float(os.environ.get("DEMO_BLOCK_AT", "0.50"))
-FLAG_THRESHOLD = float(os.environ.get("DEMO_FLAG_AT", "0.30"))
+BLOCK_THRESHOLD = float(os.environ.get("DEMO_BLOCK_AT", "0.12"))
+FLAG_THRESHOLD = float(os.environ.get("DEMO_FLAG_AT", "0.08"))
 
 LANL_FEATURES = [
     "dst_first", "src_first", "hour_ratio", "dst_prior_events",
@@ -349,11 +349,11 @@ def lanl_feature_sql(user_src: str) -> str:
         FROM user_with_counts
     ),
     machine_pop AS (
-        SELECT dst_computer, COUNT(DISTINCT src_user) AS machine_popularity
-        FROM feat GROUP BY dst_computer
+        SELECT dst_computer, COUNT(DISTINCT user_id) AS machine_popularity
+        FROM events GROUP BY dst_computer
     )
     SELECT
-        row_id, time, user_id, src_computer, dst_computer,
+        row_id, time, user_id, src_computer, uwv.dst_computer,
         auth_type, logon_type, orientation, result, hour_f,
 
         dst_first,

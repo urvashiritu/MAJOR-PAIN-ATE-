@@ -119,7 +119,7 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     if "dst_first_x_ntlm" not in cols:
         con.execute("ALTER TABLE events ADD COLUMN dst_first_x_ntlm BOOLEAN")
     # 20feat migrations (Config E)
-    new_cols = ['pair_freq_ratio', 'is_rare_hour', 'pairs_last_100',
+    new_cols = ['log_pair_rank', 'pair_freq_ratio', 'is_rare_hour', 'pairs_last_100',
                 'pair_interval_ratio', 'iat_zscore', 'velocity_ratio', 'machine_popularity']
     for col in new_cols:
         if col not in cols:

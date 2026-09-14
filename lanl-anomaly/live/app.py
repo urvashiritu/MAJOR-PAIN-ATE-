@@ -130,6 +130,16 @@ def spa_files(path: str):
     return send_from_directory(WEB, "index.html")
 
 
+@app.route("/css/<path:filename>")
+def css_files(filename):
+    return send_from_directory(WEB / "css", filename)
+
+
+@app.route("/js/<path:filename>")
+def js_files(filename):
+    return send_from_directory(WEB / "js", filename)
+
+
 @app.route("/events/stream")
 def stream():
     """SSE: one `score` message per scored event."""
