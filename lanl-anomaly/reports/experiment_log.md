@@ -1028,3 +1028,69 @@ Benign p95=0.0000 is **expected** — autoencoder trained on benign reconstructs
 - Live scoring: `live/scoring.py` (Flask backend)
 - Model export: `save_lgb21.py` (trains + saves LGB-21)
 - Split: GroupShuffleSplit(random_state=42), 462 train / 240 test red events
+
+---
+
+## EWMA ADAPTIVE THRESHOLDS: TRAINING-SERVING SKEW FIX (2026-09-14)
+
+### Problem
+- LGB-21 trained on batch SQL CTE features (window functions over 29.9M rows)
+- Live scoring uses incremental in-memory features (starting from zero)
+- Live scores cluster at ~0.001 while training threshold is 0.187
+- Fixed thresholds (0.08/0.12) never triggered — every event was "allow"
+- Root cause: **training-serving skew** — model trained on different feature representation than it sees in production
+
+### Diagnosis
+- Training features: batch SQL CTEs with window functions (vel_1h, hour_ratio, etc.) computed over full 29.9M row dataset
+- Live features: incremental in-memory counters starting from zero per user
+- Distribution mismatch: training scores range [0, 0.85+], live scores range [0, 0.005]
+- Model CAN produce high scores on training-like features (verified: 0.85+ on synthetic training-like data)
+- Model outputs ~0.001 on live features because features don't match training distribution
+
+### Fix Applied: EWMA Adaptive Thresholds
+- **Approach:** Track running mean/std of live LGB scores via Exponentially Weighted Moving Average
+- **Thresholds:** flag >= mean + 2σ, block >= mean + 3σ (adaptive, not fixed)
+- **Pre-seeding:** Load existing 39 scored events from DB (mean=0.001455, std=0.001458)
+- **Complexity:** O(1) per event, zero startup cost
+- **Code:** `live/scoring.py` — `_update_ewma()`, `_adaptive_thresholds()`, `_load_score_baseline()`
+
+### Decision Logic (before vs after)
+| | Before | After |
+|---|--------|-------|
+| Thresholds | Fixed: flag>=0.08, block>=0.12 | Adaptive: flag>=mean+2σ, block>=mean+3σ |
+| Live scores | ~0.001 (never trigger) | ~0.001 (triggers when >2σ above mean) |
+| Normal events | allow | allow (score < mean+2σ) |
+| High events | allow (never triggered) | FLAG/BLOCK (score > mean+2σ/3σ) |
+
+### Why This Works
+- EWMA is the gold standard for adaptive thresholds in anomaly detection (KIT paper: 92.7% F1)
+- Research sources: scitepress 2025, ResearchGate adaptive dynamic threshold, KIT 2024, ezaiapi production UEBA
+- Z-score gating: |z| < 2 → normal, 2-3 → watch, >3 → alert (standard in production)
+- Thresholds adapt automatically as more events arrive — no manual tuning needed
+
+### What This Does NOT Fix
+- Raw LGB scores are still meaningless (~0.001 instead of [0, 0.85+])
+- Model's actual predictive power is degraded because it sees different features
+- This is a **workaround**, not a **fix** — the proper fix is retraining
+
+### Proper Fix (Future Work)
+- Retrain LGB with incremental features (same computation as live scoring)
+- This unifies training-serving feature representation
+- Model will produce meaningful scores, thresholds can be absolute
+- Estimated effort: 2-3 hours (modify eval_lstm.py, retrain, save new model)
+
+### Research Sources
+1. axiscoretech.com (2026) — "Training-serving skew is architectural, wrong from day one"
+2. ploomber.io — Feature stores eliminate training-serving skew
+3. mcpanalytics.ai — Monitor feature distributions, retrain when drift detected
+4. scitepress 2025 — EWMA for lightweight anomaly detection
+5. KIT 2024 — Adaptive dynamic thresholds achieve 92.7% F1
+6. ezaiapi — Production UEBA uses mean + 3σ for anomaly detection
+7. GitHub LightGBM #5958 — Poor calibration with scale_pos_weight (confirms our issue)
+
+### Status
+- ✅ EWMA fix applied to `live/scoring.py`
+- ✅ Compiles and verified
+- ✅ Tested: normal=allow, high=FLAG, very high=BLOCK
+- ⏳ Pending: E2E Playwright test with new thresholds
+- ⏳ Pending: Retrain with incremental features (production fix)

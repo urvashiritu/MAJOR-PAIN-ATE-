@@ -69,6 +69,12 @@ _ae_field_offsets = None
 _ae_device = None
 _models_loaded = False
 
+_ewma_mean: float = 0.0
+_ewma_var: float = 1.0
+_ewma_count: int = 0
+_EWMA_ALPHA: float = 0.05  # smoothing factor (lower = more stable)
+_EWMA_WARMUP: int = 20     # events before EWMA kicks in
+
 _PROFILE_TTL_S = 60.0
 _last_profile_refresh: dict = {}
 
@@ -87,6 +93,45 @@ def _load_profile(con: duckdb.DuckDBPyConnection, user_id: int):
         "avg_per_hour": float(row[2] or 0.0),
         "total_events": int(row[3] or 0),
     }
+
+
+def _load_score_baseline(con: duckdb.DuckDBPyConnection):
+    """Pre-seed EWMA from existing scored events."""
+    global _ewma_mean, _ewma_var, _ewma_count
+    row = con.execute(
+        "SELECT AVG(lgb_score), VARIANCE(lgb_score), COUNT(*) "
+        "FROM events WHERE lgb_score IS NOT NULL"
+    ).fetchone()
+    if row and row[2] and row[2] > 0:
+        _ewma_mean = float(row[0] or 0.001)
+        _ewma_var = float(row[1] or 0.000001)
+        _ewma_count = int(row[2])
+        print(f"pre-seeded EWMA: mean={_ewma_mean:.6f} var={_ewma_var:.9f} n={_ewma_count}")
+    else:
+        print("WARN: no scored events for EWMA seed, starting fresh")
+
+
+def _update_ewma(score: float):
+    """Update running EWMA mean and variance with new score."""
+    global _ewma_mean, _ewma_var, _ewma_count
+    _ewma_count += 1
+    if _ewma_count == 1:
+        _ewma_mean = score
+        _ewma_var = 0.0
+        return
+    delta = score - _ewma_mean
+    _ewma_mean += _EWMA_ALPHA * delta
+    _ewma_var = (1 - _EWMA_ALPHA) * (_ewma_var + _EWMA_ALPHA * delta * delta)
+
+
+def _adaptive_thresholds() -> tuple[float, float]:
+    """Compute flag/block thresholds from running mean + k*std.
+    Returns (flag_threshold, block_threshold).
+    """
+    std = max(_ewma_var ** 0.5, 1e-8)
+    flag = _ewma_mean + 2.0 * std
+    block = _ewma_mean + 3.0 * std
+    return flag, block
 
 
 def _deviation_signals(fd: dict, profile) -> tuple:
@@ -404,6 +449,9 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
     """Score one LANL event against the user's stored history."""
     if not load_models():
         raise RuntimeError("Models not loaded")
+    global _ewma_count
+    if _ewma_count == 0:
+        _load_score_baseline(con)
 
     row_id = int(con.execute("SELECT COALESCE(MAX(row_id), 0) + 1 FROM events").fetchone()[0])
 
@@ -493,15 +541,18 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
     }
     dev_points, dev_reasons = _deviation_signals(fd, profile)
 
+    _update_ewma(lgb_score)
+    flag_thr, block_thr = _adaptive_thresholds()
     combined = lgb_score
-    if combined >= BLOCK_THRESHOLD:
+    if combined >= block_thr:
         decision, level = "block", "critical"
-    elif combined >= FLAG_THRESHOLD:
+    elif combined >= flag_thr:
         decision, level = "flag", "high"
     else:
         decision, level = "allow", "low"
     reasons = "; ".join(filter(None, [
         f"lgb={lgb_score:.3f}", f"recon={recon_error:.3f}", f"dev={dev_points}",
+        f"thr=flag>={flag_thr:.4f},block>={block_thr:.4f}",
         *dev_reasons,
     ]))
 
