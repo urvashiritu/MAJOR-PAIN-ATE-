@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS events (
     dst_first_x_ntlm BOOLEAN,
     -- scores
     lgb_score DOUBLE,
-    if_score DOUBLE,
+    shap_top TEXT,
     combined_score DOUBLE,
     dev_points INTEGER,
     dev_reasons TEXT,
@@ -127,6 +127,9 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     # 21feat migration (RUN 9 best model)
     if "lstm_ae_recon_error" not in cols:
         con.execute("ALTER TABLE events ADD COLUMN lstm_ae_recon_error DOUBLE")
+    # SHAP migration (replaces if_score)
+    if "shap_top" not in cols:
+        con.execute("ALTER TABLE events ADD COLUMN shap_top TEXT")
 
 
 def next_event_id(con: duckdb.DuckDBPyConnection) -> int:

@@ -13,7 +13,7 @@ Routes:
   GET  /api/health           system status
   GET  /dashboard            serve HTML/CSS/JS dashboard
 
-Run:  venv/bin/python live/app.py   (then open http://127.0.0.1:5000)
+Run:  venv/bin/python live/app.py   (then open http://127.0.0.1:5001)
 """
 import json
 import math
@@ -90,7 +90,7 @@ def _publish(c, result: dict) -> None:
             "auth_type": result.get("auth_type"),
             "result": result.get("result"),
             "lgb_score": result.get("lgb_score", 0.0),
-            "if_score": result.get("if_score", 0.0),
+            "shap_top": result.get("shap_top", []),
             "combined_score": result["combined_score"],
             "dev_points": result.get("dev_points", 0),
             "dev_reasons": result.get("dev_reasons", ""),
@@ -291,7 +291,7 @@ def api_dashboard():
     logins = c.execute("""
         SELECT e.row_id, e.user_id, u.name, u.raw_id, e.src_computer, e.dst_computer,
                e.auth_type, e.result, e.decision, e.combined_score, e.lgb_score,
-               e.if_score, e.ts, e.risk_level, e.reasons
+               e.shap_top, e.ts, e.risk_level, e.reasons
         FROM events e LEFT JOIN users u ON u.user_id = e.user_id
         WHERE e.decision != 'history'
         ORDER BY e.row_id DESC LIMIT 30
@@ -301,7 +301,7 @@ def api_dashboard():
         "src_computer": e[4] or "-", "dst_computer": e[5] or "-",
         "auth_type": e[6] or "-", "result": e[7] or "-",
         "decision": e[8], "combined_score": e[9] or 0,
-        "lgb_score": e[10] or 0, "if_score": e[11] or 0,
+        "lgb_score": e[10] or 0, "shap_top": e[11] or "[]",
         "ts": e[12].strftime("%H:%M:%S") if e[12] else "-",
         "risk_level": e[13] or "low", "reasons": e[14] or "",
     } for e in logins]
@@ -437,7 +437,7 @@ def api_investigation(event_id: int):
         "user_id": e["user_id"],
         "severity": e.get("risk_level") or "low",
         "combinedScore": e.get("combined_score") or 0,
-        "ifScore": e.get("if_score") or 0,
+        "shapTop": e.get("shap_top") or "[]",
         "devPoints": e.get("dev_points") or 0,
         "devReasons": e.get("dev_reasons") or "",
         "type": e.get("decision") or "allow",
@@ -490,4 +490,4 @@ WEB = ROOT / "live" / "vanilla-dashboard"
 
 if __name__ == "__main__":
     load_models()
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=5001, debug=False, threaded=True)

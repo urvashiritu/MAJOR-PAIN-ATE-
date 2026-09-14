@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Vanilla dashboard server — proxies /api and /events to Flask on port 5000."""
+"""Vanilla dashboard server — proxies /api and /events to Flask on port 5001."""
 import http.server
 import socketserver
 import urllib.request
 import sys
 
 PORT = 8080
-FLASK = "http://localhost:5000"
+FLASK = "http://localhost:5001"
 
 
 class ProxyHandler(http.server.SimpleHTTPRequestHandler):

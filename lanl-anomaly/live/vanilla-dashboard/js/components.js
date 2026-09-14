@@ -137,6 +137,18 @@ export function investigationDrawer(data, onClose) {
   const timeline = data?.timeline || [];
   const baseline = data?.baseline || {};
 
+  let shapHtml = "";
+  try {
+    const shapTop = typeof data?.shapTop === "string" ? JSON.parse(data.shapTop) : (data?.shapTop || []);
+    if (shapTop.length) {
+      shapHtml = `<div class="panel p-3"><div class="section-title">Top Risk Factors (SHAP)</div><div class="space-y-2">${shapTop.map(f => {
+        const arrow = f.direction === "positive" ? "↑" : "↓";
+        const color = f.direction === "positive" ? "#e5484d" : "#57b06c";
+        return `<div class="flex-between text-11"><span class="text-faint">${esc(f.feature)}</span><span style="color:${color}" class="font-bold mono">${arrow} ${f.shap > 0 ? "+" : ""}${f.shap.toFixed(4)}</span></div>`;
+      }).join("")}</div></div>`;
+    }
+  } catch {}
+
   drawer.innerHTML = `
     <div class="drawer-header">
       <div>
@@ -150,11 +162,12 @@ export function investigationDrawer(data, onClose) {
       <div class="panel p-3">
         <div class="grid-3 text-center">
           <div><div class="kpi-label">Risk Score</div><div class="text-lg font-bold text-ink">${(data?.combinedScore ?? 0).toFixed(3)}</div></div>
-          <div><div class="kpi-label">Anomaly (IF)</div><div class="text-lg font-bold text-info">${(data?.ifScore ?? 0).toFixed(3)}</div></div>
           <div><div class="kpi-label">Habit Breaks</div><div class="text-lg font-bold ${(data?.devPoints ?? 0) > 0 ? "text-critical" : "text-low"}">${data?.devPoints ?? 0}</div></div>
+          <div><div class="kpi-label">Decision</div><div class="text-lg font-bold ${(data?.type === "block") ? "text-critical" : (data?.type === "flag") ? "text-high" : "text-low"}">${esc(data?.type || "allow")}</div></div>
         </div>
         ${data?.devReasons ? `<div class="mt-2 text-11 text-dim">${esc(data.devReasons)}</div>` : ""}
       </div>
+      ${shapHtml}
       <div class="panel p-3">
         <div class="section-title">Event</div>
         <div class="grid-2 gap-2 text-xs">

@@ -9,6 +9,7 @@ const $$ = (sel) => document.querySelectorAll(sel);
 let _poll = null;
 let _gauge = null;
 let _currentPage = null;
+let _dashboardRendered = false;
 
 // ── Router ────────────────────────────────────────────────────
 function getPage() {
@@ -21,6 +22,7 @@ function getPage() {
 
 function navigate(page) {
   _currentPage = page;
+  _dashboardRendered = false;
   location.hash = `#/${page === "dashboard" ? "" : page}`;
   render();
   updateNav();
@@ -35,8 +37,12 @@ function updateNav() {
 // ── Render ────────────────────────────────────────────────────
 async function render() {
   const main = $("#main-content");
-  destroyChartInstances();
-  main.innerHTML = `<div class="loading"><span class="live-dot"></span><span class="text-faint text-xs ml-2">Loading...</span></div>`;
+
+  // Only show loading spinner on first render or non-dashboard pages
+  if (!_dashboardRendered || _currentPage !== "dashboard") {
+    destroyChartInstances();
+    main.innerHTML = `<div class="loading"><span class="live-dot"></span><span class="text-faint text-xs ml-2">Loading...</span></div>`;
+  }
 
   try {
     switch (_currentPage) {
@@ -45,6 +51,7 @@ async function render() {
       case "users":     await renderUsers(main); break;
       case "settings":  await renderSettings(main); break;
     }
+    if (_currentPage === "dashboard") _dashboardRendered = true;
   } catch (err) {
     main.innerHTML = `<div class="text-critical p-4">Error: ${err.message}</div>`;
   }
@@ -247,10 +254,11 @@ async function renderSettings(main) {
     <div class="panel p-4 mb-4">
       <div class="flex-center gap-2 mb-3"><span class="text-ochre">🛡</span><h2 class="section-title">Model Configuration</h2></div>
       <div class="space-y-2 text-sm">
-        <div class="flex-between py-15 border-bottom"><span class="text-faint">IF Model</span><span class="text-ink mono text-xs">lanl_if.joblib</span></div>
-        <div class="flex-between py-15 border-bottom"><span class="text-faint">LGB Model</span><span class="text-ink mono text-xs">lanl_lgb.joblib (display only)</span></div>
-        <div class="flex-between py-15 border-bottom"><span class="text-faint">Flag Threshold</span><span class="text-ink mono text-xs">≥ 0.65</span></div>
-        <div class="flex-between py-15 border-bottom"><span class="text-faint">Block Threshold</span><span class="text-ink mono text-xs">≥ 0.75</span></div>
+        <div class="flex-between py-15 border-bottom"><span class="text-faint">LGB Model</span><span class="text-ink mono text-xs">lanl_lgb_21feat.joblib (roc_auc=0.9999)</span></div>
+        <div class="flex-between py-15 border-bottom"><span class="text-faint">LSTM-AE</span><span class="text-ink mono text-xs">lanl_lstm_ae_2ep_bs128 (Feature 21)</span></div>
+        <div class="flex-between py-15 border-bottom"><span class="text-faint">Flag Threshold</span><span class="text-ink mono text-xs">>= 0.08</span></div>
+        <div class="flex-between py-15 border-bottom"><span class="text-faint">Block Threshold</span><span class="text-ink mono text-xs">>= 0.12</span></div>
+        <div class="flex-between py-15 border-bottom"><span class="text-faint">Explainability</span><span class="text-ink mono text-xs">SHAP TreeExplainer (top-5 features)</span></div>
         <div class="flex-between py-15"><span class="text-faint">Deviation Checks</span><span class="text-ink mono text-xs">new_dst, new_src, velocity, auth_failures</span></div>
       </div>
     </div>
@@ -318,7 +326,7 @@ function init() {
     });
   }
 
-  // SSE + polling
+  // SSE — no polling, SSE pushes on every scored event
   let refreshTimer = null;
   function scheduleRefresh() {
     if (refreshTimer) return;
@@ -329,7 +337,6 @@ function init() {
     onConnect: () => setHealth(true),
     onDisconnect: () => setHealth(false),
   });
-  setInterval(scheduleRefresh, 3000);
 }
 
 document.addEventListener("DOMContentLoaded", init);

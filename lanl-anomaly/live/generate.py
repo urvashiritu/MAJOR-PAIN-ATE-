@@ -2,7 +2,7 @@
 """LANL event generator — runs on Laptop 2, sends events to Laptop 1 backend.
 
 Usage:
-    python generate.py [--url http://LAPTOP1:5000] [--rate 2] [--attacker-rate 10]
+    python generate.py [--url http://LAPTOP1:5001] [--rate 2] [--attacker-rate 10]
 
 Reads events from slice.parquet and POSTs them to the Flask backend.
 Normal users are sent at --rate events/sec, attacker at --attacker-rate.
@@ -64,7 +64,7 @@ def send_event(url, user_id, ev):
 
 def main():
     parser = argparse.ArgumentParser(description="LANL event generator for Laptop 2")
-    parser.add_argument("--url", default="http://127.0.0.1:5000", help="Backend URL (Laptop 1)")
+    parser.add_argument("--url", default="http://127.0.0.1:5001", help="Backend URL (Laptop 1)")
     parser.add_argument("--rate", type=float, default=2.0, help="Events/sec for normal users")
     parser.add_argument("--attacker-rate", type=float, default=10.0, help="Events/sec for attacker")
     parser.add_argument("--burst-interval", type=int, default=60, help="Seconds between attack bursts")

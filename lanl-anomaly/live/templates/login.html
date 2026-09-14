@@ -146,7 +146,7 @@
     </div>
   </div>
 
-  <div class="backend-url">Backend: <a href="#" id="backendUrl">http://127.0.0.1:5000</a></div>
+  <div class="backend-url">Backend: <a href="#" id="backendUrl">http://127.0.0.1:5001</a></div>
 </div>
 
 <script>
@@ -184,7 +184,8 @@ function renderVerdict(data) {
   const icons = { allow: '&#9989;', flag: '&#9888;&#65039;', block: '&#10060;' };
   const labels = { allow: 'ACCESS GRANTED', flag: 'ACCESS FLAGGED', block: 'ACCESS DENIED' };
 
-  const ifScore = (data.if_score || 0).toFixed(3);
+  const shapTop = data.shap_top || [];
+  const shapStr = shapTop.length > 0 ? shapTop[0].feature + ' (' + (shapTop[0].shap > 0 ? '+' : '') + shapTop[0].shap.toFixed(3) + ')' : '—';
   const combined = (data.combined_score || 0).toFixed(3);
   const devPts = data.dev_points || 0;
   const eventId = data.row_id || '?';
@@ -200,7 +201,7 @@ function renderVerdict(data) {
     <div class="title">${icons[data.decision] || ''} ${labels[data.decision] || data.decision.toUpperCase()}</div>
     <div class="scores">
       <span>Score: <strong class="badge">${combined}</strong></span>
-      <span>Anomaly(IF): <strong class="badge">${ifScore}</strong></span>
+      <span>Top SHAP: <strong class="badge">${shapStr}</strong></span>
       <span>Habit Breaks: <strong class="badge">${devPts}</strong></span>
     </div>
     ${reasonsHtml}
@@ -220,7 +221,7 @@ function addLogEntry(data, payload) {
     auth_type: payload.auth_type,
     result: payload.result,
     score: data.combined_score,
-    if_score: data.if_score,
+    shap_top: JSON.stringify(data.shap_top || []),
     decision: data.decision,
     risk_level: data.risk_level,
     dev_points: data.dev_points,
@@ -271,11 +272,11 @@ function clearLog() {
 
 function exportCSV() {
   if (eventLog.length === 0) return;
-  const headers = ['timestamp','event_id','user_name','user_id','src_computer','dst_computer','auth_type','result','score','if_score','decision','risk_level','dev_points','dev_reasons'];
+  const headers = ['timestamp','event_id','user_name','user_id','src_computer','dst_computer','auth_type','result','score','shap_top','decision','risk_level','dev_points','dev_reasons'];
   const rows = eventLog.map(e => headers.map(h => {
     let v = e[h] ?? '';
     if (h === 'ts') v = e.ts;
-    if (h === 'score' || h === 'if_score') v = (v || 0).toFixed(6);
+    if (h === 'score') v = (v || 0).toFixed(6);
     v = String(v).replace(/"/g, '""');
     return v.includes(',') || v.includes('"') ? `"${v}"` : v;
   }).join(','));

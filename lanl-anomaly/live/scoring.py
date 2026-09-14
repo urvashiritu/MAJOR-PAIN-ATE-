@@ -8,9 +8,11 @@ One event in, a decision out. The scoring path:
   4. Per-user habit deviation signals (displayed for reasoning, not scored)
 
 Decision policy:
-  - lgb_score >= BLOCK_THRESHOLD (default 0.50) -> block
-  - lgb_score >= FLAG_THRESHOLD  (default 0.30) -> flag
+  - lgb_score >= BLOCK_THRESHOLD (default 0.12) -> block
+  - lgb_score >= FLAG_THRESHOLD  (default 0.08) -> flag
   - otherwise                                   -> allow
+
+Each scored event returns top-5 SHAP feature contributions for explainability.
 
 Features (21 — RUN 9 best model):
   dst_first, src_first, hour_ratio, dst_prior_events, fail_1h,
@@ -28,6 +30,7 @@ from pathlib import Path
 import duckdb
 import joblib
 import numpy as np
+import shap
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -59,6 +62,7 @@ AE_HIDDEN = 128
 AE_LAYERS = 2
 
 _lgb_model = None
+_explainer = None
 _ae_model = None
 _ae_vocab = None
 _ae_field_offsets = None
@@ -106,7 +110,7 @@ def _deviation_signals(fd: dict, profile) -> tuple:
 
 
 def load_models():
-    global _lgb_model, _ae_model, _ae_vocab, _ae_field_offsets, _ae_device, _models_loaded
+    global _lgb_model, _explainer, _ae_model, _ae_vocab, _ae_field_offsets, _ae_device, _models_loaded
     if _models_loaded:
         return True
     if not LGB_MODEL_PATH.exists():
@@ -119,6 +123,15 @@ def load_models():
     except Exception as exc:
         print(f"FATAL: failed to load LGB model: {exc}")
         return False
+
+    # SHAP TreeExplainer (optional — non-fatal if it fails)
+    try:
+        _explainer = shap.TreeExplainer(_lgb_model)
+        ev = _explainer.expected_value
+        print(f"loaded SHAP TreeExplainer: expected_value={float(ev[0] if hasattr(ev, '__getitem__') else ev):.4f}")
+    except Exception as exc:
+        print(f"WARN: SHAP explainer failed ({exc}), explanations will be empty")
+        _explainer = None
 
     # Load LSTM-AE for recon error computation
     if LSTM_AE_PATH.exists():
@@ -456,6 +469,22 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
 
     lgb_score = _compute_lgb_score(features)
 
+    # SHAP: top 5 feature contributions for explainability
+    shap_top = []
+    if _explainer is not None:
+        try:
+            shap_vals = _explainer.shap_values(features.reshape(1, -1))[0]
+            indexed = list(zip(LANL_FEATURES, shap_vals, features))
+            indexed.sort(key=lambda x: abs(x[1]), reverse=True)
+            shap_top = [
+                {"feature": name, "value": round(float(fval), 4),
+                 "shap": round(float(sval), 4),
+                 "direction": "positive" if sval > 0 else "negative"}
+                for name, sval, fval in indexed[:5]
+            ]
+        except Exception as exc:
+            pass
+
     profile = _load_profile(con, ev["user_id"])
     fd = {
         "dst_computer": ev["dst_computer"], "src_computer": ev["src_computer"],
@@ -476,6 +505,7 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         *dev_reasons,
     ]))
 
+    import json as _json
     con.execute("""
         UPDATE events SET dst_first=?, src_first=?, hour_ratio=?, dst_prior_events=?,
             fail_1h=?, vel_1h=?, hour_sin=?, hour_cos=?,
@@ -483,7 +513,7 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
             log_pair_rank=?, pair_freq_ratio=?, is_rare_hour=?, pairs_last_100=?,
             iat_zscore=?, velocity_ratio=?, machine_popularity=?,
             lstm_ae_recon_error=?,
-            lgb_score=?, combined_score=?, risk_level=?, reasons=?, decision=?,
+            lgb_score=?, shap_top=?, combined_score=?, risk_level=?, reasons=?, decision=?,
             dev_points=?, dev_reasons=?
         WHERE row_id=?
     """, (int(feat_row["dst_first"]), int(feat_row["src_first"]),
@@ -497,7 +527,7 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
           clipped["is_rare_hour"], clipped["pairs_last_100"],
           clipped["iat_zscore"], clipped["velocity_ratio"], clipped["machine_popularity"],
           round(recon_error, 6),
-          round(lgb_score, 6), round(combined, 6),
+          round(lgb_score, 6), _json.dumps(shap_top), round(combined, 6),
           level, reasons, decision, dev_points, "; ".join(dev_reasons), row_id))
 
     if decision in ("block", "flag"):
@@ -522,6 +552,7 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         "lgb_score": round(lgb_score, 6),
         "lstm_recon_error": round(recon_error, 6),
         "combined_score": round(combined, 6),
+        "shap_top": shap_top,
         "dev_points": dev_points,
         "dev_reasons": "; ".join(dev_reasons),
         "risk_level": level, "reasons": reasons, "decision": decision,

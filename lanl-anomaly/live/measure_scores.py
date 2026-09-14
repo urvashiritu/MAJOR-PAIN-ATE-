@@ -72,7 +72,7 @@ def main():
     def run(label, uid, ev):
         r = score_event(con, ev)
         results.setdefault(label, []).append(
-            {"user": uid, "if": r["if_score"], "lgb": r["lgb_score"],
+            {"user": uid, "lgb": r["lgb_score"],
              "decision": r["decision"], "level": r["risk_level"]})
 
     hist_max = con.execute(
