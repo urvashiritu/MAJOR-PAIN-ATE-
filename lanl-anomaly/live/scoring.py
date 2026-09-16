@@ -30,6 +30,7 @@ from pathlib import Path
 import duckdb
 import joblib
 import numpy as np
+import pandas as pd
 import shap
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,6 +78,27 @@ _EWMA_WARMUP: int = 20     # events before EWMA kicks in
 
 _PROFILE_TTL_S = 60.0
 _last_profile_refresh: dict = {}
+
+# Precomputed globals from full dataset (fixes training-serving skew)
+_globals_dir = ROOT / "live" / "globals"
+_user_totals: pd.DataFrame | None = None
+_hour_events: pd.DataFrame | None = None
+_pair_totals: pd.DataFrame | None = None
+_rare_hours: set = set()  # set of (src_user, hour) tuples
+
+
+def _load_globals():
+    global _user_totals, _hour_events, _pair_totals, _rare_hours
+    if _user_totals is not None:
+        return
+    _user_totals = pd.read_pickle(_globals_dir / "user_totals.pkl")
+    _hour_events = pd.read_pickle(_globals_dir / "hour_events.pkl")
+    _pair_totals = pd.read_pickle(_globals_dir / "pair_totals.pkl")
+    rh_df = pd.read_pickle(_globals_dir / "rare_hours.pkl")
+    _rare_hours = set(zip(rh_df["src_user"], rh_df["hour"]))
+    print(f"loaded globals: {len(_user_totals)} users, "
+          f"{len(_hour_events)} hour_slots, {len(_pair_totals)} pairs, "
+          f"{len(_rare_hours)} rare_hours")
 
 
 def _load_profile(con: duckdb.DuckDBPyConnection, user_id: int):
@@ -360,7 +382,7 @@ def lanl_feature_sql(user_src: str) -> str:
     user_base AS (
         SELECT *,
             CAST(vel_1h AS DOUBLE) / (CAST(user_events_so_far AS DOUBLE) + 1.0) AS hour_ratio,
-            CAST(vel_1h AS DOUBLE) / (CAST(fail_1h AS DOUBLE) + 1.0) AS fail_rate_calc,
+            CAST(fail_1h AS DOUBLE) / (CAST(vel_1h AS DOUBLE) + 1.0) AS fail_rate_calc,
             CASE WHEN dst_prior_events = 0 THEN 1 ELSE 0 END AS dst_first,
             CASE WHEN src_prior_events = 0 THEN 1 ELSE 0 END AS src_first,
             CASE WHEN dst_prior_events = 0 AND auth_type = 'NTLM' THEN 1.0 ELSE 0.0 END AS dst_first_x_ntlm
@@ -493,6 +515,28 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
         WHERE row_id = {row_id}
     """).fetchdf().iloc[0]
 
+    # Override training-serving skew fixes using precomputed globals
+    _load_globals()
+    uid = ev["user_id"]
+
+    # hour_ratio: training = hour_events(full) / user_total(full)
+    hour_f = float(feat_row["hour_f"])
+    user_total_row = _user_totals[_user_totals["src_user"] == raw_id]
+    user_total = int(user_total_row["user_total"].iloc[0]) if len(user_total_row) > 0 else 1
+    he_row = _hour_events[(_hour_events["src_user"] == raw_id) & (_hour_events["hour"] == hour_f)]
+    hour_events_val = int(he_row["hour_events"].iloc[0]) if len(he_row) > 0 else 0
+    feat_row["hour_ratio"] = hour_events_val / user_total
+
+    # pair_freq_ratio: training = pair_total(full) / user_total(full)
+    pt_row = _pair_totals[(_pair_totals["src_user"] == raw_id) &
+                          (_pair_totals["src_computer"] == ev["src_computer"]) &
+                          (_pair_totals["dst_computer"] == ev["dst_computer"])]
+    pair_total = int(pt_row["pair_total"].iloc[0]) if len(pt_row) > 0 else 0
+    feat_row["pair_freq_ratio"] = pair_total / user_total
+
+    # is_rare_hour: 1 if (user, hour) in rare_hours set from full dataset
+    feat_row["is_rare_hour"] = 1.0 if (raw_id, hour_f) in _rare_hours else 0.0
+
     # Feature 21: LSTM-AE reconstruction error
     recon_error = compute_recon_error(con, ev, raw_id)
 
@@ -500,7 +544,6 @@ def score_event(con: duckdb.DuckDBPyConnection, ev: dict) -> dict:
                         dtype=np.float32)
 
     # Feature 17: pairs_last_100 — distinct destinations in sliding window of last 100 events
-    uid = ev["user_id"]
     pb = _pairs_buf[uid]
     pb.append(ev["dst_computer"])
     if len(pb) > _PAIRS_BUF_MAX:
