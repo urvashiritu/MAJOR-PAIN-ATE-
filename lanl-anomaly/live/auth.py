@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import os
 import json
+import time
 
 _SECRETS_PATH = os.path.join(os.path.dirname(__file__), '.totp_secrets.json')
 
@@ -85,6 +86,11 @@ def get_current_code(username):
     if not secret:
         return None
     return pyotp.TOTP(secret).now()
+
+
+def get_totp_remaining():
+    """Seconds remaining in current 30s TOTP window."""
+    return 30 - (int(time.time()) % 30)
 
 
 def verify_password(username, password):

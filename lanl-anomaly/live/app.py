@@ -279,6 +279,36 @@ def api_live_events():
     return jsonify(list(reversed(_live_events[-50:])))
 
 
+@app.route('/api/users')
+def api_users():
+    """Stub: user list — replace with real UEBA data later."""
+    return jsonify([])
+
+
+@app.route('/api/stats')
+def api_stats():
+    """Stub: system stats — replace with real counters later."""
+    return jsonify({'live_events': 0, 'alerts': 0, 'users': 0})
+
+
+@app.route('/api/investigation/<int:alert_id>')
+def api_investigation(alert_id):
+    """Stub: investigation detail — replace with real analysis later."""
+    return jsonify({})
+
+
+@app.route('/api/alerts/<int:alert_id>/ack', methods=['POST'])
+def api_ack_alert(alert_id):
+    """Stub: acknowledge alert."""
+    return jsonify({'ok': True})
+
+
+@app.route('/api/reset', methods=['POST'])
+def api_reset():
+    """Stub: reset dashboard state."""
+    return jsonify({'ok': True})
+
+
 if __name__ == '__main__':
     print("loading scores...")
     _load_scores()

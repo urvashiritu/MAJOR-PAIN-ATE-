@@ -8,12 +8,24 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --bg: #0b0e14;
+            --surface: #10151d;
+            --surface-2: #151a24;
+            --ink: #e8ecf4;
+            --ink-dim: #8b93a5;
+            --ink-faint: #5a6274;
+            --hairline: rgba(255, 255, 255, 0.08);
+            --critical: #e5484d;
+            --low: #57b06c;
+            --ochre: #e8a33d;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: 'JetBrains Mono', monospace;
-            background: #0F1117;
-            color: #2DD4BF;
+            background: var(--bg);
+            color: var(--ink);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -30,8 +42,8 @@
                 0deg,
                 transparent,
                 transparent 2px,
-                rgba(45, 212, 191, 0.012) 2px,
-                rgba(45, 212, 191, 0.012) 4px
+                rgba(232, 163, 61, 0.008) 2px,
+                rgba(232, 163, 61, 0.008) 4px
             );
             pointer-events: none;
             z-index: 100;
@@ -55,8 +67,8 @@
         }
 
         .terminal-header {
-            background: #181B23;
-            border: 1px solid rgba(45, 212, 191, 0.2);
+            background: var(--surface);
+            border: 1px solid var(--hairline);
             border-bottom: none;
             border-radius: 8px 8px 0 0;
             padding: 8px 12px;
@@ -69,22 +81,22 @@
             width: 10px;
             height: 10px;
             border-radius: 50%;
-            background: #EF4444;
+            background: var(--critical);
         }
-        .terminal-dot:nth-child(2) { background: #F59E0B; }
-        .terminal-dot:nth-child(3) { background: #22C55E; }
+        .terminal-dot:nth-child(2) { background: var(--ochre); }
+        .terminal-dot:nth-child(3) { background: var(--low); }
 
         .terminal-title {
             margin-left: 8px;
             font-size: 11px;
-            color: #6B7280;
+            color: var(--ink-faint);
             letter-spacing: 0.5px;
         }
 
         .terminal-body {
-            background: #181B23;
-            border: 1px solid rgba(45, 212, 191, 0.2);
-            border-top: 1px solid rgba(45, 212, 191, 0.1);
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            border-top: 1px solid var(--hairline);
             border-radius: 0 0 8px 8px;
             padding: 32px;
         }
@@ -97,23 +109,22 @@
         .system-banner .logo {
             font-size: 14px;
             font-weight: 700;
-            color: #2DD4BF;
+            color: var(--ochre);
             letter-spacing: 4px;
             text-transform: uppercase;
             margin-bottom: 4px;
-            text-shadow: 0 0 20px rgba(45, 212, 191, 0.3);
         }
 
         .system-banner .subtitle {
             font-size: 10px;
-            color: #6B7280;
+            color: var(--ink-faint);
             letter-spacing: 2px;
             text-transform: uppercase;
         }
 
         .system-banner .warning {
             font-size: 9px;
-            color: #F59E0B;
+            color: var(--ochre);
             letter-spacing: 1px;
             margin-top: 8px;
             opacity: 0.8;
@@ -121,17 +132,17 @@
 
         .prompt-line {
             font-size: 12px;
-            color: #6B7280;
+            color: var(--ink-faint);
             margin-bottom: 20px;
             line-height: 1.6;
         }
 
         .prompt-line .user {
-            color: #2DD4BF;
+            color: var(--ochre);
         }
 
         .prompt-line .path {
-            color: #6366F1;
+            color: var(--info);
         }
 
         .field-group {
@@ -141,7 +152,7 @@
         .field-label {
             display: block;
             font-size: 10px;
-            color: #6B7280;
+            color: var(--ink-faint);
             letter-spacing: 1px;
             text-transform: uppercase;
             margin-bottom: 6px;
@@ -149,33 +160,33 @@
 
         .field-input {
             width: 100%;
-            background: #0F1117;
-            border: 1px solid rgba(45, 212, 191, 0.15);
+            background: var(--bg);
+            border: 1px solid var(--hairline);
             border-radius: 4px;
             padding: 10px 12px;
             font-family: 'JetBrains Mono', monospace;
             font-size: 13px;
-            color: #2DD4BF;
+            color: var(--ink);
             outline: none;
             transition: border-color 0.2s, box-shadow 0.2s;
         }
 
         .field-input:focus {
-            border-color: rgba(45, 212, 191, 0.4);
-            box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.08);
+            border-color: var(--ochre);
+            box-shadow: 0 0 0 2px rgba(232, 163, 61, 0.1);
         }
 
         .field-input::placeholder {
-            color: #3d3d46;
+            color: var(--ink-faint);
         }
 
         .submit-btn {
             width: 100%;
             padding: 12px;
-            background: rgba(45, 212, 191, 0.08);
-            border: 1px solid rgba(45, 212, 191, 0.25);
+            background: rgba(232, 163, 61, 0.15);
+            border: 1px solid rgba(232, 163, 61, 0.3);
             border-radius: 4px;
-            color: #2DD4BF;
+            color: var(--ochre);
             font-family: 'JetBrains Mono', monospace;
             font-size: 12px;
             font-weight: 600;
@@ -187,31 +198,30 @@
         }
 
         .submit-btn:hover {
-            background: rgba(45, 212, 191, 0.15);
-            border-color: rgba(45, 212, 191, 0.4);
-            text-shadow: 0 0 10px rgba(45, 212, 191, 0.3);
+            background: rgba(232, 163, 61, 0.25);
+            border-color: var(--ochre);
         }
 
         .error-msg {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.25);
+            background: rgba(229, 72, 77, 0.1);
+            border: 1px solid rgba(229, 72, 77, 0.25);
             border-radius: 4px;
             padding: 10px 12px;
             margin-bottom: 16px;
             font-size: 11px;
-            color: #EF4444;
+            color: var(--critical);
             letter-spacing: 0.5px;
         }
 
         .dev-codes {
             margin-top: 20px;
-            border-top: 1px solid rgba(45, 212, 191, 0.1);
+            border-top: 1px solid var(--hairline);
             padding-top: 16px;
         }
 
         .dev-codes h3 {
             font-size: 10px;
-            color: #6B7280;
+            color: var(--ink-faint);
             letter-spacing: 1px;
             text-transform: uppercase;
             margin-bottom: 10px;
@@ -226,17 +236,17 @@
         }
 
         .dev-code-row .name {
-            color: #6366F1;
+            color: var(--info);
         }
 
         .dev-code-row .code {
-            color: #F59E0B;
+            color: var(--ochre);
             font-weight: 600;
             letter-spacing: 2px;
         }
 
         .dev-code-row .role {
-            color: #3d3d46;
+            color: var(--ink-faint);
             font-size: 9px;
         }
 
@@ -244,7 +254,7 @@
             text-align: center;
             margin-top: 20px;
             font-size: 9px;
-            color: #3d3d46;
+            color: var(--ink-faint);
             letter-spacing: 1px;
         }
 
@@ -260,7 +270,7 @@
             display: inline-block;
             width: 8px;
             height: 14px;
-            background: #2DD4BF;
+            background: var(--ochre);
             vertical-align: text-bottom;
             animation: blink 1s step-end infinite;
         }
@@ -272,7 +282,7 @@
             <div class="terminal-dot"></div>
             <div class="terminal-dot"></div>
             <div class="terminal-dot"></div>
-            <span class="terminal-title">soc-auth-gateway — ssh</span>
+            <span class="terminal-title">soc-auth-gateway &mdash; ssh</span>
         </div>
         <div class="terminal-body">
             <div class="system-banner">
@@ -328,7 +338,6 @@
     </div>
 
     <script>
-        // Auto-focus username field
         document.querySelector('input[name="username"]').focus();
     </script>
 </body>

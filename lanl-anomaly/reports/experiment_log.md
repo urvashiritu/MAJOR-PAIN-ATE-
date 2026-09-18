@@ -1094,3 +1094,52 @@ Benign p95=0.0000 is **expected** — autoencoder trained on benign reconstructs
 - ✅ Tested: normal=allow, high=FLAG, very high=BLOCK
 - ⏳ Pending: E2E Playwright test with new thresholds
 - ⏳ Pending: Retrain with incremental features (production fix)
+
+---
+
+## RUN 14: Full Dataset Verification (29.9M rows)
+
+### Problem
+Old live demo produced scores ~0.001 (useless). Root cause: used `slice.parquet` (4 users, 62K events) instead of full dataset. Training-serving skew.
+
+### Approach
+- ATTACH `lanl.duckdb` (READ_ONLY) — instant, no data movement
+- `CREATE TABLE AS SELECT` — persist features to DuckDB table (handles 29.9M rows, spills to disk)
+- `fetch_df_chunk(vectors_per_chunk=50)` — predict in chunks (~100K rows), no OOM
+- `SET threads = 1` — deterministic (verified in RUN 12)
+- `SET memory_limit = '8GB'` — safety
+
+### Bugs Fixed
+1. **`fetch_df_chunk` API** — parameter is `vectors_per_chunk` not `chunk_size`
+2. **`log_pair_rank`** — SQL was outputting raw ROW_NUMBER, model expects `LOG(ROW_NUMBER + 1)`
+
+### Results
+| metric | value |
+|--------|-------|
+| total rows | 29,905,488 |
+| score range | [0.000000, 0.998085] |
+| score mean | 0.000029 |
+| score median | 0.000000 |
+| threshold | 0.1872 |
+| red events | 702 |
+| red > threshold | 590/702 (84.0%) |
+| normal events | 29,904,786 |
+| normal > threshold | 386/29,904,786 (0.0%) |
+| prediction time | 57s |
+
+### Per-User Red Scores (top 10)
+| user | events | max score | mean score |
+|------|--------|-----------|------------|
+| U66@DOM1 | 118 | 0.998085 | 0.956848 |
+| U293@DOM1 | 31 | 0.993489 | 0.976944 |
+| U7375@DOM1 | 7 | 0.990934 | 0.977724 |
+| U1306@DOM1 | 1 | 0.990873 | 0.990873 |
+| U4353@DOM1 | 5 | 0.990364 | 0.958660 |
+| U5254@DOM1 | 3 | 0.988722 | 0.960533 |
+| U1450@DOM1 | 11 | 0.988511 | 0.942548 |
+| U642@DOM1 | 2 | 0.987253 | 0.973576 |
+| U2837@DOM1 | 15 | 0.987030 | 0.963926 |
+| U8777@C1500 | 2 | 0.985809 | 0.985534 |
+
+### Verdict
+**W** — Model produces meaningful scores on full dataset. 84% of red events flagged, near-zero false positives. Ready for live demo rebuild.

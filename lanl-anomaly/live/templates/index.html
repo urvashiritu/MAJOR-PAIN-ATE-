@@ -3,175 +3,105 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LANL Insider Threat Detection</title>
+    <title>LANL Anomaly Detection</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://api.fontshare.com/v2/css?f[]=clash-display@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
+    <div class="app">
+        <!-- Sidebar -->
+        <nav class="sidebar">
+            <div class="sidebar-logo">LANL Anomaly</div>
+            <a href="/analyst" class="sidebar-item active">
+                <span>&#9673;</span> Live Monitoring
+            </a>
+            <a href="/analyst/dataset" class="sidebar-item">
+                <span>&#9632;</span> Dataset Analysis
+            </a>
+            <div class="sidebar-divider"></div>
+            <a href="#/alerts" class="sidebar-item disabled">
+                <span>&#9889;</span> Alerts
+            </a>
+            <a href="#/users" class="sidebar-item disabled">
+                <span>&#9673;</span> Users
+            </a>
+            <a href="#/settings" class="sidebar-item disabled">
+                <span>&#9881;</span> Settings
+            </a>
+            <div class="sidebar-spacer"></div>
+            <button class="theme-btn" id="theme-toggle">&#9681;</button>
+        </nav>
 
-    <!-- Nav -->
-    <nav class="nav">
-        <div class="nav-left">
-            <span class="nav-logo">LANL</span>
-            <span class="nav-title">Insider Threat Detection</span>
+        <!-- Main -->
+        <div class="main-area">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <span class="topbar-title">Live Anomaly Monitor</span>
+                </div>
+                <div class="topbar-right">
+                    <div class="flex-center gap-1">
+                        <div class="health-dot" id="health-dot"></div>
+                        <span class="text-10 text-faint uppercase tracking-widest" id="health-label">connected</span>
+                    </div>
+                    <a href="/logout" class="text-10 text-faint uppercase tracking-widest" style="cursor:pointer">Logout</a>
+                </div>
+            </header>
+
+            <div class="content">
+                <!-- KPI Row -->
+                <div class="grid-3 gap-4 mb-4" id="kpi-grid">
+                    <div class="panel panel-hover p-3">
+                        <div class="kpi-label mb-1">Events Scored</div>
+                        <div class="tape-num text-info" id="kpi-total"><span class="skeleton"></span></div>
+                    </div>
+                    <div class="panel panel-hover p-3">
+                        <div class="kpi-label mb-1">Threats Blocked</div>
+                        <div class="tape-num text-critical" id="kpi-blocked"><span class="skeleton"></span></div>
+                    </div>
+                    <div class="panel panel-hover p-3">
+                        <div class="kpi-label mb-1">Detection Rate</div>
+                        <div class="tape-num text-low" id="kpi-rate"><span class="skeleton"></span></div>
+                    </div>
+                </div>
+
+                <!-- Live Logins -->
+                <div class="panel overflow-hidden mb-4">
+                    <div class="flex-between px-4 py-3 hairline">
+                        <span class="section-title">Live Logins</span>
+                        <span class="flex-center gap-1 text-10 text-faint uppercase tracking-widest">
+                            <span class="live-dot"></span> live
+                        </span>
+                    </div>
+                    <div class="overflow-auto" style="max-height: 500px">
+                        <table class="table-glass">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>User</th>
+                                    <th>Source</th>
+                                    <th>Destination</th>
+                                    <th>Auth</th>
+                                    <th>Score</th>
+                                    <th>Decision</th>
+                                </tr>
+                            </thead>
+                            <tbody id="live-logins-tbody">
+                                <tr>
+                                    <td colspan="7" class="text-center text-faint py-8">
+                                        <span class="live-dot"></span>
+                                        <span class="ml-2">Waiting for login events...</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="nav-center">
-            <a href="/analyst" class="nav-link active">Live Monitoring</a>
-            <a href="/analyst/dataset" class="nav-link">Dataset Analysis</a>
-        </div>
-        <div class="nav-right">
-            <span class="nav-status">
-                <span class="pulse-dot"></span>
-                <span id="nav-status-text">loading...</span>
-            </span>
-            <a href="/logout" class="nav-logout">Logout</a>
-        </div>
-    </nav>
+    </div>
 
-    <!-- Main Grid -->
-    <main class="container">
-
-        <!-- KPI Row -->
-        <section class="kpi-row reveal">
-            <div class="kpi-card">
-                <span class="kpi-label">Total Events</span>
-                <span class="kpi-value" id="kpi-total">
-                    <span class="skeleton-num"></span>
-                </span>
-            </div>
-            <div class="kpi-card kpi-accent">
-                <span class="kpi-label">Threats Detected</span>
-                <span class="kpi-value" id="kpi-detections">
-                    <span class="skeleton-num"></span>
-                </span>
-            </div>
-            <div class="kpi-card kpi-amber">
-                <span class="kpi-label">False Positives</span>
-                <span class="kpi-value" id="kpi-fp">
-                    <span class="skeleton-num"></span>
-                </span>
-            </div>
-            <div class="kpi-card kpi-teal">
-                <span class="kpi-label">Detection Rate</span>
-                <span class="kpi-value" id="kpi-rate">
-                    <span class="skeleton-num"></span>
-                </span>
-            </div>
-            <div class="kpi-card kpi-red">
-                <span class="kpi-label">Threshold</span>
-                <span class="kpi-value" id="kpi-threshold">
-                    <span class="skeleton-num"></span>
-                </span>
-            </div>
-        </section>
-
-        <!-- Live Logins — Hero Section -->
-        <section class="chart-section reveal live-hero">
-            <div class="section-header">
-                <h2 class="section-title">
-                    <span class="pulse-dot" style="width:10px;height:10px"></span>
-                    Live Logins
-                </h2>
-                <span class="section-sub">real-time employee login attempts — auto-refreshing</span>
-            </div>
-            <div class="alerts-table-wrap">
-                <table class="alerts-table" id="live-logins-table">
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>User</th>
-                            <th>Source</th>
-                            <th>Destination</th>
-                            <th>Auth</th>
-                            <th>Score</th>
-                            <th>Decision</th>
-                        </tr>
-                    </thead>
-                    <tbody id="live-logins-tbody">
-                        <tr class="live-empty"><td colspan="7">
-                            <div class="live-empty-msg">
-                                <span class="pulse-dot"></span>
-                                Waiting for login events...
-                            </div>
-                        </td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        <!-- Timeline Chart -->
-        <section class="chart-section reveal">
-            <div class="section-header">
-                <h2 class="section-title">Anomaly Score Timeline</h2>
-                <span class="section-sub">hourly aggregation, last 500 hours</span>
-            </div>
-            <div class="chart-container">
-                <canvas id="chart-timeline"></canvas>
-            </div>
-        </section>
-
-        <!-- Two-Column Split -->
-        <section class="split-row">
-            <div class="split-left reveal">
-                <div class="section-header">
-                    <h2 class="section-title">Score Distribution</h2>
-                    <span class="section-sub">red = attack events, gray = normal</span>
-                </div>
-                <div class="chart-container">
-                    <canvas id="chart-distribution"></canvas>
-                </div>
-            </div>
-            <div class="split-right reveal">
-                <div class="section-header">
-                    <h2 class="section-title">Top 10 Attackers</h2>
-                    <span class="section-sub">ranked by max anomaly score</span>
-                </div>
-                <div class="top-users-list" id="top-users-list">
-                </div>
-            </div>
-        </section>
-
-        <!-- Heatmap -->
-        <section class="chart-section reveal">
-            <div class="section-header">
-                <h2 class="section-title">Hourly Heatmap</h2>
-                <span class="section-sub">user x hour, color = anomaly score</span>
-            </div>
-            <div class="heatmap-container" id="heatmap-container">
-            </div>
-        </section>
-
-        <!-- Alerts Table -->
-        <section class="chart-section reveal">
-            <div class="section-header">
-                <h2 class="section-title">Recent Alerts</h2>
-                <span class="section-sub">top 200 events above threshold</span>
-            </div>
-            <div class="alerts-table-wrap">
-                <table class="alerts-table" id="alerts-table">
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>Source</th>
-                            <th>Destination</th>
-                            <th>Score</th>
-                            <th>Decision</th>
-                        </tr>
-                    </thead>
-                    <tbody id="alerts-tbody">
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-    </main>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js"></script>
     <script src="/static/js/api.js"></script>
-    <script src="/static/js/charts.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>
