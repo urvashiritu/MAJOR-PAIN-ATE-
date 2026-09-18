@@ -20,13 +20,13 @@
                 <span>&#9632;</span> Dataset Analysis
             </a>
             <div class="sidebar-divider"></div>
-            <a href="#/alerts" class="sidebar-item disabled">
+            <a href="/analyst#/alerts" class="sidebar-item">
                 <span>&#9889;</span> Alerts
             </a>
-            <a href="#/users" class="sidebar-item disabled">
+            <a href="/analyst#/users" class="sidebar-item">
                 <span>&#9673;</span> Users
             </a>
-            <a href="#/settings" class="sidebar-item disabled">
+            <a href="/analyst#/settings" class="sidebar-item">
                 <span>&#9881;</span> Settings
             </a>
             <div class="sidebar-spacer"></div>
@@ -129,6 +129,139 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js"></script>
     <script src="/static/js/api.js"></script>
     <script src="/static/js/charts.js"></script>
-    <script src="/static/js/app.js"></script>
+    <script>
+    /* Dataset page controller — standalone, uses /api/dataset/* */
+    (function() {
+        'use strict';
+
+        function initTheme() {
+            const saved = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (saved === 'dark' || (!saved && prefersDark)) {
+                document.documentElement.classList.add('dark');
+            }
+            const btn = document.getElementById('theme-toggle');
+            if (btn) {
+                btn.addEventListener('click', () => {
+                    document.documentElement.classList.toggle('dark');
+                    localStorage.setItem('theme',
+                        document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+                });
+            }
+        }
+
+        function fmt(n) {
+            if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+            if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+            return n.toLocaleString();
+        }
+
+        async function init() {
+            initTheme();
+            try {
+                const [dash, alerts] = await Promise.all([
+                    API.datasetDashboard(),
+                    API.datasetAlerts()
+                ]);
+
+                // KPIs
+                const k = dash.kpis;
+                const el = (id) => document.getElementById(id);
+                if (el('kpi-total')) el('kpi-total').textContent = fmt(k.total_events);
+                if (el('kpi-detections')) el('kpi-detections').textContent = fmt(k.detections);
+                if (el('kpi-fp')) el('kpi-fp').textContent = fmt(k.false_positives);
+                if (el('kpi-rate')) el('kpi-rate').textContent = k.detection_rate + '%';
+                if (el('kpi-threshold')) el('kpi-threshold').textContent = k.threshold.toFixed(4);
+
+                // Top users
+                const topList = document.getElementById('top-users-list');
+                if (topList && dash.top_users && dash.top_users.length) {
+                    topList.innerHTML = dash.top_users.map((u, i) => `
+                        <div class="offender-row">
+                            <span class="offender-name">${u.src_user}</span>
+                            <div class="offender-bar-bg">
+                                <div class="offender-bar" style="width: ${Math.min(100, (u.events / dash.top_users[0].events) * 100)}%"></div>
+                            </div>
+                            <span class="offender-count">${u.events}</span>
+                        </div>
+                    `).join('');
+                }
+
+                // Heatmap
+                if (dash.heatmap && dash.heatmap.length) {
+                    const users = [...new Set(dash.heatmap.map(d => d.user))];
+                    const hours = Array.from({ length: 24 }, (_, i) => i);
+                    const maxScore = Math.max(...dash.heatmap.map(d => d.score));
+                    const scoreMap = {};
+                    dash.heatmap.forEach(d => { scoreMap[`${d.user}-${d.hour}`] = d.score; });
+
+                    function cellClass(score) {
+                        if (!score || score === 0) return 'heatmap-empty';
+                        const ratio = score / maxScore;
+                        if (ratio < 0.25) return 'heatmap-l1';
+                        if (ratio < 0.5) return 'heatmap-l2';
+                        if (ratio < 0.75) return 'heatmap-l3';
+                        return 'heatmap-l4';
+                    }
+
+                    const hContainer = document.getElementById('heatmap-container');
+                    if (hContainer) {
+                        let html = '<div style="display: grid; grid-template-columns: 120px repeat(24, 1fr); gap: 2px; align-items: center; margin-bottom: 2px"><span></span>';
+                        hours.forEach(h => { html += `<span class="heatmap-hour">${h}</span>`; });
+                        html += '</div>';
+                        users.forEach(user => {
+                            html += '<div style="display: grid; grid-template-columns: 120px repeat(24, 1fr); gap: 2px; align-items: center; margin-bottom: 2px">';
+                            html += `<span class="heatmap-day">${user}</span>`;
+                            hours.forEach(h => {
+                                const score = scoreMap[`${user}-${h}`] || 0;
+                                html += `<div class="heatmap-cell ${cellClass(score)}" title="${user} @ ${h}:00 — ${score.toFixed(6)}"></div>`;
+                            });
+                            html += '</div>';
+                        });
+                        hContainer.innerHTML = html;
+                    }
+                }
+
+                // Alerts table
+                const tbody = document.getElementById('alerts-tbody');
+                if (tbody && alerts && alerts.length) {
+                    tbody.innerHTML = alerts.slice(0, 50).map(a => {
+                        const date = new Date(a.time * 1000);
+                        const timeStr = date.toISOString().slice(0, 19).replace('T', ' ');
+                        const decCls = 'stamp stamp-' + (a.decision === 'BLOCK' ? 'critical' : a.decision === 'FLAG' ? 'medium' : 'low');
+                        return `<tr>
+                            <td>${timeStr}</td>
+                            <td>${a.src_computer}</td>
+                            <td>${a.dst_computer}</td>
+                            <td>${a.anomaly_score.toFixed(6)}</td>
+                            <td><span class="${decCls}">${a.decision}</span></td>
+                        </tr>`;
+                    }).join('');
+                }
+
+                // Charts
+                if (dash.timeline && dash.timeline.length) {
+                    const timelineCtx = document.getElementById('chart-timeline').getContext('2d');
+                    createTimelineChart(timelineCtx, dash.timeline);
+                }
+                if (alerts && alerts.length) {
+                    const scores = alerts.map(a => a.anomaly_score);
+                    const isRed = alerts.map(a => a.is_red);
+                    const distCtx = document.getElementById('chart-distribution').getContext('2d');
+                    createDistributionChart(distCtx, scores, isRed);
+                }
+
+            } catch (err) {
+                console.error('dataset load failed:', err);
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    })();
+    </script>
 </body>
 </html>

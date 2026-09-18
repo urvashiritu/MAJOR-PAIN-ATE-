@@ -483,6 +483,236 @@ a { color: inherit; text-decoration: none; }
 .heatmap-l3 { fill: rgba(232, 163, 61, 0.55); }
 .heatmap-l4 { fill: rgba(229, 72, 77, 0.8); }
 
+/* ── Investigation Drawer ─────────────────────────────────────── */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 50;
+  display: flex;
+  justify-content: flex-end;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+.drawer-overlay.open { opacity: 1; pointer-events: all; }
+.drawer {
+  width: 480px;
+  max-width: 90vw;
+  background: var(--surface);
+  border-left: 1px solid var(--hairline);
+  padding: 20px 24px;
+  overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.drawer-overlay.open .drawer { transform: translateX(0); }
+.drawer-header { display: flex; justify-content: space-between; align-items: center; }
+.drawer-close {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.drawer-close:hover { color: var(--ink); }
+.drawer-score {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+.drawer-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+}
+.feature-bar-bg {
+  height: 6px;
+  background: var(--wash);
+  border-radius: 3px;
+  overflow: hidden;
+  flex: 1;
+}
+.feature-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.feature-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+.feature-name {
+  width: 140px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  flex-shrink: 0;
+}
+.feature-value {
+  width: 60px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: right;
+  flex-shrink: 0;
+}
+.timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hairline-soft);
+  font-size: 11px;
+}
+.timeline-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Gauge ────────────────────────────────────────────────────── */
+.gauge-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.gauge-svg { width: 120px; height: 70px; }
+.gauge-track {
+  fill: none;
+  stroke: var(--wash-strong);
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+.gauge-fill {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.8s ease, stroke 0.4s;
+}
+.gauge-center {
+  font-size: 1.1rem;
+  font-weight: 700;
+  fill: var(--ink);
+}
+.gauge-label {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-faint);
+}
+
+/* ── Risk Donut ───────────────────────────────────────────────── */
+.donut-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.donut-center {
+  position: absolute;
+  text-align: center;
+}
+.donut-center-num {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.donut-center-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-faint);
+}
+
+/* ── Hold button ──────────────────────────────────────────────── */
+.hold-btn {
+  position: relative;
+  overflow: hidden;
+  padding: 10px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid rgba(229, 72, 77, 0.4);
+  background: transparent;
+  color: var(--critical);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+.hold-btn:hover { background: rgba(229, 72, 77, 0.08); }
+.hold-btn-fill {
+  position: absolute;
+  inset: 0;
+  background: rgba(229, 72, 77, 0.15);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform linear;
+}
+
+/* ── KPI Card with sparkline ──────────────────────────────────── */
+.kpi-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.kpi-card-body { flex: 1; min-width: 0; }
+.kpi-card-spark { width: 64px; height: 28px; flex-shrink: 0; }
+
+/* ── Score bar inline ─────────────────────────────────────────── */
+.score-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.score-inline-bar {
+  width: 48px;
+  height: 4px;
+  background: var(--wash);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.score-inline-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+/* ── Utility additions ────────────────────────────────────────── */
+.max-h-300 { max-height: 300px; }
+.h-150 { height: 150px; }
+.h-full { height: 100%; }
+.w-50 { width: 50%; }
+.w-14 { width: 14px; }
+.dot-sm {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.text-ochre { color: var(--ochre); }
+.text-critical { color: var(--critical); }
+.bg-surface-2 { background: var(--surface-2); }
+.nowrap { white-space: nowrap; }
+.cursor-pointer { cursor: pointer; }
+
 /* ── Skeleton loader ──────────────────────────────────────────── */
 .skeleton {
   display: inline-block;

@@ -13,20 +13,20 @@
         <!-- Sidebar -->
         <nav class="sidebar">
             <div class="sidebar-logo">LANL Anomaly</div>
-            <a href="/analyst" class="sidebar-item active">
+            <a href="/analyst" class="sidebar-item" data-page="dashboard" onclick="location.hash='#/dashboard';return false">
                 <span>&#9673;</span> Live Monitoring
             </a>
             <a href="/analyst/dataset" class="sidebar-item">
                 <span>&#9632;</span> Dataset Analysis
             </a>
             <div class="sidebar-divider"></div>
-            <a href="#/alerts" class="sidebar-item disabled">
+            <a href="#/alerts" class="sidebar-item" data-page="alerts">
                 <span>&#9889;</span> Alerts
             </a>
-            <a href="#/users" class="sidebar-item disabled">
+            <a href="#/users" class="sidebar-item" data-page="users">
                 <span>&#9673;</span> Users
             </a>
-            <a href="#/settings" class="sidebar-item disabled">
+            <a href="#/settings" class="sidebar-item" data-page="settings">
                 <span>&#9881;</span> Settings
             </a>
             <div class="sidebar-spacer"></div>
@@ -37,7 +37,7 @@
         <div class="main-area">
             <header class="topbar">
                 <div class="topbar-left">
-                    <span class="topbar-title">Live Anomaly Monitor</span>
+                    <span class="topbar-title" id="topbar-title">Live Anomaly Monitor</span>
                 </div>
                 <div class="topbar-right">
                     <div class="flex-center gap-1">
@@ -48,60 +48,16 @@
                 </div>
             </header>
 
-            <div class="content">
-                <!-- KPI Row -->
-                <div class="grid-3 gap-4 mb-4" id="kpi-grid">
-                    <div class="panel panel-hover p-3">
-                        <div class="kpi-label mb-1">Events Scored</div>
-                        <div class="tape-num text-info" id="kpi-total"><span class="skeleton"></span></div>
-                    </div>
-                    <div class="panel panel-hover p-3">
-                        <div class="kpi-label mb-1">Threats Blocked</div>
-                        <div class="tape-num text-critical" id="kpi-blocked"><span class="skeleton"></span></div>
-                    </div>
-                    <div class="panel panel-hover p-3">
-                        <div class="kpi-label mb-1">Detection Rate</div>
-                        <div class="tape-num text-low" id="kpi-rate"><span class="skeleton"></span></div>
-                    </div>
-                </div>
-
-                <!-- Live Logins -->
-                <div class="panel overflow-hidden mb-4">
-                    <div class="flex-between px-4 py-3 hairline">
-                        <span class="section-title">Live Logins</span>
-                        <span class="flex-center gap-1 text-10 text-faint uppercase tracking-widest">
-                            <span class="live-dot"></span> live
-                        </span>
-                    </div>
-                    <div class="overflow-auto" style="max-height: 500px">
-                        <table class="table-glass">
-                            <thead>
-                                <tr>
-                                    <th>Time</th>
-                                    <th>User</th>
-                                    <th>Source</th>
-                                    <th>Destination</th>
-                                    <th>Auth</th>
-                                    <th>Score</th>
-                                    <th>Decision</th>
-                                </tr>
-                            </thead>
-                            <tbody id="live-logins-tbody">
-                                <tr>
-                                    <td colspan="7" class="text-center text-faint py-8">
-                                        <span class="live-dot"></span>
-                                        <span class="ml-2">Waiting for login events...</span>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+            <div class="content" id="main-content">
+                <!-- SPA content renders here -->
             </div>
         </div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js"></script>
     <script src="/static/js/api.js"></script>
+    <script src="/static/js/components.js"></script>
+    <script src="/static/js/charts.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>
