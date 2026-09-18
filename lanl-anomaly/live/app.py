@@ -9,7 +9,7 @@ from flask import (Flask, jsonify, send_from_directory, render_template,
 
 sys.path.insert(0, os.path.dirname(__file__))
 from db import SCORES_PARQUET
-from auth import authenticate, USERS, get_current_code, get_totp_secret
+from auth import authenticate, USERS, get_current_code, get_totp_secret, get_totp_remaining
 from scorer import init as scorer_init, score_event, THRESHOLD, DEMO_USERS
 import scorer as _scorer
 
@@ -48,7 +48,11 @@ def index():
     if 'user' in session:
         role = session.get('role', 'employee')
         return redirect(url_for('analyst_dashboard' if role == 'analyst' else 'employee_view'))
-    return redirect(url_for('login'))
+    # Auto-login as soc_admin
+    session['user'] = 'soc_admin'
+    session['role'] = 'analyst'
+    session['display_name'] = 'SOC Analyst'
+    return redirect(url_for('analyst_dashboard'))
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -277,6 +281,21 @@ def api_alerts():
 def api_live_events():
     """Return the most recent live login events."""
     return jsonify(list(reversed(_live_events[-50:])))
+
+
+@app.route('/api/totp_status')
+def api_totp_status():
+    """Return current TOTP codes + seconds remaining for all demo users."""
+    if not os.environ.get('LANL_DEV'):
+        return jsonify({'error': 'not dev mode'}), 403
+    remaining = get_totp_remaining()
+    codes = {}
+    for username in USERS:
+        codes[username] = {
+            'code': get_current_code(username),
+            'remaining': remaining
+        }
+    return jsonify(codes)
 
 
 @app.route('/api/users')

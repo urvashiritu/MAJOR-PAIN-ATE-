@@ -250,6 +250,38 @@
             font-size: 9px;
         }
 
+        .dev-code-timer {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .timer-bar-bg {
+            width: 48px;
+            height: 3px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .timer-bar {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 1s linear, background 0.3s;
+            background: var(--low);
+        }
+
+        .timer-bar.warn { background: var(--ochre); }
+        .timer-bar.crit { background: var(--critical); }
+
+        .timer-sec {
+            font-size: 9px;
+            color: var(--ink-faint);
+            min-width: 14px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
         .footer {
             text-align: center;
             margin-top: 20px;
@@ -322,10 +354,14 @@
             <div class="dev-codes">
                 <h3>Demo Credentials (Dev Mode)</h3>
                 {% for username, code in dev_codes.items() %}
-                <div class="dev-code-row">
+                <div class="dev-code-row" data-user="{{ username }}">
                     <span class="name">{{ username }}</span>
-                    <span class="code">{{ code }}</span>
+                    <span class="code" data-code>{{ code }}</span>
                     <span class="role">{{ dev_roles[username] }}</span>
+                    <div class="dev-code-timer">
+                        <div class="timer-bar-bg"><div class="timer-bar" data-timer-bar></div></div>
+                        <span class="timer-sec" data-timer-sec>30</span>
+                    </div>
                 </div>
                 {% endfor %}
             </div>
@@ -339,6 +375,32 @@
 
     <script>
         document.querySelector('input[name="username"]').focus();
+
+        // TOTP countdown timer — polls /api/totp_status every second
+        {% if dev_codes %}
+        async function pollTotp() {
+            try {
+                const res = await fetch('/api/totp_status');
+                if (!res.ok) return;
+                const data = await res.json();
+                document.querySelectorAll('.dev-code-row[data-user]').forEach(row => {
+                    const user = row.dataset.user;
+                    if (!data[user]) return;
+                    const codeEl = row.querySelector('[data-code]');
+                    const barEl = row.querySelector('[data-timer-bar]');
+                    const secEl = row.querySelector('[data-timer-sec]');
+                    codeEl.textContent = data[user].code;
+                    const remaining = data[user].remaining;
+                    const pct = (remaining / 30) * 100;
+                    barEl.style.width = pct + '%';
+                    secEl.textContent = remaining;
+                    barEl.className = 'timer-bar' + (remaining <= 5 ? ' crit' : remaining <= 10 ? ' warn' : '');
+                });
+            } catch (e) {}
+        }
+        pollTotp();
+        setInterval(pollTotp, 1000);
+        {% endif %}
     </script>
 </body>
 </html>
