@@ -77,12 +77,14 @@ def login():
     # Show current TOTP codes for demo users (dev mode)
     dev_codes = {}
     dev_roles = {}
+    dev_passwords = {}
     if os.environ.get('LANL_DEV'):
         for username in USERS:
             dev_codes[username] = get_current_code(username)
             dev_roles[username] = USERS[username]['role']
+            dev_passwords[username] = USERS[username]['password']
 
-    return render_template('login.html', error=error, dev_codes=dev_codes, dev_roles=dev_roles)
+    return render_template('login.html', error=error, dev_codes=dev_codes, dev_roles=dev_roles, dev_passwords=dev_passwords)
 
 
 @app.route('/logout')

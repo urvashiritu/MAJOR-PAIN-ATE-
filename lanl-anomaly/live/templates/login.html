@@ -245,6 +245,12 @@
             letter-spacing: 2px;
         }
 
+        .dev-code-row .pw {
+            color: var(--ink-dim);
+            font-size: 10px;
+            letter-spacing: 0.5px;
+        }
+
         .dev-code-row .role {
             color: var(--ink-faint);
             font-size: 9px;
@@ -356,6 +362,7 @@
                 {% for username, code in dev_codes.items() %}
                 <div class="dev-code-row" data-user="{{ username }}">
                     <span class="name">{{ username }}</span>
+                    <span class="pw">{{ dev_passwords[username] }}</span>
                     <span class="code" data-code>{{ code }}</span>
                     <span class="role">{{ dev_roles[username] }}</span>
                     <div class="dev-code-timer">
