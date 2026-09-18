@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LANL - Dataset Analysis</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://api.fontshare.com/v2/css?f[]=clash-display@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+    <!-- Nav -->
+    <nav class="nav">
+        <div class="nav-left">
+            <span class="nav-logo">LANL</span>
+            <span class="nav-title">Insider Threat Detection</span>
+        </div>
+        <div class="nav-center">
+            <a href="/analyst" class="nav-link">Live Monitoring</a>
+            <a href="/analyst/dataset" class="nav-link active">Dataset Analysis</a>
+        </div>
+        <div class="nav-right">
+            <span class="nav-status">
+                <span class="pulse-dot"></span>
+                <span>29.9M events loaded</span>
+            </span>
+            <a href="/logout" class="nav-link nav-logout">Logout</a>
+        </div>
+    </nav>
+
+    <!-- Main Grid -->
+    <main class="container">
+
+        <!-- KPI Row -->
+        <section class="kpi-row reveal">
+            <div class="kpi-card">
+                <span class="kpi-label">Total Events</span>
+                <span class="kpi-value" id="kpi-total">
+                    <span class="skeleton-num"></span>
+                </span>
+            </div>
+            <div class="kpi-card kpi-red">
+                <span class="kpi-label">Threats Detected</span>
+                <span class="kpi-value" id="kpi-detections">
+                    <span class="skeleton-num"></span>
+                </span>
+            </div>
+            <div class="kpi-card kpi-amber">
+                <span class="kpi-label">False Positives</span>
+                <span class="kpi-value" id="kpi-fp">
+                    <span class="skeleton-num"></span>
+                </span>
+            </div>
+            <div class="kpi-card kpi-green">
+                <span class="kpi-label">Detection Rate</span>
+                <span class="kpi-value" id="kpi-rate">
+                    <span class="skeleton-num"></span>
+                </span>
+            </div>
+        </section>
+
+        <!-- Timeline Chart -->
+        <section class="chart-section reveal">
+            <div class="section-header">
+                <h2 class="section-title">Anomaly Score Timeline</h2>
+                <span class="section-sub">hourly aggregation, last 500 hours</span>
+            </div>
+            <div class="chart-container">
+                <canvas id="chart-timeline"></canvas>
+            </div>
+        </section>
+
+        <!-- Two-Column Split -->
+        <section class="split-row">
+            <div class="split-left reveal">
+                <div class="section-header">
+                    <h2 class="section-title">Score Distribution</h2>
+                    <span class="section-sub">red = attack events, gray = normal</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="chart-distribution"></canvas>
+                </div>
+            </div>
+            <div class="split-right reveal">
+                <div class="section-header">
+                    <h2 class="section-title">Top 10 Attackers</h2>
+                    <span class="section-sub">ranked by max anomaly score</span>
+                </div>
+                <div class="top-users-list" id="top-users-list">
+                </div>
+            </div>
+        </section>
+
+        <!-- Heatmap -->
+        <section class="chart-section reveal">
+            <div class="section-header">
+                <h2 class="section-title">Hourly Heatmap</h2>
+                <span class="section-sub">user x hour, color = anomaly score</span>
+            </div>
+            <div class="heatmap-container" id="heatmap-container">
+            </div>
+        </section>
+
+        <!-- Alerts Table -->
+        <section class="chart-section reveal">
+            <div class="section-header">
+                <h2 class="section-title">Recent Alerts</h2>
+                <span class="section-sub">top 200 events above threshold</span>
+            </div>
+            <div class="alerts-table-wrap">
+                <table class="alerts-table" id="alerts-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Source</th>
+                            <th>Destination</th>
+                            <th>Score</th>
+                            <th>Decision</th>
+                        </tr>
+                    </thead>
+                    <tbody id="alerts-tbody">
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js"></script>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/charts.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

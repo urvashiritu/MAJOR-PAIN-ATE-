@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LANL SOC - Authentication Required</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background: #0F1117;
+            color: #2DD4BF;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* Scanlines */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(45, 212, 191, 0.012) 2px,
+                rgba(45, 212, 191, 0.012) 4px
+            );
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        /* CRT glow */
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.4) 100%);
+            pointer-events: none;
+            z-index: 99;
+        }
+
+        .login-container {
+            position: relative;
+            z-index: 1;
+            width: 440px;
+            padding: 0;
+        }
+
+        .terminal-header {
+            background: #181B23;
+            border: 1px solid rgba(45, 212, 191, 0.2);
+            border-bottom: none;
+            border-radius: 8px 8px 0 0;
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .terminal-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #EF4444;
+        }
+        .terminal-dot:nth-child(2) { background: #F59E0B; }
+        .terminal-dot:nth-child(3) { background: #22C55E; }
+
+        .terminal-title {
+            margin-left: 8px;
+            font-size: 11px;
+            color: #6B7280;
+            letter-spacing: 0.5px;
+        }
+
+        .terminal-body {
+            background: #181B23;
+            border: 1px solid rgba(45, 212, 191, 0.2);
+            border-top: 1px solid rgba(45, 212, 191, 0.1);
+            border-radius: 0 0 8px 8px;
+            padding: 32px;
+        }
+
+        .system-banner {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .system-banner .logo {
+            font-size: 14px;
+            font-weight: 700;
+            color: #2DD4BF;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+            text-shadow: 0 0 20px rgba(45, 212, 191, 0.3);
+        }
+
+        .system-banner .subtitle {
+            font-size: 10px;
+            color: #6B7280;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .system-banner .warning {
+            font-size: 9px;
+            color: #F59E0B;
+            letter-spacing: 1px;
+            margin-top: 8px;
+            opacity: 0.8;
+        }
+
+        .prompt-line {
+            font-size: 12px;
+            color: #6B7280;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .prompt-line .user {
+            color: #2DD4BF;
+        }
+
+        .prompt-line .path {
+            color: #6366F1;
+        }
+
+        .field-group {
+            margin-bottom: 16px;
+        }
+
+        .field-label {
+            display: block;
+            font-size: 10px;
+            color: #6B7280;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .field-input {
+            width: 100%;
+            background: #0F1117;
+            border: 1px solid rgba(45, 212, 191, 0.15);
+            border-radius: 4px;
+            padding: 10px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            color: #2DD4BF;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .field-input:focus {
+            border-color: rgba(45, 212, 191, 0.4);
+            box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.08);
+        }
+
+        .field-input::placeholder {
+            color: #3d3d46;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 12px;
+            background: rgba(45, 212, 191, 0.08);
+            border: 1px solid rgba(45, 212, 191, 0.25);
+            border-radius: 4px;
+            color: #2DD4BF;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 8px;
+        }
+
+        .submit-btn:hover {
+            background: rgba(45, 212, 191, 0.15);
+            border-color: rgba(45, 212, 191, 0.4);
+            text-shadow: 0 0 10px rgba(45, 212, 191, 0.3);
+        }
+
+        .error-msg {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            border-radius: 4px;
+            padding: 10px 12px;
+            margin-bottom: 16px;
+            font-size: 11px;
+            color: #EF4444;
+            letter-spacing: 0.5px;
+        }
+
+        .dev-codes {
+            margin-top: 20px;
+            border-top: 1px solid rgba(45, 212, 191, 0.1);
+            padding-top: 16px;
+        }
+
+        .dev-codes h3 {
+            font-size: 10px;
+            color: #6B7280;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .dev-code-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 11px;
+        }
+
+        .dev-code-row .name {
+            color: #6366F1;
+        }
+
+        .dev-code-row .code {
+            color: #F59E0B;
+            font-weight: 600;
+            letter-spacing: 2px;
+        }
+
+        .dev-code-row .role {
+            color: #3d3d46;
+            font-size: 9px;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 9px;
+            color: #3d3d46;
+            letter-spacing: 1px;
+        }
+
+        .blink {
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 14px;
+            background: #2DD4BF;
+            vertical-align: text-bottom;
+            animation: blink 1s step-end infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="terminal-header">
+            <div class="terminal-dot"></div>
+            <div class="terminal-dot"></div>
+            <div class="terminal-dot"></div>
+            <span class="terminal-title">soc-auth-gateway — ssh</span>
+        </div>
+        <div class="terminal-body">
+            <div class="system-banner">
+                <div class="logo">LANL</div>
+                <div class="subtitle">Insider Threat Detection System</div>
+                <div class="warning">UNAUTHORIZED ACCESS IS MONITORED AND PROSECUTED</div>
+            </div>
+
+            <div class="prompt-line">
+                <span class="user">auth@gateway</span>:<span class="path">~</span>$ authenticate --user<span class="cursor"></span>
+            </div>
+
+            {% if error %}
+            <div class="error-msg">[ERROR] {{ error }}</div>
+            {% endif %}
+
+            <form method="POST" action="/login">
+                <div class="field-group">
+                    <label class="field-label">Username</label>
+                    <input class="field-input" type="text" name="username" placeholder="enter username" autocomplete="username" autofocus required>
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label">Password</label>
+                    <input class="field-input" type="password" name="password" placeholder="enter password" autocomplete="current-password" required>
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label">TOTP Code</label>
+                    <input class="field-input" type="text" name="totp" placeholder="6-digit code" maxlength="6" pattern="[0-9]{6}" autocomplete="one-time-code" required>
+                </div>
+
+                <button type="submit" class="submit-btn">$ VERIFY CREDENTIALS</button>
+            </form>
+
+            {% if dev_codes %}
+            <div class="dev-codes">
+                <h3>Demo Credentials (Dev Mode)</h3>
+                {% for username, code in dev_codes.items() %}
+                <div class="dev-code-row">
+                    <span class="name">{{ username }}</span>
+                    <span class="code">{{ code }}</span>
+                    <span class="role">{{ dev_roles[username] }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="footer">
+                SECURE CHANNEL // ENCRYPTED // MONITORED
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-focus username field
+        document.querySelector('input[name="username"]').focus();
+    </script>
+</body>
+</html>
