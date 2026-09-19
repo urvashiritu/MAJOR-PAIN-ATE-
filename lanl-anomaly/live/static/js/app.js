@@ -15,6 +15,11 @@
     let _liveSparkData = { totalEvents: [], anomalies: [], highRiskUsers: [], usersMonitored: [] };
     let _activeCharts = [];
     let _sse = null;
+    let _echartsInstances = [];
+    let _echartsInitialized = false;
+    let _liveTimelineChart = null;
+    let _liveScoresChart = null;
+    let _liveUsersChart = null;
 
     /* ── Theme ──────────────────────────────────────────────────── */
     function initTheme() {
@@ -43,6 +48,164 @@
     function destroyCharts() {
         _activeCharts.forEach(c => { try { c.destroy(); } catch(e){} });
         _activeCharts = [];
+        _echartsInstances.forEach(c => { try { c.dispose(); } catch(e){} });
+        _echartsInstances = [];
+        _echartsInitialized = false;
+    }
+
+    function getThemeColors() {
+        const isDark = document.documentElement.classList.contains('dark');
+        return {
+            critical: isDark ? '#e5484d' : '#d13438',
+            ochre: '#e8a33d',
+            low: isDark ? '#57b06c' : '#2e7d51',
+            info: isDark ? '#6ea8e8' : '#3a6cb5',
+            ink: isDark ? '#e8ecf4' : '#232a38',
+            inkDim: isDark ? '#8b93a5' : '#59617a',
+            inkFaint: isDark ? '#5a6274' : '#939aad',
+            gridLine: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(35,42,56,0.06)',
+            tooltipBg: isDark ? '#1e2736' : '#fffdf6'
+        };
+    }
+
+    function initEChart(id) {
+        const el = document.getElementById(id);
+        if (!el) return null;
+        const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'default';
+        const ch = echarts.init(el, theme);
+        _echartsInstances.push(ch);
+        return ch;
+    }
+
+    function updateNarrative() {
+        const el = document.getElementById('live-narrative');
+        if (!el) return;
+        const C = getThemeColors();
+        if (_liveEvents.length === 0) {
+            el.innerHTML = '<div style="font-weight:700;color:' + C.inkDim + ';font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">System Status</div>Waiting for login events. Users will appear here as they authenticate against the LANL network.';
+            return;
+        }
+        const anomalies = _liveEvents.filter(e => e.decision === 'flag' || e.decision === 'block').length;
+        const users = new Set(_liveEvents.map(e => e.user_id)).size;
+        const blocks = _liveEvents.filter(e => e.decision === 'block').length;
+        const highRisk = _liveEvents.filter(e => e.decision === 'flag' || e.decision === 'block');
+        const topUser = highRisk.length > 0 ? highRisk.reduce((acc, e) => { acc[e.user_id] = (acc[e.user_id] || 0) + 1; return acc; }, {}) : {};
+        const topEntry = Object.entries(topUser).sort((a, b) => b[1] - a[1])[0];
+        let html = '<div style="font-weight:700;color:' + C.critical + ';font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Live Analysis</div>';
+        html += 'Scored <b>' + _liveEvents.length + '</b> events from <b>' + users + '</b> users. ';
+        html += '<span style="color:' + C.low + '">' + (_liveEvents.length - anomalies) + '</span> allowed, ';
+        html += '<span style="color:' + C.ochre + '">' + (anomalies - blocks) + '</span> flagged, ';
+        html += '<span style="color:' + C.critical + '">' + blocks + '</span> blocked. ';
+        if (topEntry) {
+            html += '<b style="color:' + C.critical + '">' + topEntry[0].split('@')[0] + '</b> has ' + topEntry[1] + ' anomaly events.';
+        }
+        el.innerHTML = html;
+    }
+
+    function initLiveCharts() {
+        if (_echartsInitialized) return;
+        _echartsInitialized = true;
+        const C = getThemeColors();
+
+        _liveTimelineChart = initEChart('live-chart-timeline');
+        if (_liveTimelineChart) {
+            _liveTimelineChart.setOption({
+                tooltip: { trigger: 'axis', backgroundColor: C.tooltipBg, textStyle: { color: C.ink, fontFamily: 'JetBrains Mono', fontSize: 11 } },
+                grid: { left: 50, right: 16, top: 30, bottom: 24 },
+                legend: { data: ['Total', 'Anomalies'], textStyle: { color: C.inkDim, fontSize: 10, fontFamily: 'JetBrains Mono' }, top: 0, right: 16 },
+                xAxis: { type: 'category', data: [], axisLabel: { color: C.inkFaint, fontSize: 9 }, axisLine: { lineStyle: { color: C.gridLine } } },
+                yAxis: { type: 'value', name: 'Events', nameTextStyle: { color: C.inkFaint, fontSize: 9 }, axisLabel: { color: C.inkFaint, fontSize: 9 }, splitLine: { lineStyle: { color: C.gridLine } } },
+                series: [
+                    { name: 'Total', type: 'bar', data: [], itemStyle: { color: C.info }, barWidth: '60%' },
+                    { name: 'Anomalies', type: 'bar', data: [], itemStyle: { color: C.critical }, barWidth: '60%' }
+                ]
+            });
+        }
+
+        _liveScoresChart = initEChart('live-chart-scores');
+        if (_liveScoresChart) {
+            _liveScoresChart.setOption({
+                tooltip: { trigger: 'axis', backgroundColor: C.tooltipBg, textStyle: { color: C.ink, fontFamily: 'JetBrains Mono', fontSize: 11 } },
+                grid: { left: 50, right: 16, top: 30, bottom: 30 },
+                legend: { data: ['Normal', 'Attack'], textStyle: { color: C.inkDim, fontSize: 10, fontFamily: 'JetBrains Mono' }, top: 0, right: 16 },
+                xAxis: { type: 'category', data: [], axisLabel: { color: C.inkFaint, fontSize: 9, rotate: 30 }, axisLine: { lineStyle: { color: C.gridLine } } },
+                yAxis: { type: 'value', axisLabel: { color: C.inkFaint, fontSize: 9 }, splitLine: { lineStyle: { color: C.gridLine } } },
+                series: [
+                    { name: 'Normal', type: 'bar', stack: 's', data: [], itemStyle: { color: 'rgba(139,147,165,0.4)' }, barWidth: '80%' },
+                    { name: 'Attack', type: 'bar', stack: 's', data: [], itemStyle: { color: C.critical }, barWidth: '80%' }
+                ]
+            });
+        }
+
+        _liveUsersChart = initEChart('live-chart-users');
+        if (_liveUsersChart) {
+            _liveUsersChart.setOption({
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: C.tooltipBg, textStyle: { color: C.ink, fontFamily: 'JetBrains Mono', fontSize: 11 } },
+                grid: { left: 100, right: 40, top: 8, bottom: 8 },
+                xAxis: { type: 'value', axisLabel: { color: C.inkFaint, fontSize: 9 }, splitLine: { lineStyle: { color: C.gridLine } } },
+                yAxis: { type: 'category', data: [], axisLabel: { color: C.inkDim, fontSize: 10, fontFamily: 'JetBrains Mono' } },
+                series: [{ type: 'bar', data: [], barWidth: '60%', itemStyle: { color: C.ochre }, label: { show: true, position: 'right', color: C.inkDim, fontSize: 10, fontFamily: 'JetBrains Mono' } }]
+            });
+        }
+    }
+
+    function updateLiveCharts() {
+        if (!_echartsInitialized) initLiveCharts();
+        if (!_liveEvents.length) return;
+
+        if (_liveTimelineChart) {
+            const buckets = {};
+            _liveEvents.forEach(e => {
+                const t = e.ts || '';
+                const key = t.length > 8 ? t.slice(0, 8) : t.slice(0, 5);
+                if (!buckets[key]) buckets[key] = { total: 0, anomalies: 0 };
+                buckets[key].total++;
+                if (e.decision === 'flag' || e.decision === 'block') buckets[key].anomalies++;
+            });
+            const keys = Object.keys(buckets).slice(-30);
+            _liveTimelineChart.setOption({
+                xAxis: { data: keys },
+                series: [
+                    { name: 'Total', data: keys.map(k => buckets[k].total) },
+                    { name: 'Anomalies', data: keys.map(k => buckets[k].anomalies) }
+                ]
+            });
+        }
+
+        if (_liveScoresChart) {
+            const bins = 15;
+            const scores = _liveEvents.map(e => e.combined_score || 0);
+            const maxS = Math.max(...scores, 0.001);
+            const binSize = maxS / bins;
+            const normal = new Array(bins).fill(0);
+            const attack = new Array(bins).fill(0);
+            _liveEvents.forEach(e => {
+                const bin = Math.min(Math.floor((e.combined_score || 0) / binSize), bins - 1);
+                if (e.decision === 'flag' || e.decision === 'block') attack[bin]++;
+                else normal[bin]++;
+            });
+            const labels = Array.from({ length: bins }, (_, i) => (i * binSize).toFixed(3));
+            _liveScoresChart.setOption({
+                xAxis: { data: labels },
+                series: [
+                    { name: 'Normal', data: normal },
+                    { name: 'Attack', data: attack }
+                ]
+            });
+        }
+
+        if (_liveUsersChart) {
+            const userCounts = {};
+            _liveEvents.forEach(e => {
+                const name = (e.user_id || 'unknown').split('@')[0];
+                userCounts[name] = (userCounts[name] || 0) + 1;
+            });
+            const sorted = Object.entries(userCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).reverse();
+            _liveUsersChart.setOption({
+                yAxis: { data: sorted.map(s => s[0]) },
+                series: [{ data: sorted.map(s => s[1]) }]
+            });
+        }
     }
 
     function setActiveNav(page) {
@@ -80,6 +243,16 @@
                 ${LIVE_KPI_DEFS.map((k, i) => kpiCard(k, null, 'spark-' + k.key)).join('')}
             </div>
 
+            <div class="insight-box mb-4" id="live-narrative">
+                <div style="font-weight:700;color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">System Status</div>
+                Waiting for login events. Users will appear here as they authenticate against the LANL network.
+            </div>
+
+            <div class="panel p-4 mb-4">
+                <div class="section-title mb-3">Activity Timeline</div>
+                <div id="live-chart-timeline" style="width:100%;height:220px"></div>
+            </div>
+
             <div class="grid-12 gap-4 mb-4">
                 <div class="col-5">
                     <div class="panel p-4">
@@ -114,6 +287,21 @@
                 </div>
             </div>
 
+            <div class="grid-12 gap-4 mb-4">
+                <div class="col-6">
+                    <div class="panel p-4">
+                        <div class="section-title mb-3">Score Distribution</div>
+                        <div id="live-chart-scores" style="width:100%;height:220px"></div>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="panel p-4">
+                        <div class="section-title mb-3">Top Active Users</div>
+                        <div id="live-chart-users" style="width:100%;height:220px"></div>
+                    </div>
+                </div>
+            </div>
+
             <div class="panel overflow-hidden">
                 <div class="flex-between px-4 py-3 hairline">
                     <span class="section-title">Recent Alerts</span>
@@ -130,6 +318,16 @@
             </div>`;
 
         await loadDashboard();
+        initLiveCharts();
+        updateLiveCharts();
+        updateNarrative();
+        // Force ECharts to recalculate after layout settles
+        requestAnimationFrame(() => {
+            _echartsInstances.forEach(c => { try { c.resize(); } catch(e){} });
+        });
+        setTimeout(() => {
+            _echartsInstances.forEach(c => { try { c.resize(); } catch(e){} });
+        }, 300);
     }
 
     async function loadDashboard() {
@@ -596,6 +794,10 @@
                             { name: 'Block', value: block, color: '#e5484d' },
                         ]);
                     }
+                    // Update narrative
+                    updateNarrative();
+                    // Update ECharts
+                    updateLiveCharts();
                     // Update events table
                     const tbody = document.getElementById('events-tbody');
                     if (tbody) {
