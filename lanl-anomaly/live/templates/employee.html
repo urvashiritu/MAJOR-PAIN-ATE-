@@ -242,7 +242,7 @@
             animation: slide-up 0.5s ease 1.5s forwards;
         }
 
-        {% if decision == 'BLOCK' %}
+        {% if decision != 'ALLOW' %}
         .flash-overlay {
             position: fixed;
             inset: 0;
@@ -270,7 +270,7 @@
     </style>
 </head>
 <body>
-    {% if decision == 'BLOCK' %}
+    {% if decision != 'ALLOW' %}
     <div class="flash-overlay"></div>
     {% endif %}
 
@@ -294,11 +294,11 @@
             {% endif %}
         </div>
 
-        {% if decision == 'BLOCK' %}
+        {% if decision != 'ALLOW' %}
         <div class="threat-detail">
             <div class="label">Threat Analysis</div>
             <div class="value">Score: {{ '%.4f'|format(score) }} — anomalous behavior detected</div>
-            <div class="reason">Behavioral pattern deviates from baseline. Incident logged.</div>
+            <div class="reason">{{ reasons }}</div>
         </div>
         {% endif %}
 

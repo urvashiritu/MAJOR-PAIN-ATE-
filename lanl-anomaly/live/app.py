@@ -164,11 +164,13 @@ def employee_view():
 
     _record_event(user_id, username, src_pc, dst_pc, 'NTLM', score, decision, features, time_val)
 
+    reasons = _derive_reasons(features)
     return render_template('employee.html',
                            name=session.get('display_name', username),
                            decision=decision, score=round(score, 4),
                            threshold=round(THRESHOLD, 4),
-                           timestamp=time.strftime('%Y-%m-%d %H:%M:%S'))
+                           timestamp=time.strftime('%Y-%m-%d %H:%M:%S'),
+                           reasons=reasons)
 
 
 # ── Page routes ─────────────────────────────────────────────────

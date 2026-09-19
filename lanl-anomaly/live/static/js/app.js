@@ -576,6 +576,18 @@
                     // Update gauge
                     const gaugeEl = document.getElementById('gauge-container');
                     if (gaugeEl) renderGauge(gaugeEl, k.totalEvents > 0 ? k.anomalies / k.totalEvents : 0);
+                    // Update risk donut
+                    const donutEl = document.getElementById('donut-container');
+                    if (donutEl) {
+                        const allow = _liveEvents.filter(e => e.decision === 'allow').length;
+                        const flag = _liveEvents.filter(e => e.decision === 'flag').length;
+                        const block = _liveEvents.filter(e => e.decision === 'block').length;
+                        renderRiskDonut(donutEl, [
+                            { name: 'Allow', value: allow, color: '#57b06c' },
+                            { name: 'Flag', value: flag, color: '#e8a33d' },
+                            { name: 'Block', value: block, color: '#e5484d' },
+                        ]);
+                    }
                     // Update events table
                     const tbody = document.getElementById('events-tbody');
                     if (tbody) {

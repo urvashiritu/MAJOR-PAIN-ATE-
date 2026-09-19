@@ -2,6 +2,36 @@
 
 const MONO = "'JetBrains Mono', monospace";
 
+/* ── SVG Tooltip ────────────────────────────────────────────── */
+function _ensureTooltip() {
+    let tip = document.getElementById('svg-tooltip');
+    if (!tip) {
+        tip = document.createElement('div');
+        tip.id = 'svg-tooltip';
+        tip.className = 'svg-tooltip';
+        document.body.appendChild(tip);
+    }
+    return tip;
+}
+function _showTooltip(e, text) {
+    const tip = _ensureTooltip();
+    tip.textContent = text;
+    tip.style.opacity = '1';
+    tip.style.left = (e.clientX + 12) + 'px';
+    tip.style.top = (e.clientY - 10) + 'px';
+}
+function _moveTooltip(e) {
+    const tip = document.getElementById('svg-tooltip');
+    if (tip) {
+        tip.style.left = (e.clientX + 12) + 'px';
+        tip.style.top = (e.clientY - 10) + 'px';
+    }
+}
+function _hideTooltip() {
+    const tip = document.getElementById('svg-tooltip');
+    if (tip) tip.style.opacity = '0';
+}
+
 const CHART_DEFAULTS = {
     responsive: true,
     maintainAspectRatio: false,
@@ -48,10 +78,14 @@ function renderSparkline(container, data, color) {
         const y = h - ((v - min) / range) * (h - 4) - 2;
         return `${x},${y}`;
     }).join(' ');
+    const latest = data[data.length - 1];
 
     container.innerHTML = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
         <polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>`;
+    container.querySelector('svg').addEventListener('mouseenter', (e) => _showTooltip(e, String(latest)));
+    container.querySelector('svg').addEventListener('mousemove', _moveTooltip);
+    container.querySelector('svg').addEventListener('mouseleave', _hideTooltip);
 }
 
 /* ── Gauge (SVG semicircle) ─────────────────────────────────── */
@@ -80,6 +114,13 @@ function renderGauge(container, value) {
             </svg>
             <span class="gauge-label">threat level</span>
         </div>`;
+    const fill = container.querySelector('.gauge-fill');
+    if (fill) {
+        fill.style.cursor = 'pointer';
+        fill.addEventListener('mouseenter', (e) => _showTooltip(e, 'Threat Level: ' + (pct * 100).toFixed(0) + '%'));
+        fill.addEventListener('mousemove', _moveTooltip);
+        fill.addEventListener('mouseleave', _hideTooltip);
+    }
 }
 
 /* ── Risk Donut (SVG) ───────────────────────────────────────── */
@@ -97,8 +138,9 @@ function renderRiskDonut(container, data) {
         const pct = d.value / total;
         const dash = pct * circumference;
         const gap = circumference - dash;
-        const html = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${d.color}" stroke-width="12"
-            stroke-dasharray="${dash} ${gap}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})"/>`;
+        const html = `<circle class="donut-arc" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${d.color}" stroke-width="12"
+            stroke-dasharray="${dash} ${gap}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})"
+            data-label="${d.name}" data-count="${d.value}" data-pct="${(pct * 100).toFixed(0)}"/>`;
         offset += dash;
         return html;
     }).join('');
@@ -114,6 +156,22 @@ function renderRiskDonut(container, data) {
                 <div class="donut-center-label">events</div>
             </div>
         </div>`;
+
+    container.querySelectorAll('.donut-arc').forEach(arc => {
+        arc.style.cursor = 'pointer';
+        arc.addEventListener('mouseenter', (e) => {
+            const label = arc.getAttribute('data-label');
+            const count = arc.getAttribute('data-count');
+            const pct = arc.getAttribute('data-pct');
+            _showTooltip(e, label + ': ' + count + ' events (' + pct + '%)');
+            arc.setAttribute('stroke-width', '16');
+        });
+        arc.addEventListener('mousemove', _moveTooltip);
+        arc.addEventListener('mouseleave', () => {
+            _hideTooltip();
+            arc.setAttribute('stroke-width', '12');
+        });
+    });
 }
 
 /* ── Timeline Chart (dataset) ───────────────────────────────── */
