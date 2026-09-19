@@ -1,4 +1,10 @@
-<!DOCTYPE html>
+#!/usr/bin/env python3
+"""Generate dataset.html with ECharts + storytelling narratives."""
+import os
+
+OUT = os.path.join(os.path.dirname(__file__), 'templates', 'dataset.html')
+
+HTML = r'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -368,4 +374,8 @@
     })();
     </script>
 </body>
-</html>
+</html>'''
+
+with open(OUT, 'w') as f:
+    f.write(HTML)
+print(f"Generated {OUT} ({len(HTML)} bytes)")
