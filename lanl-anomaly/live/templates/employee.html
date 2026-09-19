@@ -288,16 +288,19 @@
 
         <div class="message">
             {% if decision == 'ALLOW' %}
-                Access granted. Session authenticated.
+                Access granted. Your login pattern matches your normal behavior.
+            {% elif decision == 'BLOCK' %}
+                Your login was blocked because the system detected behavior that doesn't match your normal pattern. This could indicate a compromised account or unauthorized access attempt. Your security team has been notified.
             {% else %}
-                Authentication failed. Your access request has been flagged for review.
+                Your login was flagged for review. Some aspects of this login deviated from your usual pattern.
             {% endif %}
         </div>
 
         {% if decision != 'ALLOW' %}
         <div class="threat-detail">
             <div class="label">Threat Analysis</div>
-            <div class="value">Score: {{ '%.4f'|format(score) }} — anomalous behavior detected</div>
+            <div class="value">Risk Score: {{ '%.4f'|format(score) }} — {{ 'BLOCKED' if decision == 'BLOCK' else 'FLAGGED' }}</div>
+            <div class="label" style="margin-top:8px">Threshold: {{ '%.4f'|format(threshold) }}</div>
             <div class="reason">{{ reasons }}</div>
         </div>
         {% endif %}

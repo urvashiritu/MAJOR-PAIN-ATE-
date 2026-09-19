@@ -105,6 +105,12 @@ function investigationDrawer(data, onClose) {
             </div>`;
     }).join('');
 
+    const whatThisMeans = data.severity === 'critical'
+        ? 'This login was blocked because the user\'s behavior deviated significantly from their training baseline. The model detected patterns consistent with potential unauthorized access or a compromised account.'
+        : data.severity === 'high'
+        ? 'This login was flagged because several behavioral indicators don\'t match the user\'s normal pattern. A security analyst should review this event.'
+        : 'This event scored above normal but may be benign. The model flagged it for monitoring purposes.';
+
     const overlay = document.createElement('div');
     overlay.className = 'drawer-overlay';
     overlay.innerHTML = `
@@ -131,6 +137,11 @@ function investigationDrawer(data, onClose) {
             <div class="panel-inset p-3">
                 <div class="drawer-section-title">Deviation Reasons</div>
                 <div class="text-12 text-dim">${esc(data.devReasons)}</div>
+            </div>
+
+            <div class="panel-inset p-3">
+                <div class="drawer-section-title">What This Means</div>
+                <div class="text-12 text-dim">${esc(whatThisMeans)}</div>
             </div>
 
             ${featuresHtml ? `

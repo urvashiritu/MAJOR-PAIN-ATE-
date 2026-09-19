@@ -68,6 +68,14 @@
         setActiveNav('dashboard');
 
         content.innerHTML = `
+            <div class="mb-4">
+                <div class="text-12 text-dim" style="max-width:600px">
+                    User and Entity Behavior Analytics system monitoring authentication events across the LANL network. 
+                    Each login is scored against the user's 6-month behavioral baseline. Events deviating from the baseline 
+                    are flagged or blocked in real time.
+                </div>
+            </div>
+
             <div class="grid-4 gap-4 mb-4" id="kpi-grid">
                 ${LIVE_KPI_DEFS.map((k, i) => kpiCard(k, null, 'spark-' + k.key)).join('')}
             </div>
