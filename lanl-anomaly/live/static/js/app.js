@@ -601,7 +601,7 @@
         const hourlyBars = (b.hourlyPattern || []).map((v, i) => {
             const h = Math.max(2, (v / maxHour) * 100);
             const color = (b.rareHours || []).includes(i) ? 'var(--high)' : 'var(--ochre)';
-            return `<div title="${i}:00 — ${v} events" style="width:100%;height:${h}px;background:${color};border-radius:1px"></div>`;
+            return `<div title="${i}:00: ${v} events" style="width:100%;height:${h}px;background:${color};border-radius:1px"></div>`;
         }).join('');
 
         const overlay = document.createElement('div');
@@ -891,7 +891,7 @@
                             html += '<div class="search-result-group">Users (' + data.users.length + ')</div>';
                             data.users.forEach(u => {
                                 html += '<div class="search-result-item" onclick="location.hash=\'#/users\';document.getElementById(\'search-overlay\').classList.remove(\'open\')">' +
-                                    '<span class="mono">' + esc(u.name || u.user_id) + '</span> — ' + esc(u.persona) +
+                                    '<span class="mono">' + esc(u.name || u.user_id) + '</span>: ' + esc(u.persona) +
                                     ' <span class="text-faint">(' + u.live_events + ' events, max ' + u.max_score.toFixed(3) + ')</span></div>';
                             });
                         }

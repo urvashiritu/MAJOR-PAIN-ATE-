@@ -299,7 +299,7 @@
         {% if decision != 'ALLOW' %}
         <div class="threat-detail">
             <div class="label">Threat Analysis</div>
-            <div class="value">Risk Score: {{ '%.4f'|format(score) }} — {{ 'BLOCKED' if decision == 'BLOCK' else 'FLAGGED' }}</div>
+            <div class="value">Risk Score: {{ '%.4f'|format(score) }}: {{ 'BLOCKED' if decision == 'BLOCK' else 'FLAGGED' }}</div>
             <div class="label" style="margin-top:8px">Threshold: {{ '%.4f'|format(threshold) }}</div>
             <div class="reason">{{ reasons }}</div>
         </div>

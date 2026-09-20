@@ -189,7 +189,7 @@
                 if(el('kpi-threshold'))el('kpi-threshold').textContent=k.threshold.toFixed(4);
 
                 var avgScore=alerts.length?alerts.reduce(function(s,a){return s+a.anomaly_score;},0)/alerts.length:0;
-                el('insight-overview').innerHTML='<div class="insight-title">Dataset Overview</div>Scanned <b>'+fmt(k.total_events)+'</b> authentication events across 6 months. Model flagged <b style="color:'+C.critical+'">'+fmt(k.detections)+'</b> threats with <b style="color:'+C.low+'">'+k.detection_rate+'%</b> detection rate. Top '+alerts.length+' alerts average score: <b style="color:'+C.ochre+'">'+avgScore.toFixed(3)+'</b> &#8212; model is highly confident.';
+                el('insight-overview').innerHTML='<div class="insight-title">Dataset Overview</div>Scanned <b>'+fmt(k.total_events)+'</b> authentication events across 6 months. Model flagged <b style="color:'+C.critical+'">'+fmt(k.detections)+'</b> threats with <b style="color:'+C.low+'">'+k.detection_rate+'%</b> detection rate. Top '+alerts.length+' alerts average score: <b style="color:'+C.ochre+'">'+avgScore.toFixed(3)+'</b>: model is highly confident.';
 
                 if(dash.timeline&&dash.timeline.length){
                     var tl=dash.timeline;
@@ -212,7 +212,7 @@
                     var sorted=Object.entries(peakHours).sort(function(a,b){return b[1]-a[1];});
                     var peakStr=sorted.slice(0,3).map(function(e){return 'bucket '+e[0];}).join(', ');
                     el('insight-temporal').style.display='';
-                    el('insight-temporal-text').innerHTML='Timeline shows <b>'+tl.length+'</b> hourly buckets. Anomaly spikes detected at <b style="color:'+C.critical+'">'+peakStr+'</b>. Most buckets have near-zero mean score &#8212; attacks are rare, concentrated events.';
+                    el('insight-temporal-text').innerHTML='Timeline shows <b>'+tl.length+'</b> hourly buckets. Anomaly spikes detected at <b style="color:'+C.critical+'">'+peakStr+'</b>. Most buckets have near-zero mean score: attacks are rare, concentrated events.';
 
                     var hm=dash.heatmap||[];
                     if(hm.length){
@@ -276,7 +276,7 @@
 
                     var scoreMin=Math.min.apply(null,scores);
                     el('insight-score').style.display='';
-                    el('insight-score-text').innerHTML='Score distribution ranges from <b>'+scoreMin.toFixed(4)+'</b> to <b>'+maxS.toFixed(4)+'</b>. '+blockCount+' BLOCK decisions, '+flagCount+' FLAG decisions. The model shows strong separation &#8212; most clean events score near 0, attacks cluster near 1.0.';
+                    el('insight-score-text').innerHTML='Score distribution ranges from <b>'+scoreMin.toFixed(4)+'</b> to <b>'+maxS.toFixed(4)+'</b>. '+blockCount+' BLOCK decisions, '+flagCount+' FLAG decisions. The model shows strong separation: most clean events score near 0, attacks cluster near 1.0.';
 
                     var userCounts={};
                     alerts.forEach(function(a){userCounts[a.src_user]=(userCounts[a.src_user]||0)+1;});

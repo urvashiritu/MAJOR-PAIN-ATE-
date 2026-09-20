@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LANL Anomaly Detection</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <div class="app">
         <!-- Sidebar -->
         <nav class="sidebar">
-            <div class="sidebar-logo">LANL UEBA<br><span style="font-size:9px;font-weight:400;letter-spacing:.08em;opacity:.5">BEHAVIOR ANALYTICS</span></div>
+            <div class="sidebar-logo">LANL UEBA<br><span class="sidebar-logo-sub">BEHAVIOR ANALYTICS</span></div>
             <a href="/analyst" class="sidebar-item" data-page="dashboard" onclick="location.hash='#/dashboard';return false">
                 <span>&#9673;</span> Live Monitoring
             </a>
@@ -36,11 +36,11 @@
                 <span>&#9881;</span> Settings
             </a>
             <div class="sidebar-spacer"></div>
-            <div class="sidebar-bottom" style="padding:12px;font-size:9px;color:var(--ink-faint);line-height:1.4">
-                <div style="font-weight:600;color:var(--low)">&#9650; DETECT</div>
-                <div style="font-weight:600;color:var(--ochre)">&#9654; UNDERSTAND</div>
-                <div style="font-weight:600;color:var(--critical)">&#9660; PREVENT</div>
-                <div style="margin-top:4px;opacity:.6">Turning Data into<br>Safer Workspaces</div>
+            <div class="sidebar-bottom">
+                <div class="detect">&#9650; DETECT</div>
+                <div class="understand">&#9654; UNDERSTAND</div>
+                <div class="prevent">&#9660; PREVENT</div>
+                <div class="tagline">Turning Data into<br>Safer Workspaces</div>
             </div>
             <button class="theme-btn" id="theme-toggle">&#9681;</button>
         </nav>
@@ -48,8 +48,8 @@
         <!-- Main -->
         <div class="main-area">
             <header class="topbar">
-                <div class="topbar-left" style="display:flex;align-items:center;gap:16px;flex:1">
-                    <div style="flex:1">
+                <div class="topbar-left topbar-left-flex">
+                    <div class="topbar-left-inner">
                         <div class="topbar-greeting" id="topbar-greeting">Good evening, {{ display_name }}.</div>
                         <div class="topbar-sub">Monitoring LANL authentication activity in real time.</div>
                     </div>
@@ -58,15 +58,15 @@
                         <span class="topbar-search-shortcut">Ctrl+K</span>
                     </div>
                 </div>
-                <div class="topbar-right" style="gap:16px">
+                <div class="topbar-right topbar-right-flex">
                     <div class="flex-center gap-1">
                         <div class="health-dot" id="health-dot"></div>
                         <span class="text-10 text-faint" id="health-label">System Online</span>
                     </div>
                     <span class="text-11 text-faint mono" id="topbar-datetime"></span>
                     <div style="display:flex;align-items:center;gap:8px">
-                        <div style="width:28px;height:28px;border-radius:50%;background:var(--info);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700">{{ display_name[0] }}</div>
-                        <div style="font-size:11px;line-height:1.2"><div style="font-weight:600;color:var(--ink)">{{ display_name }}</div><div style="color:var(--ink-faint)">Analyst</div></div>
+                    <div class="user-avatar">{{ display_name[0] }}</div>
+                    <div class="user-meta"><div class="user-meta-name">{{ display_name }}</div><div class="user-meta-role">Analyst</div></div>
                     </div>
                     <a href="/logout" class="text-10 text-faint uppercase tracking-widest" style="cursor:pointer">Logout</a>
                 </div>
