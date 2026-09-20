@@ -1,5 +1,12 @@
 /* UI components — badges, KPI cards, rows, drawer, hold button */
 
+const _displayNames = { ace: 'Ace', luffy: 'Luffy', igris: 'Igris', ashborn: 'Ashborn' };
+function _fmtUser(name, userId) {
+    const display = _displayNames[name] || name || 'unknown';
+    const id = (userId || '').split('@')[0];
+    return id ? display + ' (' + id + ')' : display;
+}
+
 function severityBadge(level) {
     const cls = 'stamp stamp-' + (level || 'info');
     const label = level ? level.toUpperCase() : 'INFO';
@@ -241,7 +248,7 @@ function topRiskyUserRow(u) {
     const pct = Math.min(100, score * 100);
     const severity = score > 0.5 ? 'High' : score > 0.2 ? 'Med' : 'Low';
     const sevColor = score > 0.5 ? 'var(--critical)' : score > 0.2 ? 'var(--ochre)' : 'var(--low)';
-    const name = (u.user_id || 'unknown').split('@')[0];
+    const name = _fmtUser(u.name, u.user_id);
     const initials = name.slice(0, 2).toUpperCase();
     const avatarBg = score > 0.5 ? 'var(--critical)' : score > 0.2 ? 'var(--ochre)' : 'var(--info)';
     return `

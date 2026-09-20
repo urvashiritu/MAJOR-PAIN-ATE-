@@ -85,11 +85,11 @@ HTML = r'''<!DOCTYPE html>
 
                 <div class="grid-2e mb-4">
                     <div class="panel p-4">
-                        <div class="section-title mb-3">Score Distribution</div>
+                        <div class="section-title mb-3">Score Distribution <span class="text-10 text-faint uppercase tracking-widest" style="margin-left:8px">top 200 alerts by score</span></div>
                         <div id="chart-distribution" class="chart-box-sm"></div>
                     </div>
                     <div class="panel p-4">
-                        <div class="section-title mb-3">Alert Breakdown</div>
+                        <div class="section-title mb-3">Top Targeted Destinations <span class="text-10 text-faint uppercase tracking-widest" style="margin-left:8px">most attacked machines</span></div>
                         <div id="chart-donut" class="chart-box-sm"></div>
                     </div>
                 </div>
@@ -185,6 +185,9 @@ HTML = r'''<!DOCTYPE html>
                 }
                 window.addEventListener('resize',function(){charts.forEach(function(c){c.resize();});});
 
+                var _dn={'U293@DOM1':'Ace (U293)','U2899@DOM1':'Luffy (U2899)','U2097@DOM1':'Igris (U2097)','U66@DOM1':'Ashborn (U66)'};
+                function _fmtUser(uid){return _dn[uid]||uid.split('@')[0];}
+
                 var k=dash.kpis;
                 var el=function(id){return document.getElementById(id);};
                 if(el('kpi-total'))el('kpi-total').textContent=fmt(k.total_events);
@@ -236,22 +239,23 @@ HTML = r'''<!DOCTYPE html>
                 if(alerts&&alerts.length){
                     var scores=alerts.map(function(a){return a.anomaly_score;});
                     var maxS=Math.max.apply(null,scores);
-                    var bins=50;
-                    var binSize=maxS/bins;
+                    var scoreMin=Math.min.apply(null,scores);
+                    var bins=10;
+                    var binSize=(maxS-scoreMin)/bins;
                     var normalBins=new Array(bins).fill(0);
                     var redBins=new Array(bins).fill(0);
                     alerts.forEach(function(a,i){
-                        var bin=Math.min(Math.floor(scores[i]/binSize),bins-1);
+                        var bin=Math.min(Math.floor((scores[i]-scoreMin)/binSize),bins-1);
                         if(a.is_red)redBins[bin]++;else normalBins[bin]++;
                     });
-                    var labels=Array.from({length:bins},function(_,i){return(i*binSize).toFixed(3);});
+                    var labels=Array.from({length:bins},function(_,i){return(scoreMin+i*binSize).toFixed(4);});
 
                     var dc=initChart('chart-distribution');
                     if(dc)dc.setOption({
                         tooltip:{trigger:'axis',backgroundColor:C.tooltipBg,textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11}},
                         legend:{data:['Normal','Attack'],textStyle:{color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'},top:2,right:12},
-                        grid:{left:50,right:12,top:30,bottom:30},
-                        xAxis:{type:'category',data:labels,axisLabel:{color:C.inkFaint,fontSize:9,rotate:45,interval:9},axisLine:{lineStyle:{color:C.gridLine}}},
+                        grid:{left:50,right:12,top:30,bottom:40},
+                        xAxis:{type:'category',data:labels,axisLabel:{color:C.inkFaint,fontSize:10,rotate:30},axisLine:{lineStyle:{color:C.gridLine}}},
                         yAxis:{type:'value',axisLabel:{color:C.inkFaint,fontSize:10},splitLine:{lineStyle:{color:C.gridLine}}},
                         series:[
                             {name:'Normal',type:'bar',stack:'total',data:normalBins,itemStyle:{color:'rgba(139,147,165,0.4)'},barWidth:'90%'},
@@ -259,29 +263,21 @@ HTML = r'''<!DOCTYPE html>
                         ]
                     });
 
-                    var blockCount=alerts.filter(function(a){return a.decision==='BLOCK';}).length;
-                    var flagCount=alerts.filter(function(a){return a.decision==='FLAG';}).length;
-                    var allowCount=alerts.filter(function(a){return a.decision==='ALLOW';}).length;
-
-                    var donutData=[];
-                    if(blockCount>0)donutData.push({value:blockCount,name:'BLOCK',itemStyle:{color:C.critical}});
-                    if(flagCount>0)donutData.push({value:flagCount,name:'FLAG',itemStyle:{color:C.ochre}});
-                    if(allowCount>0)donutData.push({value:allowCount,name:'ALLOW',itemStyle:{color:C.low}});
+                    var dstCounts={};
+                    alerts.forEach(function(a){dstCounts[a.dst_computer]=(dstCounts[a.dst_computer]||0)+1;});
+                    var topDst=Object.entries(dstCounts).sort(function(a,b){return b[1]-a[1];}).slice(0,10).reverse();
 
                     var gc=initChart('chart-donut');
                     if(gc)gc.setOption({
-                        tooltip:{trigger:'item',backgroundColor:C.tooltipBg,textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11}},
-                        series:[{
-                            type:'pie',radius:['45%','70%'],center:['50%','55%'],
-                            avoidLabelOverlap:false,
-                            label:{show:true,position:'center',formatter:function(){return '{total|'+alerts.length+'}\n{label|alerts}';},rich:{total:{fontSize:24,fontWeight:700,color:C.ink,lineHeight:32},label:{fontSize:10,color:C.inkFaint,textTransform:'uppercase',letterSpacing:2}}},
-                            data:donutData
-                        }]
+                        tooltip:{trigger:'axis',axisPointer:{type:'shadow'},backgroundColor:C.tooltipBg,textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11}},
+                        grid:{left:130,right:30,top:10,bottom:10},
+                        xAxis:{type:'value',axisLabel:{color:C.inkFaint,fontSize:10},splitLine:{lineStyle:{color:C.gridLine}}},
+                        yAxis:{type:'category',data:topDst.map(function(d){return d[0];}),axisLabel:{color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'}},
+                        series:[{type:'bar',data:topDst.map(function(d){return{value:d[1],itemStyle:{color:C.ochre}};}),barWidth:'60%',label:{show:true,position:'right',color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'}}]
                     });
 
-                    var scoreMin=Math.min.apply(null,scores);
                     el('insight-score').style.display='';
-                    el('insight-score-text').innerHTML='Score distribution ranges from <b>'+scoreMin.toFixed(4)+'</b> to <b>'+maxS.toFixed(4)+'</b>. '+blockCount+' BLOCK decisions, '+flagCount+' FLAG decisions. The model shows strong separation: most clean events score near 0, attacks cluster near 1.0.';
+                    el('insight-score-text').innerHTML='Score distribution ranges from <b>'+scoreMin.toFixed(4)+'</b> to <b>'+maxS.toFixed(4)+'</b>. All <b>'+alerts.length+'</b> alerts above threshold. The model shows strong separation: attacks cluster near 1.0, most clean events score near 0. Top targeted: <b style="color:'+C.ochre+'">'+topDst[topDst.length-1][0]+'</b> ('+topDst[topDst.length-1][1]+' alerts).';
 
                     var userCounts={};
                     alerts.forEach(function(a){userCounts[a.src_user]=(userCounts[a.src_user]||0)+1;});
@@ -292,19 +288,19 @@ HTML = r'''<!DOCTYPE html>
                         tooltip:{trigger:'axis',axisPointer:{type:'shadow'},backgroundColor:C.tooltipBg,textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11}},
                         grid:{left:130,right:30,top:10,bottom:10},
                         xAxis:{type:'value',axisLabel:{color:C.inkFaint,fontSize:10},splitLine:{lineStyle:{color:C.gridLine}}},
-                        yAxis:{type:'category',data:sortedUsers.map(function(s){return s[0].split('@')[0];}),axisLabel:{color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'}},
+                        yAxis:{type:'category',data:sortedUsers.map(function(s){return _fmtUser(s[0]);}),axisLabel:{color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'}},
                         series:[{type:'bar',data:sortedUsers.map(function(s){return{value:s[1],itemStyle:{color:s[1]>20?C.critical:s[1]>10?C.ochre:C.info}};}),barWidth:'60%',label:{show:true,position:'right',color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'}}]
                     });
 
                     var topAlertUser=Object.entries(userCounts).sort(function(a,b){return b[1]-a[1];})[0];
                     var pct=topAlertUser?(topAlertUser[1]/alerts.length*100).toFixed(0):0;
                     el('insight-attacker').style.display='';
-                    el('insight-attacker-text').innerHTML='<b style="color:'+C.critical+'">'+(topAlertUser?topAlertUser[0]:'N/A')+'</b> dominates with <b>'+pct+'%</b> of all blocked alerts ('+topAlertUser[1]+'/'+alerts.length+'). '+Object.keys(userCounts).length+' unique attackers detected across '+alerts.length+' events.';
+                    el('insight-attacker-text').innerHTML='<b style="color:'+C.critical+'">'+(topAlertUser?_fmtUser(topAlertUser[0]):'N/A')+'</b> dominates with <b>'+pct+'%</b> of all blocked alerts ('+topAlertUser[1]+'/'+alerts.length+'). '+Object.keys(userCounts).length+' unique attackers detected across '+alerts.length+' events.';
 
                     var netNodes={};
                     var netLinks=[];
                     alerts.forEach(function(a){
-                        var src=a.src_user.split('@')[0];
+                        var src=_fmtUser(a.src_user);
                         var dst=a.dst_computer;
                         if(!netNodes[src])netNodes[src]={name:src,category:0,symbolSize:0,value:0};
                         if(!netNodes[dst])netNodes[dst]={name:dst,category:1,symbolSize:0,value:0};

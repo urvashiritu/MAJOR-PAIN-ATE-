@@ -27,6 +27,13 @@
     let _prevKpis = { totalEvents: 0, anomalies: 0, highRiskUsers: 0, usersMonitored: 0 };
     let _searchOverlay = null;
 
+    const _displayNames = { ace: 'Ace', luffy: 'Luffy', igris: 'Igris', ashborn: 'Ashborn' };
+    function _fmtUser(name, userId) {
+        const display = _displayNames[name] || name || 'unknown';
+        const id = (userId || '').split('@')[0];
+        return id ? display + ' (' + id + ')' : display;
+    }
+
     /* ── Theme ──────────────────────────────────────────────────── */
     function initTheme() {
         const saved = localStorage.getItem('theme');
@@ -97,7 +104,7 @@
         const users = new Set(_liveEvents.map(e => e.user_id)).size;
         const blocks = _liveEvents.filter(e => e.decision === 'block').length;
         const highRisk = _liveEvents.filter(e => e.decision === 'flag' || e.decision === 'block');
-        const topUser = highRisk.length > 0 ? highRisk.reduce((acc, e) => { acc[e.user_id] = (acc[e.user_id] || 0) + 1; return acc; }, {}) : {};
+        const topUser = highRisk.length > 0 ? highRisk.reduce((acc, e) => { const k = e.name || 'unknown'; acc[k] = (acc[k] || 0) + 1; return acc; }, {}) : {};
         const topEntry = Object.entries(topUser).sort((a, b) => b[1] - a[1])[0];
         let html = '<div style="font-weight:700;color:' + C.critical + ';font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Live Analysis</div>';
         html += 'Scored <b>' + _liveEvents.length + '</b> events from <b>' + users + '</b> users. ';
@@ -105,7 +112,7 @@
         html += '<span style="color:' + C.ochre + '">' + (anomalies - blocks) + '</span> flagged, ';
         html += '<span style="color:' + C.critical + '">' + blocks + '</span> blocked. ';
         if (topEntry) {
-            html += '<b style="color:' + C.critical + '">' + topEntry[0].split('@')[0] + '</b> has ' + topEntry[1] + ' anomaly events.';
+            html += '<b style="color:' + C.critical + '">' + _fmtUser(topEntry[0], highRisk.find(e => e.name === topEntry[0])?.user_id) + '</b> has ' + topEntry[1] + ' anomaly events.';
         }
         el.innerHTML = html;
     }
@@ -218,7 +225,7 @@
         if (_liveUsersChart) {
             const userCounts = {};
             _liveEvents.forEach(e => {
-                const name = (e.user_id || 'unknown').split('@')[0];
+                const name = _fmtUser(e.name, e.user_id);
                 userCounts[name] = (userCounts[name] || 0) + 1;
             });
             const sorted = Object.entries(userCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).reverse();
@@ -610,7 +617,7 @@
             <div class="drawer">
                 <div class="drawer-header">
                     <div>
-                        <div class="font-bold text-lg">${esc(data.user_id)}</div>
+                        <div class="font-bold text-lg">${esc(_fmtUser(data.name, data.user_id))}</div>
                         <div class="text-11 text-faint mt-05">User Baseline Profile</div>
                     </div>
                     <button class="drawer-close" id="drawer-close-btn">&times;</button>

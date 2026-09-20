@@ -407,11 +407,13 @@ def api_known_users():
     """All users from training data (for behavior insights)."""
     _init_scorer()
     from scorer import _user_totals, DEMO_USERS
+    from auth import USERS
+    _id_to_name = {v['user_id']: v['name'] for v in USERS.values()}
     users = []
     for uid in DEMO_USERS:
         users.append({
             'user_id': uid,
-            'name': uid.split('@')[0],
+            'name': _id_to_name.get(uid, uid.split('@')[0]),
             'totalEvents': _user_totals.get(uid, 0),
         })
     return jsonify(users)
