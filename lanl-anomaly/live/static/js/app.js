@@ -992,19 +992,28 @@
             for (const u of users.slice(0, 8)) {
                 try { profiles.push(await API.userProfile(u.user_id)); } catch(e) { profiles.push({ user_id: u.user_id, baseline: {}, session: {} }); }
             }
+            const userMeta = {
+                'U293@DOM1': { name: 'Ace', role: 'attacker', badge: 'ATTACKER', badgeColor: 'var(--critical)', narrative: 'Known attacker \u2014 31 red-team events in 6 months of training data' },
+                'U2097@DOM1': { name: 'Igris', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Clean insider \u2014 highest event volume, zero anomalous activity' },
+                'U2899@DOM1': { name: 'Luffy', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Standard employee \u2014 normal login patterns' },
+                'U66@DOM1': { name: 'Ashborn', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Standard employee \u2014 normal login patterns' },
+            };
             let html = '<div class="dash-greeting"><h2>Behavior Insights</h2><p>Per-user behavioral baselines derived from 6 months of LANL training data.</p></div>';
             profiles.forEach(p => {
                 const b = p.baseline || {};
                 const s = p.session || {};
-                const name = (p.user_id || 'unknown').split('@')[0];
+                const meta = userMeta[p.user_id] || { name: (p.user_id || 'unknown').split('@')[0], badge: 'USER', badgeColor: 'var(--info)', narrative: '' };
+                const displayName = meta.name;
                 const maxHour = Math.max(...(b.hourlyPattern || []), 1);
                 const hourlyBars = (b.hourlyPattern || []).map((v, i) => {
                     const h = Math.max(2, (v / maxHour) * 40);
                     const color = (b.rareHours || []).includes(i) ? 'var(--critical)' : 'var(--info)';
                     return '<div title="' + i + ':00" style="width:100%;height:' + h + 'px;background:' + color + ';border-radius:1px"></div>';
                 }).join('');
-                html += '<div class="panel p-4 mb-4"><div class="section-header"><div class="section-title">' + esc(name) + '</div>' +
+                var badgeStyle = 'display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.05em;color:' + meta.badgeColor + ';border:1px solid ' + meta.badgeColor + ';margin-left:10px';
+                html += '<div class="panel p-4 mb-4"><div class="section-header"><div class="section-title">' + esc(displayName) + '<span style="' + badgeStyle + '">' + meta.badge + '</span></div>' +
                     '<span class="mono text-11 text-faint">' + esc(p.user_id) + '</span></div>' +
+                    (meta.narrative ? '<div class="text-12 text-dim" style="margin:6px 0 12px">' + meta.narrative + '</div>' : '') +
                     '<div class="grid-3 gap-4">' +
                     '<div><div class="text-12 text-dim">Events: <strong>' + (b.totalEvents || 0).toLocaleString() + '</strong></div>' +
                     '<div class="text-12 text-dim">Typical Pairs: <strong>' + (b.typicalPairs || 0) + '</strong></div>' +
