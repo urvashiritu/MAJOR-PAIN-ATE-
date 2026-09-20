@@ -36,6 +36,12 @@ const API = {
         return res.json();
     },
 
+    async knownUsers() {
+        const res = await fetch('/api/known_users');
+        if (!res.ok) throw new Error(`knownUsers: ${res.status}`);
+        return res.json();
+    },
+
     async stats() {
         const res = await fetch('/api/stats');
         if (!res.ok) throw new Error(`stats: ${res.status}`);
@@ -76,6 +82,9 @@ const API = {
         return res.json();
     },
 
+    search(q) {
+        return fetch('/api/search?q=' + encodeURIComponent(q)).then(r => r.json());
+    },
     connectSSE(callbacks) {
         const es = new EventSource('/events/stream');
         es.addEventListener('score', (e) => {

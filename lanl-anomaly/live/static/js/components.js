@@ -6,15 +6,29 @@ function severityBadge(level) {
     return `<span class="${cls}">${label}</span>`;
 }
 
-function kpiCard(cfg, value, sparkId) {
+function kpiCard(cfg, value, sparkId, delta) {
     const colorMap = { info: 'var(--info)', critical: 'var(--critical)', low: 'var(--low)', medium: 'var(--medium)', ochre: 'var(--ochre)' };
+    const bgColorMap = { info: 'rgba(110,168,232,0.12)', critical: 'rgba(229,72,77,0.12)', low: 'rgba(87,176,108,0.12)', medium: 'rgba(232,163,61,0.12)', ochre: 'rgba(232,163,61,0.12)' };
     const c = colorMap[cfg.color] || cfg.color || 'var(--ink)';
+    const bg = bgColorMap[cfg.color] || 'var(--surface-2)';
+    let deltaHtml = '';
+    if (delta !== undefined && delta !== null && delta !== 0) {
+        const sign = delta > 0 ? '+' : '';
+        const cls = delta > 0 ? 'up' : 'down';
+        deltaHtml = `<span class="kpi-delta ${cls}">${sign}${delta}</span>`;
+    } else if (delta === 0) {
+        deltaHtml = `<span class="kpi-delta flat">0%</span>`;
+    }
     return `
         <div class="panel panel-hover p-3">
             <div class="kpi-card">
+                <div style="width:36px;height:36px;border-radius:6px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${cfg.icon}</div>
                 <div class="kpi-card-body">
-                    <div class="kpi-label mb-1">${cfg.icon} ${cfg.label}</div>
-                    <div class="tape-num" style="color:${c}">${value != null ? value : '<span class="skeleton"></span>'}</div>
+                    <div class="kpi-label mb-1">${cfg.label}</div>
+                    <div style="display:flex;align-items:baseline;gap:6px">
+                        <div class="tape-num" style="color:${c}">${value != null ? value : '<span class="skeleton"></span>'}</div>
+                        ${deltaHtml}
+                    </div>
                 </div>
                 <div class="kpi-card-spark" id="${sparkId || ''}"></div>
             </div>
@@ -220,4 +234,23 @@ function esc(s) {
     const d = document.createElement('div');
     d.textContent = String(s);
     return d.innerHTML;
+}
+
+function topRiskyUserRow(u) {
+    const score = u.max_score || 0;
+    const pct = Math.min(100, score * 100);
+    const severity = score > 0.5 ? 'High' : score > 0.2 ? 'Med' : 'Low';
+    const sevColor = score > 0.5 ? 'var(--critical)' : score > 0.2 ? 'var(--ochre)' : 'var(--low)';
+    const name = (u.user_id || 'unknown').split('@')[0];
+    const initials = name.slice(0, 2).toUpperCase();
+    const avatarBg = score > 0.5 ? 'var(--critical)' : score > 0.2 ? 'var(--ochre)' : 'var(--info)';
+    return `
+        <div class="risky-user-item">
+            <div class="risky-avatar" style="background:${avatarBg}">${initials}</div>
+            <div class="risky-user-info">
+                <div class="risky-user-name">${esc(u.name || name)}</div>
+                <div class="risky-score-bar"><div class="risky-score-fill" style="width:${pct}%;background:${sevColor}"></div></div>
+            </div>
+            <div class="risky-user-score" style="color:${sevColor}">${score.toFixed(3)} <span style="color:var(--ink-faint);font-weight:400">(${severity})</span></div>
+        </div>`;
 }

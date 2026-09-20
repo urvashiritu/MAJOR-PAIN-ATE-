@@ -10,6 +10,7 @@
         { key: 'highRiskUsers', label: 'High-Risk Users', icon: '⚠', color: 'medium' },
         { key: 'usersMonitored', label: 'Users Monitored', icon: '👥', color: 'low' },
     ];
+    const GREETINGS = ['Good morning', 'Good afternoon', 'Good evening'];
 
     let _liveEvents = [];
     let _liveSparkData = { totalEvents: [], anomalies: [], highRiskUsers: [], usersMonitored: [] };
@@ -20,6 +21,11 @@
     let _liveTimelineChart = null;
     let _liveScoresChart = null;
     let _liveUsersChart = null;
+    let _liveAuthDonut = null;
+    let _liveScoreHist = null;
+    let _ssePaused = false;
+    let _prevKpis = { totalEvents: 0, anomalies: 0, highRiskUsers: 0, usersMonitored: 0 };
+    let _searchOverlay = null;
 
     /* ── Theme ──────────────────────────────────────────────────── */
     function initTheme() {
@@ -51,6 +57,8 @@
         _echartsInstances.forEach(c => { try { c.dispose(); } catch(e){} });
         _echartsInstances = [];
         _echartsInitialized = false;
+        _liveAuthDonut = null;
+        _liveScoreHist = null;
     }
 
     function getThemeColors() {
@@ -147,6 +155,19 @@
                 series: [{ type: 'bar', data: [], barWidth: '60%', itemStyle: { color: C.ochre }, label: { show: true, position: 'right', color: C.inkDim, fontSize: 10, fontFamily: 'JetBrains Mono' } }]
             });
         }
+
+        _liveAuthDonut = initEChart('live-chart-auth');
+        if (_liveAuthDonut) {
+            _liveAuthDonut.setOption({
+                tooltip: { trigger: 'item', backgroundColor: C.tooltipBg, textStyle: { color: C.ink, fontFamily: 'JetBrains Mono', fontSize: 11 } },
+                legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { color: C.inkDim, fontSize: 11, fontFamily: 'JetBrains Mono' } },
+                series: [{
+                    type: 'pie', radius: ['45%', '70%'], center: ['35%', '50%'],
+                    label: { show: false },
+                    data: []
+                }]
+            });
+        }
     }
 
     function updateLiveCharts() {
@@ -206,6 +227,21 @@
                 series: [{ data: sorted.map(s => s[1]) }]
             });
         }
+
+        if (_liveAuthDonut) {
+            const authCounts = {};
+            _liveEvents.forEach(e => {
+                const t = e.auth_type || 'Unknown';
+                authCounts[t] = (authCounts[t] || 0) + 1;
+            });
+            const C = getThemeColors();
+            const colors = { 'NTLM': C.info, 'Kerberos': C.ochre };
+            const authData = Object.entries(authCounts).map(([name, value]) => ({
+                name, value,
+                itemStyle: { color: colors[name] || C.inkDim }
+            }));
+            _liveAuthDonut.setOption({ series: [{ data: authData }] });
+        }
     }
 
     function setActiveNav(page) {
@@ -231,49 +267,63 @@
         setActiveNav('dashboard');
 
         content.innerHTML = `
-            <div class="mb-4">
-                <div class="text-12 text-dim" style="max-width:600px">
-                    User and Entity Behavior Analytics system monitoring authentication events across the LANL network. 
-                    Each login is scored against the user's 6-month behavioral baseline. Events deviating from the baseline 
-                    are flagged or blocked in real time.
-                </div>
-            </div>
-
             <div class="grid-4 gap-4 mb-4" id="kpi-grid">
                 ${LIVE_KPI_DEFS.map((k, i) => kpiCard(k, null, 'spark-' + k.key)).join('')}
             </div>
 
             <div class="insight-box mb-4" id="live-narrative">
-                <div style="font-weight:700;color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">System Status</div>
-                Waiting for login events. Users will appear here as they authenticate against the LANL network.
-            </div>
-
-            <div class="panel p-4 mb-4">
-                <div class="section-title mb-3">Activity Timeline</div>
-                <div id="live-chart-timeline" style="width:100%;height:220px"></div>
+                <div style="font-weight:700;color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Live Analysis</div>
+                Waiting for login events...
             </div>
 
             <div class="grid-12 gap-4 mb-4">
                 <div class="col-5">
                     <div class="panel p-4">
+                        <div class="section-title mb-3">Activity Timeline</div>
+                        <div id="live-chart-timeline" style="width:100%;height:240px"></div>
+                    </div>
+                </div>
+                <div class="col-3">
+                    <div class="panel p-4">
                         <div class="section-title mb-3">Threat Level</div>
                         <div id="gauge-container" class="text-center"></div>
                         <div class="section-title mb-2 mt-3">Risk Distribution</div>
-                        <div id="donut-container" class="text-center mt-2"></div>
+                        <div id="risk-dist-legend" class="text-12 text-dim" style="margin-top:8px"></div>
                     </div>
                 </div>
+                <div class="col-4">
+                    <div class="panel p-4">
+                        <div class="section-header">
+                            <div class="section-title">Top Risky Users</div>
+                            <a class="view-all" href="#/users">View All &#8594;</a>
+                        </div>
+                        <div id="top-risky-users"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-12 gap-4 mb-4">
                 <div class="col-7">
                     <div class="panel overflow-hidden">
                         <div class="flex-between px-4 py-3 hairline">
-                            <span class="section-title">Live Logins</span>
+                            <div class="flex-center gap-2">
+                                <span class="section-title">Live Authentication Events</span>
+                                <div class="table-controls">
+                                    <button class="filter-btn active" id="evt-filter-all" onclick="window._evtFilter='all';window._renderEventsTable()">All</button>
+                                    <button class="filter-btn" id="evt-filter-block" onclick="window._evtFilter='block';window._renderEventsTable()">Block</button>
+                                    <button class="filter-btn" id="evt-filter-flag" onclick="window._evtFilter='flag';window._renderEventsTable()">Flag</button>
+                                </div>
+                            </div>
                             <span class="flex-center gap-1 text-10 text-faint uppercase tracking-widest">
-                                <span class="live-dot"></span> live
+                                <span class="live-dot" id="live-indicator"></span>
+                                <span id="live-status-text">live</span>
+                                <button class="filter-btn" id="pause-btn" onclick="window._togglePause()" style="margin-left:4px;font-size:9px;padding:2px 6px">⏸ Pause</button>
                             </span>
                         </div>
-                        <div class="overflow-auto max-h-300">
+                        <div class="overflow-auto" style="max-height: 360px">
                             <table class="table-glass">
                                 <thead><tr>
-                                    <th>Time</th><th>User</th><th>Source</th><th>Destination</th><th>Auth</th><th>Score</th><th>Decision</th>
+                                    <th>Time</th><th>User</th><th>Source</th><th>Destination</th><th>Type</th><th>Score</th><th>Decision</th>
                                 </tr></thead>
                                 <tbody id="events-tbody">
                                     <tr><td colspan="7" class="text-center text-faint py-8">
@@ -285,35 +335,39 @@
                         </div>
                     </div>
                 </div>
+                <div class="col-5">
+                    <div class="panel p-4">
+                        <div class="section-title mb-3">Anomaly Score Distribution</div>
+                        <div id="live-chart-scores" style="width:100%;height:340px"></div>
+                    </div>
+                </div>
             </div>
 
             <div class="grid-12 gap-4 mb-4">
-                <div class="col-6">
-                    <div class="panel p-4">
-                        <div class="section-title mb-3">Score Distribution</div>
-                        <div id="live-chart-scores" style="width:100%;height:220px"></div>
+                <div class="col-7">
+                    <div class="panel overflow-hidden">
+                        <div class="flex-between px-4 py-3 hairline">
+                            <span class="section-title">Recent Alerts</span>
+                            <div>
+                                <span class="text-10 text-faint uppercase tracking-widest" id="alert-count">0 alerts</span>
+                                <a class="view-all" href="#/alerts" style="margin-left:12px">View All &#8594;</a>
+                            </div>
+                        </div>
+                        <div class="overflow-auto" style="max-height: 280px">
+                            <table class="table-glass">
+                                <thead><tr>
+                                    <th>Time</th><th>User</th><th>Reason</th><th>Score</th><th>Severity</th>
+                                </tr></thead>
+                                <tbody id="dash-alerts-tbody"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
-                <div class="col-6">
+                <div class="col-5">
                     <div class="panel p-4">
-                        <div class="section-title mb-3">Top Active Users</div>
-                        <div id="live-chart-users" style="width:100%;height:220px"></div>
+                        <div class="section-title mb-3">Authentication Methods</div>
+                        <div id="live-chart-auth" style="width:100%;height:240px"></div>
                     </div>
-                </div>
-            </div>
-
-            <div class="panel overflow-hidden">
-                <div class="flex-between px-4 py-3 hairline">
-                    <span class="section-title">Recent Alerts</span>
-                    <span class="text-10 text-faint uppercase tracking-widest" id="alert-count">0 alerts</span>
-                </div>
-                <div class="overflow-auto max-h-300">
-                    <table class="table-glass">
-                        <thead><tr>
-                            <th>Time</th><th>User</th><th>Reason</th><th>Score</th><th>Severity</th><th>Actions</th>
-                        </tr></thead>
-                        <tbody id="dash-alerts-tbody"></tbody>
-                    </table>
                 </div>
             </div>`;
 
@@ -373,16 +427,31 @@
             const gaugeEl = document.getElementById('gauge-container');
             if (gaugeEl) renderGauge(gaugeEl, threatRatio);
 
-            // Risk donut
-            const donutEl = document.getElementById('donut-container');
-            if (donutEl && dash.riskDistribution) renderRiskDonut(donutEl, dash.riskDistribution);
+            // Risk distribution legend
+            const legendEl = document.getElementById('risk-dist-legend');
+            if (legendEl && dash.riskDistribution) {
+                const total = dash.riskDistribution.reduce((s, d) => s + d.value, 0) || 1;
+                legendEl.innerHTML = dash.riskDistribution.map(d => {
+                    const pct = ((d.value / total) * 100).toFixed(1);
+                    return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">' +
+                        '<span style="width:8px;height:8px;border-radius:2px;background:' + d.color + ';flex-shrink:0"></span>' +
+                        '<span style="flex:1">' + d.name + '</span>' +
+                        '<span class="mono" style="font-weight:600">' + d.value + '</span>' +
+                        '<span class="mono text-faint" style="font-size:10px">(' + pct + '%)</span></div>';
+                }).join('');
+            }
+
+            // Top risky users
+            const riskyEl = document.getElementById('top-risky-users');
+            if (riskyEl && dash.topRiskyUsers) {
+                riskyEl.innerHTML = dash.topRiskyUsers.length
+                    ? dash.topRiskyUsers.map(u => topRiskyUserRow(u)).join('')
+                    : '<div class="text-12 text-faint py-4 text-center">No risky users yet</div>';
+            }
 
             // Events table
-            const tbody = document.getElementById('events-tbody');
-            if (tbody && _liveEvents.length) {
-                tbody.innerHTML = _liveEvents.slice().reverse().map(e =>
-                    eventRow(e, openInvestigate)
-                ).join('');
+            if (_liveEvents.length) {
+                window._renderEventsTable();
             }
 
             // Alerts
@@ -739,6 +808,119 @@
         }
     }
 
+    /* ── Event table filter + pause ────────────────────────────── */
+    window._evtFilter = 'all';
+    window._renderEventsTable = function() {
+        const tbody = document.getElementById('events-tbody');
+        if (!tbody) return;
+        let evts = _liveEvents.slice().reverse();
+        if (window._evtFilter !== 'all') evts = evts.filter(e => e.decision === window._evtFilter);
+        tbody.innerHTML = evts.slice(0, 30).map(e => eventRow(e, openInvestigate)).join('');
+        ['all', 'block', 'flag'].forEach(f => {
+            const btn = document.getElementById('evt-filter-' + f);
+            if (btn) btn.classList.toggle('active', window._evtFilter === f);
+        });
+    };
+    window._togglePause = function() {
+        _ssePaused = !_ssePaused;
+        const btn = document.getElementById('pause-btn');
+        const dot = document.getElementById('live-indicator');
+        const txt = document.getElementById('live-status-text');
+        if (btn) btn.textContent = _ssePaused ? '▶ Resume' : '⏸ Pause';
+        if (dot) dot.style.background = _ssePaused ? 'var(--ochre)' : '';
+        if (txt) txt.textContent = _ssePaused ? 'paused' : 'live';
+    };
+
+    /* ── DateTime updater ──────────────────────────────────────── */
+    function updateDateTime() {
+        const el = document.getElementById('topbar-datetime');
+        if (el) {
+            const now = new Date();
+            el.textContent = now.toLocaleTimeString('en-US', { hour12: false }) + '  ' +
+                now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+    }
+
+    function updateGreeting() {
+        const el = document.getElementById('topbar-greeting');
+        if (!el) return;
+        const h = new Date().getHours();
+        const name = el.textContent.replace(/^(Good morning|Good afternoon|Good evening),?\s*/i, '').replace(/\.$/, '').trim() || 'Analyst';
+        const g = h < 12 ? GREETINGS[0] : h < 18 ? GREETINGS[1] : GREETINGS[2];
+        el.textContent = g + ', ' + name + '.';
+    }
+
+    /* ── Search ─────────────────────────────────────────────────── */
+    function initSearch() {
+        const input = document.getElementById('global-search');
+        const overlay = document.getElementById('search-overlay');
+        const modalInput = document.getElementById('search-modal-input');
+        const results = document.getElementById('search-results');
+        if (!input || !overlay) return;
+
+        function openSearch() {
+            overlay.classList.add('open');
+            setTimeout(() => modalInput.focus(), 100);
+        }
+        function closeSearch() {
+            overlay.classList.remove('open');
+            if (modalInput) modalInput.value = '';
+            if (results) results.innerHTML = '<div class="search-result-group">Type to search</div>';
+        }
+
+        input.addEventListener('focus', openSearch);
+        input.addEventListener('blur', (e) => { if (!overlay.contains(e.relatedTarget)) closeSearch(); });
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSearch(); });
+
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); openSearch(); }
+            if (e.key === 'Escape') closeSearch();
+        });
+
+        let searchTimeout;
+        if (modalInput) {
+            modalInput.addEventListener('input', () => {
+                clearTimeout(searchTimeout);
+                const q = modalInput.value.trim();
+                if (!q) { results.innerHTML = '<div class="search-result-group">Type to search</div>'; return; }
+                searchTimeout = setTimeout(async () => {
+                    try {
+                        const data = await API.search(q);
+                        let html = '';
+                        if (data.users && data.users.length) {
+                            html += '<div class="search-result-group">Users (' + data.users.length + ')</div>';
+                            data.users.forEach(u => {
+                                html += '<div class="search-result-item" onclick="location.hash=\'#/users\';document.getElementById(\'search-overlay\').classList.remove(\'open\')">' +
+                                    '<span class="mono">' + esc(u.name || u.user_id) + '</span> — ' + esc(u.persona) +
+                                    ' <span class="text-faint">(' + u.live_events + ' events, max ' + u.max_score.toFixed(3) + ')</span></div>';
+                            });
+                        }
+                        if (data.events && data.events.length) {
+                            html += '<div class="search-result-group">Events (' + data.events.length + ')</div>';
+                            data.events.slice(0, 10).forEach(ev => {
+                                html += '<div class="search-result-item">' +
+                                    '<span class="mono">' + esc(ev.ts) + '</span> ' + esc(ev.name || ev.user_id) +
+                                    ' <span class="text-faint">' + esc(ev.src_computer) + ' → ' + esc(ev.dst_computer) + '</span> ' +
+                                    '<span class="mono">' + ev.combined_score.toFixed(4) + '</span> ' +
+                                    '<span class="stamp stamp-' + (ev.decision === 'block' ? 'critical' : ev.decision === 'flag' ? 'medium' : 'low') + '">' + esc(ev.decision) + '</span></div>';
+                            });
+                        }
+                        if (data.alerts && data.alerts.length) {
+                            html += '<div class="search-result-group">Alerts (' + data.alerts.length + ')</div>';
+                            data.alerts.slice(0, 10).forEach(a => {
+                                html += '<div class="search-result-item">' +
+                                    '<span class="mono">' + esc(a.timestamp) + '</span> ' + esc(a.name || a.user_id) +
+                                    ' <span class="stamp stamp-' + a.severity + '">' + esc(a.severity) + '</span></div>';
+                            });
+                        }
+                        if (!html) html = '<div class="search-result-group">No results for "' + esc(q) + '"</div>';
+                        results.innerHTML = html;
+                    } catch (err) { results.innerHTML = '<div class="search-result-group">Search failed</div>'; }
+                }, 200);
+            });
+        }
+    }
+
     /* ── SSE ────────────────────────────────────────────────────── */
     function startSSE() {
         if (_sse) _sse.close();
@@ -782,28 +964,13 @@
                     // Update gauge
                     const gaugeEl = document.getElementById('gauge-container');
                     if (gaugeEl) renderGauge(gaugeEl, k.totalEvents > 0 ? k.anomalies / k.totalEvents : 0);
-                    // Update risk donut
-                    const donutEl = document.getElementById('donut-container');
-                    if (donutEl) {
-                        const allow = _liveEvents.filter(e => e.decision === 'allow').length;
-                        const flag = _liveEvents.filter(e => e.decision === 'flag').length;
-                        const block = _liveEvents.filter(e => e.decision === 'block').length;
-                        renderRiskDonut(donutEl, [
-                            { name: 'Allow', value: allow, color: '#57b06c' },
-                            { name: 'Flag', value: flag, color: '#e8a33d' },
-                            { name: 'Block', value: block, color: '#e5484d' },
-                        ]);
-                    }
                     // Update narrative
                     updateNarrative();
+                    updateGreeting();
                     // Update ECharts
                     updateLiveCharts();
                     // Update events table
-                    const tbody = document.getElementById('events-tbody');
-                    if (tbody) {
-                        const rows = _liveEvents.slice().reverse().slice(0, 30).map(e => eventRow(e, openInvestigate)).join('');
-                        tbody.innerHTML = rows;
-                    }
+                    window._renderEventsTable();
                 }
             },
             onError() {
@@ -813,6 +980,96 @@
         });
     }
 
+
+    /* Behavior Insights page */
+    async function renderBehaviorInsights() {
+        destroyCharts();
+        setActiveNav('behavior');
+        content.innerHTML = '<div class="text-12 text-dim py-8">Loading behavior insights...</div>';
+        try {
+            const users = await API.knownUsers();
+            const profiles = [];
+            for (const u of users.slice(0, 8)) {
+                try { profiles.push(await API.userProfile(u.user_id)); } catch(e) { profiles.push({ user_id: u.user_id, baseline: {}, session: {} }); }
+            }
+            let html = '<div class="dash-greeting"><h2>Behavior Insights</h2><p>Per-user behavioral baselines derived from 6 months of LANL training data.</p></div>';
+            profiles.forEach(p => {
+                const b = p.baseline || {};
+                const s = p.session || {};
+                const name = (p.user_id || 'unknown').split('@')[0];
+                const maxHour = Math.max(...(b.hourlyPattern || []), 1);
+                const hourlyBars = (b.hourlyPattern || []).map((v, i) => {
+                    const h = Math.max(2, (v / maxHour) * 40);
+                    const color = (b.rareHours || []).includes(i) ? 'var(--critical)' : 'var(--info)';
+                    return '<div title="' + i + ':00" style="width:100%;height:' + h + 'px;background:' + color + ';border-radius:1px"></div>';
+                }).join('');
+                html += '<div class="panel p-4 mb-4"><div class="section-header"><div class="section-title">' + esc(name) + '</div>' +
+                    '<span class="mono text-11 text-faint">' + esc(p.user_id) + '</span></div>' +
+                    '<div class="grid-3 gap-4">' +
+                    '<div><div class="text-12 text-dim">Events: <strong>' + (b.totalEvents || 0).toLocaleString() + '</strong></div>' +
+                    '<div class="text-12 text-dim">Typical Pairs: <strong>' + (b.typicalPairs || 0) + '</strong></div>' +
+                    '<div class="text-12 text-dim">Avg IAT: <strong>' + (b.avgIAT ? b.avgIAT.toFixed(0) + 's' : 'N/A') + '</strong></div></div>' +
+                    '<div><div class="text-12 text-dim">Sources: <strong>' + (b.knownSrcComputers || []).length + '</strong></div>' +
+                    '<div class="text-12 text-dim">Destinations: <strong>' + (b.knownDstComputers || []).length + '</strong></div>' +
+                    '<div class="text-12 text-dim">Rare Hours: <strong style="color:var(--critical)">' + (b.rareHours || []).length + '</strong></div></div>' +
+                    '<div><div class="text-12 text-dim">Events: <strong>' + (s.totalEvents || 0) + '</strong></div>' +
+                    '<div class="text-12 text-dim">Flags: <strong style="color:' + (s.flags > 0 ? 'var(--critical)' : 'inherit') + '">' + (s.flags || 0) + '</strong></div>' +
+                    '<div class="text-12 text-dim">Max Score: <strong>' + (s.maxScore || 0).toFixed(4) + '</strong></div></div>' +
+                    '</div>' +
+                    '<div style="margin-top:12px"><div class="text-10 text-dim" style="margin-bottom:4px">Hourly Activity</div>' +
+                    '<div style="display:flex;align-items:flex-end;gap:1px;height:44px">' + hourlyBars + '</div>' +
+                    '<div class="flex-between text-9 text-faint" style="margin-top:2px"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div></div>' +
+                    '</div>';
+            });
+            content.innerHTML = html;
+        } catch (err) { content.innerHTML = '<div class="text-12 text-critical py-8">Failed to load behavior insights</div>'; }
+    }
+
+    /* Model Performance page */
+    function renderModelPerformance() {
+        destroyCharts();
+        setActiveNav('model');
+        const fi = [
+            { n: 'vel_1h', v: 6133 }, { n: 'hour_ratio', v: 5994 }, { n: 'hour_cos', v: 5811 },
+            { n: 'hour_sin', v: 5500 }, { n: 'dst_prior_events', v: 4339 }, { n: 'iat_zscore', v: 3114 },
+            { n: 'machine_popularity', v: 3000 }, { n: 'velocity_ratio', v: 2998 },
+            { n: 'pairs_last_100', v: 2572 }, { n: 'pair_freq_ratio', v: 1414 },
+            { n: 'fail_rate', v: 1090 }, { n: 'fail_1h', v: 632 },
+            { n: 'lstm_ae_recon_error', v: 350 }, { n: 'log_pair_rank', v: 475 },
+            { n: 'pair_first', v: 179 }, { n: 'is_ntlm', v: 171 },
+            { n: 'src_first', v: 64 }, { n: 'src_dst_pair_first', v: 48 },
+            { n: 'dst_first', v: 44 }, { n: 'is_rare_hour', v: 13 },
+            { n: 'dst_first_x_ntlm', v: 6 }
+        ];
+        const mx = Math.max(...fi.map(f => f.v));
+        const bars = fi.sort((a,b) => b.v - a.v).map(f =>
+            '<div class="feature-bar-row"><div class="feature-bar-label">' + f.n + '</div>' +
+            '<div class="feature-bar-track"><div class="feature-bar-fill" style="width:' + ((f.v/mx)*100) + '%"></div></div>' +
+            '<div class="feature-bar-val">' + f.v.toLocaleString() + '</div></div>'
+        ).join('');
+        content.innerHTML = '<div class="dash-greeting"><h2>Model Performance</h2><p>LGB-21 ensemble \u2014 LightGBM + LSTM Autoencoder.</p></div>' +
+            '<div class="grid-3 gap-4 mb-4">'+
+            '<div class="insight-card"><h4>ROC-AUC</h4><div class="tape-num" style="color:var(--low)">0.9999</div></div>'+
+            '<div class="insight-card"><h4>F1 Score</h4><div class="tape-num" style="color:var(--info)">0.4866</div></div>'+
+            '<div class="insight-card"><h4>Threshold</h4><div class="tape-num" style="color:var(--ochre)">0.1872</div></div></div>'+
+            '<div class="grid-2 gap-4 mb-4">'+
+            '<div class="insight-card"><h4>Detection Performance</h4>'+
+            '<div class="grid-2 gap-4" style="margin-top:8px">'+
+            '<div><div class="text-12 text-dim">True Positives</div><div class="tape-num" style="font-size:1.4rem;color:var(--low)">136 <span class="text-11 text-faint">/ 240</span></div><div class="text-10 text-faint">56.7% recall</div></div>'+
+            '<div><div class="text-12 text-dim">False Positives</div><div class="tape-num" style="font-size:1.4rem;color:var(--ochre)">183 <span class="text-11 text-faint">/ 5.4M</span></div><div class="text-10 text-faint">0.003% FPR</div></div></div></div>'+
+            '<div class="insight-card"><h4>Architecture</h4>'+
+            '<div class="text-12 text-dim" style="margin-top:8px">LightGBM (21 features) + LSTM-AE recon error<br>GroupShuffleSplit, spw=3<br>29.9M total events scored</div></div></div>'+
+            '<div class="grid-2 gap-4 mb-4">'+
+            '<div class="insight-card"><h4>Feature Importance</h4>' + bars + '</div>'+
+            '<div class="insight-card"><h4>Run Comparison</h4>'+
+            '<table class="table-glass" style="margin-top:8px"><thead><tr><th>Run</th><th>Config</th><th>F1</th><th>TP</th><th>FP</th></tr></thead><tbody>'+
+            '<tr><td>7</td><td>LGB-20feat</td><td>0.4817</td><td>145</td><td>217</td></tr>'+
+            '<tr><td>8</td><td>LSTM-AE solo</td><td>0.0095</td><td>118</td><td>24,482</td></tr>'+
+            '<tr style="background:var(--surface-2)"><td><strong>9</strong></td><td><strong>LGB-21feat</strong></td><td><strong>0.4866</strong></td><td><strong>136</strong></td><td><strong>183</strong></td></tr>'+
+            '<tr><td>10</td><td>LGB-37feat</td><td>0.4772</td><td>157</td><td>261</td></tr>'+
+            '<tr><td>11</td><td>LGB-23feat v2</td><td>0.4735</td><td>143</td><td>221</td></tr>'+
+            '</tbody></table></div></div>';
+    }
     /* ── Route dispatcher ───────────────────────────────────────── */
     function route() {
         const page = getPage();
@@ -821,6 +1078,8 @@
             case 'alerts': renderAlerts(); break;
             case 'users': renderUsers(); break;
             case 'settings': renderSettings(); break;
+            case 'behavior': renderBehaviorInsights(); break;
+            case 'model': renderModelPerformance(); break;
             default: renderDashboard(); break;
         }
     }
@@ -828,6 +1087,9 @@
     /* ── Init ───────────────────────────────────────────────────── */
     function init() {
         initTheme();
+        initSearch();
+        updateDateTime();
+        setInterval(updateDateTime, 1000);
         window.addEventListener('hashchange', route);
         route();
         startSSE();

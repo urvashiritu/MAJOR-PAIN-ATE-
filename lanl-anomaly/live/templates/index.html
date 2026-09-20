@@ -5,16 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LANL Anomaly Detection</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <div class="app">
         <!-- Sidebar -->
         <nav class="sidebar">
-            <div class="sidebar-logo">LANL Anomaly</div>
+            <div class="sidebar-logo">LANL UEBA<br><span style="font-size:9px;font-weight:400;letter-spacing:.08em;opacity:.5">BEHAVIOR ANALYTICS</span></div>
             <a href="/analyst" class="sidebar-item" data-page="dashboard" onclick="location.hash='#/dashboard';return false">
                 <span>&#9673;</span> Live Monitoring
+            </a>
+            <a href="#/behavior" class="sidebar-item" data-page="behavior">
+                <span>&#9733;</span> Behavior Insights
+            </a>
+            <a href="#/model" class="sidebar-item" data-page="model">
+                <span>&#9670;</span> Model Performance
             </a>
             <a href="/analyst/dataset" class="sidebar-item">
                 <span>&#9632;</span> Dataset Analysis
@@ -30,19 +36,37 @@
                 <span>&#9881;</span> Settings
             </a>
             <div class="sidebar-spacer"></div>
+            <div class="sidebar-bottom" style="padding:12px;font-size:9px;color:var(--ink-faint);line-height:1.4">
+                <div style="font-weight:600;color:var(--low)">&#9650; DETECT</div>
+                <div style="font-weight:600;color:var(--ochre)">&#9654; UNDERSTAND</div>
+                <div style="font-weight:600;color:var(--critical)">&#9660; PREVENT</div>
+                <div style="margin-top:4px;opacity:.6">Turning Data into<br>Safer Workspaces</div>
+            </div>
             <button class="theme-btn" id="theme-toggle">&#9681;</button>
         </nav>
 
         <!-- Main -->
         <div class="main-area">
             <header class="topbar">
-                <div class="topbar-left">
-                    <span class="topbar-title" id="topbar-title">Live Anomaly Monitor</span>
+                <div class="topbar-left" style="display:flex;align-items:center;gap:16px;flex:1">
+                    <div style="flex:1">
+                        <div class="topbar-greeting" id="topbar-greeting">Good evening, {{ display_name }}.</div>
+                        <div class="topbar-sub">Monitoring LANL authentication activity in real time.</div>
+                    </div>
+                    <div class="topbar-search-wrap">
+                        <input class="topbar-search" id="global-search" type="text" placeholder="Search users, computers, events..." autocomplete="off">
+                        <span class="topbar-search-shortcut">Ctrl+K</span>
+                    </div>
                 </div>
-                <div class="topbar-right">
+                <div class="topbar-right" style="gap:16px">
                     <div class="flex-center gap-1">
                         <div class="health-dot" id="health-dot"></div>
-                        <span class="text-10 text-faint uppercase tracking-widest" id="health-label">connected</span>
+                        <span class="text-10 text-faint" id="health-label">System Online</span>
+                    </div>
+                    <span class="text-11 text-faint mono" id="topbar-datetime"></span>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <div style="width:28px;height:28px;border-radius:50%;background:var(--info);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700">{{ display_name[0] }}</div>
+                        <div style="font-size:11px;line-height:1.2"><div style="font-weight:600;color:var(--ink)">{{ display_name }}</div><div style="color:var(--ink-faint)">Analyst</div></div>
                     </div>
                     <a href="/logout" class="text-10 text-faint uppercase tracking-widest" style="cursor:pointer">Logout</a>
                 </div>
@@ -50,6 +74,21 @@
 
             <div class="content" id="main-content">
                 <!-- SPA content renders here -->
+            </div>
+            <footer class="dash-footer" id="dash-footer">
+                <span>LANL UEBA <span class="mono">v1.0.0</span></span>
+                <span>Real Users. Real Behavior. Real Security.</span>
+                <span><span class="health-dot" style="display:inline-block;width:6px;height:6px;margin-right:4px"></span> Connected to live stream</span>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Search Modal -->
+    <div class="search-overlay" id="search-overlay">
+        <div class="search-modal">
+            <input class="search-modal-input" id="search-modal-input" type="text" placeholder="Search events, users, alerts..." autocomplete="off">
+            <div class="search-results" id="search-results">
+                <div class="search-result-group">Type to search</div>
             </div>
         </div>
     </div>

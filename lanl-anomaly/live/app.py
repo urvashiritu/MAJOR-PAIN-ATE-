@@ -5,7 +5,7 @@ import queue
 import secrets
 import sys
 import time
-from collections import deque
+from collections import Counter, deque
 from flask import (Flask, Response, jsonify, send_from_directory, render_template,
                    request, redirect, url_for, session)
 import pandas as pd
@@ -168,7 +168,9 @@ def employee_view():
 def analyst_dashboard():
     if 'user' not in session:
         return redirect(url_for('login'))
-    return render_template('index.html')
+    return render_template('index.html',
+                           display_name=session.get('display_name', 'Analyst'),
+                           username=session.get('user', 'analyst'))
 
 
 @app.route('/analyst/dataset')
@@ -357,16 +359,34 @@ def api_dashboard():
         {'name': 'Block', 'value': block, 'color': '#e5484d'},
     ]
 
+    # Auth type breakdown
+    auth_counts = Counter(e.get('auth_type', 'Unknown') for e in events)
+    auth_dist = [{'name': k, 'value': v} for k, v in auth_counts.most_common()]
+
+    # Top risky users (top 5 by max score)
+    top_risky = sorted(_live_users.values(), key=lambda u: u['max_score'], reverse=True)[:5]
+
+    # KPI deltas (compare last 60 events vs previous 60)
+    recent_60 = events[-60:] if len(events) > 60 else events
+    prev_60 = events[-120:-60] if len(events) > 120 else []
+    def _count_flags(evts): return sum(1 for e in evts if e['decision'] in ('flag', 'block'))
+    delta_anomalies = _count_flags(recent_60) - _count_flags(prev_60) if prev_60 else 0
+    delta_events = len(recent_60) - len(prev_60) if prev_60 else 0
+
     return jsonify({
         'kpis': {
             'totalEvents': total,
             'anomalies': anomalies,
             'highRiskUsers': risky_users,
             'usersMonitored': users_monitored,
+            'deltaEvents': delta_events,
+            'deltaAnomalies': delta_anomalies,
         },
         'recentEvents': events[-30:],
         'alerts': alerts[-20:],
         'riskDistribution': risk_dist,
+        'authTypeBreakdown': auth_dist,
+        'topRiskyUsers': top_risky,
     })
 
 
@@ -382,6 +402,21 @@ def api_users():
     return jsonify(list(_live_users.values()))
 
 
+@app.route('/api/known_users')
+def api_known_users():
+    """All users from training data (for behavior insights)."""
+    _init_scorer()
+    from scorer import _user_totals, DEMO_USERS
+    users = []
+    for uid in DEMO_USERS:
+        users.append({
+            'user_id': uid,
+            'name': uid.split('@')[0],
+            'totalEvents': _user_totals.get(uid, 0),
+        })
+    return jsonify(users)
+
+
 @app.route('/api/stats')
 def api_stats():
     """Live session counts."""
@@ -390,6 +425,45 @@ def api_stats():
         'alerts': len(_live_alerts),
         'users': len(_live_users),
         'history_events': 0,
+    })
+
+
+@app.route('/api/search')
+def api_search():
+    """Global search across events, users, and alerts."""
+    q = request.args.get('q', '').strip().lower()
+    if not q:
+        return jsonify({'events': [], 'users': [], 'alerts': []})
+
+    matched_events = [e for e in _live_events if any(
+        q in (e.get('user_id') or '').lower() or
+        q in (e.get('name') or '').lower() or
+        q in (e.get('src_computer') or '').lower() or
+        q in (e.get('dst_computer') or '').lower() or
+        q in (e.get('auth_type') or '').lower() or
+        q in (e.get('decision') or '').lower()
+        for _ in [1]
+    )][-20:]
+
+    matched_users = [u for u in _live_users.values() if any(
+        q in (u.get('user_id') or '').lower() or
+        q in (u.get('name') or '').lower() or
+        q in (u.get('persona') or '').lower()
+        for _ in [1]
+    )]
+
+    matched_alerts = [a for a in _live_alerts if any(
+        q in (a.get('user_id') or '').lower() or
+        q in (a.get('name') or '').lower() or
+        q in (a.get('reasons') or '').lower() or
+        q in (a.get('severity') or '').lower()
+        for _ in [1]
+    )][-20:]
+
+    return jsonify({
+        'events': matched_events,
+        'users': matched_users,
+        'alerts': matched_alerts,
     })
 
 
