@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "LANL UEBA Anomaly Detection System",
+    "subtitle": "LGB-21 + LSTM-AE live scoring with Flask + DuckDB + ECharts",
+    "output": "lanl-ueba-architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "live-detection", "label": "Live Detection Flow", "focus": ["employees", "flask", "features", "lgb", "lstm", "threshold", "sse", "dashboard", "analyst"], "note": "Employee login triggers burst scoring via LGB-21 + LSTM-AE with fixed threshold." },
+      { "id": "models-storage", "label": "Models & Storage", "focus": ["lgb", "lstm", "duckdb", "models"], "note": "LGB-21 (.joblib) and LSTM-AE (.pt) loaded at startup. DuckDB read-only." }
+    ]
+  },
+  "components": [
+    { "id": "employees",  "type": "external",   "label": "Employees",        "sublabel": "4 demo users",       "pos": [40, 260],  "size": [130, 60] },
+    { "id": "flask",      "type": "backend",    "label": "Flask Backend",     "sublabel": "Python :5000",       "pos": [260, 260], "size": [140, 60], "tag": "app.py" },
+    { "id": "features",   "type": "backend",    "label": "Feature Engine",    "sublabel": "21 features",        "pos": [500, 160], "size": [140, 60], "tag": "scorer.py" },
+    { "id": "lgb",        "type": "backend",    "label": "LGB-21",           "sublabel": "LightGBM",           "pos": [740, 100], "size": [120, 60], "tag": "F1=0.4866" },
+    { "id": "lstm",       "type": "backend",    "label": "LSTM-AE",          "sublabel": "Autoencoder",        "pos": [740, 290], "size": [120, 60], "tag": "recon error" },
+    { "id": "threshold",  "type": "security",   "label": "Threshold",         "sublabel": "BLOCK/FLAG/ALLOW",   "pos": [960, 180], "size": [130, 60], "tag": "0.1872" },
+    { "id": "sse",        "type": "messagebus", "label": "SSE Stream",        "sublabel": "Real-time",          "pos": [500, 440], "size": [130, 52] },
+    { "id": "duckdb",     "type": "database",   "label": "DuckDB",           "sublabel": "29.9M rows",         "pos": [500, 560], "size": [130, 60], "tag": "read-only" },
+    { "id": "dashboard",  "type": "frontend",   "label": "ECharts Dashboard", "sublabel": "SPA",               "pos": [740, 440], "size": [150, 60], "tag": "6 pages" },
+    { "id": "analyst",    "type": "external",   "label": "SOC Analyst",       "sublabel": "Dashboard user",     "pos": [990, 440], "size": [120, 60] },
+    { "id": "models",     "type": "database",   "label": "Model Files",       "sublabel": ".joblib + .pt",      "pos": [960, 560], "size": [120, 52] }
+  ],
+  "connections": [
+    { "id": "e1", "from": "employees",  "to": "flask",      "label": "auth event",       "variant": "emphasis" },
+    { "id": "e2", "from": "flask",      "to": "features",   "label": "compute 21 features" },
+    { "id": "e3", "from": "features",   "to": "lgb",        "label": "feature vector" },
+    { "id": "e4", "from": "features",   "to": "lstm",       "label": "tokenize + encode", "variant": "dashed" },
+    { "id": "e5", "from": "lstm",       "to": "lgb",        "label": "recon error (feat 21)", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "e6", "from": "lgb",        "to": "threshold",  "label": "risk score" },
+    { "id": "e7", "from": "sse",        "to": "dashboard",  "label": "live updates" },
+    { "id": "e8", "from": "analyst",    "to": "dashboard",  "label": "view alerts",      "variant": "emphasis" }
+  ],
+  "cards": [
+    { "dot": "cyan",    "title": "Detection Pipeline", "items": ["21 hand-crafted features (velocity, temporal, behavioral)", "LGB-21 primary scoring (F1=0.4866, ROC=0.9999)", "LSTM-AE recon error as Feature 21"] },
+    { "dot": "emerald", "title": "Decision Logic",      "items": ["Fixed threshold: BLOCK > 0.1872, FLAG > 0.131", "No EWMA in live scorer.py path", "In-memory deques for events/alerts/users"] },
+    { "dot": "rose",    "title": "Data Layer",          "items": ["DuckDB 29.9M events (read-only)", "Parquet precomputed scores for dataset page", "LGB (.joblib) + LSTM-AE (.pt, 17.6 MB)"] }
+  ]
+}

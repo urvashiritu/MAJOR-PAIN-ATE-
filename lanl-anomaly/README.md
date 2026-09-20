@@ -1,8 +1,29 @@
-Live dashboard has old code
-
 # LANL Anomaly Detection System
 
 AI-powered authentication anomaly detection on 29.9M events from Los Alamos National Laboratory.
+
+## Architecture
+
+[Interactive Architecture Diagram](live/static/lanl-ueba-architecture.html) — open in browser, click nodes for details, toggle themes.
+
+```
+┌─────────────┐    ┌──────────────┐    ┌──────────────┐    ┌─────────────┐
+│  Employees  │───▶│  Flask API   │───▶│  Feature Eng │───▶│  LGB-21     │
+│  (4 users)  │    │  :5000       │    │  21 feats    │    │  Model      │
+└─────────────┘    └──────────────┘    └──────┬───────┘    └──────┬──────┘
+                                              │                   │
+                                     ┌────────▼────────┐   ┌──────▼──────┐
+                                     │  LSTM-AE        │──▶│  Threshold  │
+                                     │  Recon Error    │   │  BLOCK/FLAG │
+                                     │  (Feature 21)   │   └──────┬──────┘
+                                     └─────────────────┘          │
+                                                    ┌─────────────▼─────────────┐
+                                                    │  SSE Stream → Dashboard   │
+                                                    │  ECharts + Alerts         │
+                                                    └───────────────────────────┘
+```
+
+**Data layer:** DuckDB (29.9M events, read-only) + Parquet (precomputed scores) + Model files (.joblib + .pt)
 
 ## Prerequisites
 
