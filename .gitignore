@@ -1,0 +1,5 @@
+# Virtual environments (root 1.3G + lanl-anomaly 7.5G)
+venv/
+
+# Generated at runtime by live/auth.py — never commit TOTP seeds
+.totp_secrets.json
