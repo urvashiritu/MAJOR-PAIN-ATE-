@@ -525,13 +525,18 @@
         setActiveNav('alerts');
 
         content.innerHTML = `
-            <div class="flex-between mb-4">
+            <div class="flex-between mb-4" style="flex-wrap:wrap;gap:8px">
                 <div class="flex gap-2" id="severity-filters">
                     <button class="filter-btn active" data-sev="all">All</button>
                     <button class="filter-btn" data-sev="critical">Critical</button>
                     <button class="filter-btn" data-sev="high">High</button>
+                    <button class="filter-btn" data-sev="medium">False Positive</button>
                 </div>
                 <span class="text-10 text-faint uppercase tracking-widest" id="alerts-total">0 alerts</span>
+            </div>
+            <div class="insight-box mb-4" style="border-color:var(--low);background:rgba(87,182,108,.08)">
+                <div style="font-weight:700;color:var(--low);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Real Data</div>
+                <span id="alerts-accuracy" class="text-12">Loading...</span>
             </div>
 
             <div class="panel overflow-hidden">
@@ -569,9 +574,22 @@
             const totalEl = document.getElementById('alerts-total');
             if (totalEl) totalEl.textContent = filtered.length + ' alerts';
 
+            // Accuracy summary, straight from ground truth
+            const sumEl = document.getElementById('alerts-accuracy');
+            if (sumEl) {
+                const tp = alerts.filter(a => a.is_red && a.correct).length;
+                const fp = alerts.filter(a => !a.is_red).length;
+                const fn = alerts.filter(a => a.is_red && !a.correct).length;
+                sumEl.innerHTML = 'From the real replay window &middot; ' +
+                    '<span style="color:var(--low)">' + tp + ' correct detections</span> &middot; ' +
+                    '<span style="color:var(--ochre)">' + fp + ' false positives</span>' +
+                    (fn ? ' &middot; <span style="color:var(--critical)">' + fn + ' missed</span>' : '');
+            }
+
             if (tbody) {
                 if (filtered.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-faint py-8">No alerts yet. Login events will appear here.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-faint py-8">' +
+                        'No alerts. Press Play on Live Monitoring to replay real events.</td></tr>';
                 } else {
                     tbody.innerHTML = filtered.slice().reverse().map(a =>
                         alertRow(a, openInvestigate, ackAlert)
@@ -589,18 +607,30 @@
         setActiveNav('users');
 
         content.innerHTML = `
+            <div class="grid-4 gap-4 mb-4">
+                ${['Users Seen', 'Attackers', 'Attacks Caught', 'False Positives'].map((label, i) => `
+                    <div class="panel p-4">
+                        <div class="text-10 text-faint uppercase tracking-widest" style="font-weight:700">${label}</div>
+                        <div class="tape-num" id="users-kpi-${i}" style="font-size:24px;font-weight:700;margin-top:6px">0</div>
+                    </div>`).join('')}
+            </div>
+
             <div class="panel overflow-hidden">
                 <div class="flex-between px-4 py-3 hairline">
-                    <span class="section-title">Monitored Users</span>
+                    <div class="flex-center gap-2">
+                        <span class="section-title">Users in Replay Window</span>
+                        <span class="text-9 px-2 py-1" style="border:1px solid var(--low);color:var(--low);border-radius:3px;letter-spacing:.06em">REAL DATA</span>
+                    </div>
                     <span class="text-10 text-faint uppercase tracking-widest" id="users-total">0 users</span>
                 </div>
-                <div class="overflow-auto" style="max-height: calc(100vh - 200px)">
+                <div class="overflow-auto" style="max-height: calc(100vh - 340px)">
                     <table class="table-glass">
                         <thead><tr>
-                            <th>User</th><th>Persona</th><th>Events</th><th>Flags</th><th>Max Score</th>
+                            <th>User</th><th>Persona</th><th>Events</th>
+                            <th>Attacks</th><th>Caught</th><th>Missed</th><th>False Pos.</th><th>Max Score</th>
                         </tr></thead>
                         <tbody id="users-tbody">
-                            <tr><td colspan="5" class="text-center text-faint py-8">Loading users...</td></tr>
+                            <tr><td colspan="8" class="text-center text-faint py-8">Loading users...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -611,9 +641,18 @@
             const tbody = document.getElementById('users-tbody');
             const totalEl = document.getElementById('users-total');
             if (totalEl) totalEl.textContent = users.length + ' users';
+            const attackers = users.filter(u => u.attacks > 0).length;
+            const caught = users.reduce((s, u) => s + u.attacks_caught, 0);
+            const missed = users.reduce((s, u) => s + (u.attacks - u.attacks_caught), 0);
+            const fps = users.reduce((s, u) => s + u.false_positives, 0);
+            [users.length, attackers, caught, fps].forEach((v, i) => {
+                const el = document.getElementById('users-kpi-' + i);
+                if (el) el.textContent = fmt(v);
+            });
             if (tbody) {
                 if (users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-faint py-8">No users yet. Events will populate this page.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-faint py-8">' +
+                        'No users yet. Press Play on Live Monitoring to replay real events.</td></tr>';
                 } else {
                     tbody.innerHTML = users.sort((a, b) => b.max_score - a.max_score).map(u =>
                         userRow(u)
@@ -644,7 +683,7 @@
         if (existing) existing.remove();
 
         const b = data.baseline || {};
-        const s = data.session || {};
+        const s = data.replay || {};
 
         // Hourly pattern bar chart (simple HTML bars)
         const maxHour = Math.max(...(b.hourlyPattern || []), 1);
@@ -713,13 +752,17 @@
                     </div>
                 </div>
 
-                <!-- Live Session -->
+                <!-- Replay Window -->
                 <div class="panel-inset p-3">
-                    <div class="drawer-section-title">Live Session</div>
+                    <div class="drawer-section-title">Replay Window &middot; real events</div>
                     <div class="text-12 text-dim space-y-15">
                         <div class="flex-between">
-                            <span>Events Scored</span>
+                            <span>Events Replayed</span>
                             <span class="font-bold mono">${s.totalEvents || 0}</span>
+                        </div>
+                        <div class="flex-between">
+                            <span>Confirmed Attacks</span>
+                            <span class="font-bold mono ${s.attacks ? 'text-critical' : ''}">${s.attacks || 0}</span>
                         </div>
                         <div class="flex-between">
                             <span>Flags/Blocks</span>
@@ -1268,7 +1311,7 @@
             const users = await API.knownUsers();
             const profiles = [];
             for (const u of users.slice(0, 8)) {
-                try { profiles.push(await API.userProfile(u.user_id)); } catch(e) { profiles.push({ user_id: u.user_id, baseline: {}, session: {} }); }
+                try { profiles.push(await API.userProfile(u.user_id)); } catch(e) { profiles.push({ user_id: u.user_id, baseline: {}, replay: {} }); }
             }
             const userMeta = {
                 'U293@DOM1': { name: 'Ace', role: 'attacker', badge: 'ATTACKER', badgeColor: 'var(--critical)', narrative: 'Known attacker \u2014 31 red-team events in 6 months of training data' },
@@ -1276,10 +1319,15 @@
                 'U2899@DOM1': { name: 'Luffy', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Standard employee \u2014 normal login patterns' },
                 'U66@DOM1': { name: 'Ashborn', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Standard employee \u2014 normal login patterns' },
             };
-            let html = '<div class="dash-greeting"><h2>Behavior Insights</h2><p>Per-user behavioral baselines derived from 6 months of LANL training data.</p></div>';
+            let html = '<div class="dash-greeting"><h2>Behavior Insights</h2><p>Per-user behavioral baselines derived from 6 months of LANL training data.</p></div>' +
+                '<div class="insight-box mb-4">' +
+                '<div style="font-weight:700;color:var(--info);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Two different data sources</div>' +
+                '<div class="text-12 text-dim"><b>Training baseline</b> counts (events, pairs, machines, hourly bars) come from the ' +
+                'full 29.9M-event LANL dataset. <b>Replay window</b> counts come from the real events currently streaming on ' +
+                'Live Monitoring. They are not the same measurement and are labelled separately below.</div></div>';
             profiles.forEach(p => {
                 const b = p.baseline || {};
-                const s = p.session || {};
+                const s = p.replay || {};
                 const meta = userMeta[p.user_id] || { name: (p.user_id || 'unknown').split('@')[0], badge: 'USER', badgeColor: 'var(--info)', narrative: '' };
                 const displayName = meta.name;
                 const maxHour = Math.max(...(b.hourlyPattern || []), 1);
@@ -1293,17 +1341,23 @@
                     '<span class="mono text-11 text-faint">' + esc(p.user_id) + '</span></div>' +
                     (meta.narrative ? '<div class="text-12 text-dim" style="margin:6px 0 12px">' + meta.narrative + '</div>' : '') +
                     '<div class="grid-3 gap-4">' +
-                    '<div><div class="text-12 text-dim">Events: <strong>' + (b.totalEvents || 0).toLocaleString() + '</strong></div>' +
+                    '<div>' +
+                    '<div class="text-9 text-faint uppercase tracking-widest" style="font-weight:700;margin-bottom:6px">Training baseline &middot; 29.9M dataset</div>' +
+                    '<div class="text-12 text-dim">Events: <strong>' + (b.totalEvents || 0).toLocaleString() + '</strong></div>' +
                     '<div class="text-12 text-dim">Typical Pairs: <strong>' + (b.typicalPairs || 0) + '</strong></div>' +
                     '<div class="text-12 text-dim">Avg IAT: <strong>' + (b.avgIAT ? b.avgIAT.toFixed(0) + 's' : 'N/A') + '</strong></div></div>' +
-                    '<div><div class="text-12 text-dim">Sources: <strong>' + (b.knownSrcComputers || []).length + '</strong></div>' +
+                    '<div>' +
+                    '<div class="text-9 text-faint uppercase tracking-widest" style="font-weight:700;margin-bottom:6px">Known machines &middot; 6 months</div>' +
+                    '<div class="text-12 text-dim">Sources: <strong>' + (b.knownSrcComputers || []).length + '</strong></div>' +
                     '<div class="text-12 text-dim">Destinations: <strong>' + (b.knownDstComputers || []).length + '</strong></div>' +
                     '<div class="text-12 text-dim">Rare Hours: <strong style="color:var(--critical)">' + (b.rareHours || []).length + '</strong></div></div>' +
-                    '<div><div class="text-12 text-dim">Events: <strong>' + (s.totalEvents || 0) + '</strong></div>' +
-                    '<div class="text-12 text-dim">Flags: <strong style="color:' + (s.flags > 0 ? 'var(--critical)' : 'inherit') + '">' + (s.flags || 0) + '</strong></div>' +
-                    '<div class="text-12 text-dim">Max Score: <strong>' + (s.maxScore || 0).toFixed(4) + '</strong></div></div>' +
+                    '<div>' +
+                    '<div class="text-9 text-faint uppercase tracking-widest" style="font-weight:700;margin-bottom:6px">Replay window &middot; real events</div>' +
+                    '<div class="text-12 text-dim">Events: <strong>' + (s.totalEvents || 0) + '</strong></div>' +
+                    '<div class="text-12 text-dim">Attacks: <strong style="color:' + (s.attacks ? 'var(--critical)' : 'inherit') + '">' + (s.attacks || 0) + '</strong></div>' +
+                    '<div class="text-12 text-dim">Max Score: <strong>' + (s.maxScore || 0).toFixed(6) + '</strong></div></div>' +
                     '</div>' +
-                    '<div style="margin-top:12px"><div class="text-10 text-dim" style="margin-bottom:4px">Hourly Activity</div>' +
+                    '<div style="margin-top:12px"><div class="text-10 text-dim" style="margin-bottom:4px">Hourly Activity &middot; training baseline</div>' +
                     '<div style="display:flex;align-items:flex-end;gap:1px;height:44px">' + hourlyBars + '</div>' +
                     '<div class="flex-between text-9 text-faint" style="margin-top:2px"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div></div>' +
                     '</div>';

@@ -303,9 +303,11 @@ def employee_view():
 def analyst_dashboard():
     if 'user' not in session:
         return redirect(url_for('login'))
+    role = session.get('role', 'employee')
     return render_template('index.html',
                            display_name=session.get('display_name', 'Analyst'),
-                           username=session.get('user', 'analyst'))
+                           username=session.get('user', 'analyst'),
+                           role_label='Analyst' if role == 'analyst' else 'Employee')
 
 
 @app.route('/analyst/dataset')
@@ -487,9 +489,12 @@ def simulate_login_burst(user_id, username):
 # ── Live JSON API ───────────────────────────────────────────────
 @app.route('/api/dashboard')
 def api_dashboard():
-    """Live dashboard — only session-scored events."""
-    events = list(_live_events)
-    alerts = list(_live_alerts)
+    """Analyst dashboard — reads the real replay window, never the simulation."""
+    global _replay_events
+    if _replay_events is None:
+        _replay_events = _replay.get_events()
+    events = _replay_events[:_replay_index]
+    alerts = _replay_alerts()
     total = len(events)
     anomalies = sum(1 for e in events if e['decision'] in ('flag', 'block'))
     risky_users = len(set(e['user_id'] for e in events if e['decision'] in ('flag', 'block')))
@@ -509,8 +514,8 @@ def api_dashboard():
     auth_counts = Counter(e.get('auth_type', 'Unknown') for e in events)
     auth_dist = [{'name': k, 'value': v} for k, v in auth_counts.most_common()]
 
-    # Top risky users (top 5 by max score)
-    top_risky = sorted(_live_users.values(), key=lambda u: u['max_score'], reverse=True)[:5]
+    # Top risky users (top 5 by max score), from the real replay window
+    top_risky = _replay_user_stats()[:5]
 
     # KPI deltas (compare last 60 events vs previous 60)
     recent_60 = events[-60:] if len(events) > 60 else events
@@ -536,16 +541,92 @@ def api_dashboard():
     })
 
 
+def _replay_alerts():
+    """Alerts derived from the real replay window.
+
+    An alert is raised for every replayed event the model blocked or flagged,
+    tagged with its ground-truth label so an analyst can see at a glance
+    whether the detection was correct.
+    """
+    global _replay_events, _replay_index
+    if _replay_events is None:
+        _replay_events = _replay.get_events()
+    out = []
+    for e in _replay_events[:_replay_index]:
+        if e['decision'] not in ('block', 'flag'):
+            continue
+        correct = (e['decision'] != 'allow') == bool(e['is_red'])
+        if e['is_red']:
+            severity = 'critical' if correct else 'high'
+            reasons = ('Confirmed red-team attack. '
+                       + ('Model detection was correct.'
+                          if correct else 'Model flagged this but it was not an attack.'))
+        else:
+            severity = 'medium'
+            reasons = 'Normal traffic the model flagged. False positive.'
+        out.append({
+            'id': e['id'],
+            'user_id': e['user_id'],
+            'name': e['user_id'],
+            'severity': severity,
+            'combined_score': e['anomaly_score'],
+            'decision': e['decision'],
+            'reasons': reasons,
+            'timestamp': 'T+%ds' % e['offset'],
+            'is_red': e['is_red'],
+            'correct': correct,
+            'src_computer': e['src_computer'],
+            'dst_computer': e['dst_computer'],
+            'status': 'new',
+        })
+    out.sort(key=lambda a: -a['combined_score'])
+    return out
+
+
+def _replay_user_stats():
+    """Per-user stats from the real replay window, grouped by ground truth."""
+    global _replay_events, _replay_index
+    if _replay_events is None:
+        _replay_events = _replay.get_events()
+    seen = _replay_events[:_replay_index]
+    by_user = {}
+    for e in seen:
+        u = by_user.setdefault(e['user_id'], {
+            'user_id': e['user_id'], 'name': e['user_id'], 'raw_id': e['user_id'],
+            'persona': 'normal', 'live_events': 0, 'flags': 0, 'max_score': 0.0,
+            'attacks': 0, 'attacks_caught': 0, 'false_positives': 0,
+        })
+        u['live_events'] += 1
+        flagged = e['decision'] in ('flag', 'block')
+        if flagged:
+            u['flags'] += 1
+        if e['is_red']:
+            u['attacks'] += 1
+            if flagged:
+                u['attacks_caught'] += 1
+        elif flagged:
+            u['false_positives'] += 1
+        u['max_score'] = max(u['max_score'], e['anomaly_score'])
+    for u in by_user.values():
+        if u['attacks_caught']:
+            u['persona'] = 'attacker'
+        elif u['attacks']:
+            u['persona'] = 'attacker_missed'
+        elif u['flags']:
+            u['persona'] = 'flagged'
+    return sorted(by_user.values(), key=lambda u: (-u['attacks_caught'], -u['max_score']))
+
+
 @app.route('/api/alerts')
 def api_alerts():
-    """Live alerts — BLOCK/FLAG events from this session."""
-    return jsonify(list(_live_alerts))
+    """Alerts from the real replay window (source of truth, not simulation)."""
+    return jsonify(_replay_alerts())
 
 
 @app.route('/api/users')
 def api_users():
-    """Live user stats."""
-    return jsonify(list(_live_users.values()))
+    """User stats from the real replay window (source of truth, not simulation)."""
+    return jsonify(_replay_user_stats())
 
 
 @app.route('/api/known_users')
@@ -567,25 +648,35 @@ def api_known_users():
 
 @app.route('/api/stats')
 def api_stats():
-    """Live session counts."""
+    """Counts for both data sources, clearly separated."""
+    global _replay_events
+    if _replay_events is None:
+        _replay_events = _replay.get_events()
     return jsonify({
-        'live_events': len(_live_events),
-        'alerts': len(_live_alerts),
-        'users': len(_live_users),
+        'replay_events': _replay_index,
+        'replay_total': len(_replay_events),
+        'replay_alerts': len(_replay_alerts()),
+        'replay_users': len(_replay_user_stats()),
+        'simulated_events': len(_live_events),
+        'simulated_alerts': len(_live_alerts),
         'history_events': 0,
     })
 
 
 @app.route('/api/search')
 def api_search():
-    """Global search across events, users, and alerts."""
+    """Global search across the real replay window, its users and its alerts."""
     q = request.args.get('q', '').strip().lower()
     if not q:
         return jsonify({'events': [], 'users': [], 'alerts': []})
 
-    matched_events = [e for e in _live_events if any(
+    global _replay_events
+    if _replay_events is None:
+        _replay_events = _replay.get_events()
+    seen = _replay_events[:_replay_index]
+
+    matched_events = [e for e in seen if any(
         q in (e.get('user_id') or '').lower() or
-        q in (e.get('name') or '').lower() or
         q in (e.get('src_computer') or '').lower() or
         q in (e.get('dst_computer') or '').lower() or
         q in (e.get('auth_type') or '').lower() or
@@ -593,16 +684,14 @@ def api_search():
         for _ in [1]
     )][-20:]
 
-    matched_users = [u for u in _live_users.values() if any(
+    matched_users = [u for u in _replay_user_stats() if any(
         q in (u.get('user_id') or '').lower() or
-        q in (u.get('name') or '').lower() or
         q in (u.get('persona') or '').lower()
         for _ in [1]
     )]
 
-    matched_alerts = [a for a in _live_alerts if any(
+    matched_alerts = [a for a in _replay_alerts() if any(
         q in (a.get('user_id') or '').lower() or
-        q in (a.get('name') or '').lower() or
         q in (a.get('reasons') or '').lower() or
         q in (a.get('severity') or '').lower()
         for _ in [1]
@@ -617,9 +706,12 @@ def api_search():
 
 @app.route('/api/investigation/<int:event_id>')
 def api_investigation(event_id):
-    """Investigation detail for a scored event."""
+    """Investigation detail for a real replay event."""
+    global _replay_events
+    if _replay_events is None:
+        _replay_events = _replay.get_events()
     event = None
-    for e in _live_events:
+    for e in _replay_events[:_replay_index]:
         if e['id'] == event_id:
             event = e
             break
@@ -654,24 +746,34 @@ def api_investigation(event_id):
     dev_reasons = _derive_reasons(features)
 
     # Timeline — recent events for same user
-    user_events = [e for e in _live_events if e['user_id'] == event['user_id']]
+    user_events = [e for e in _replay_events[:_replay_index]
+                   if e['user_id'] == event['user_id']]
     timeline = [{
         'event': f"{e['src_computer']} -> {e['dst_computer']}",
         'severity': 'critical' if e['decision'] == 'block' else ('high' if e['decision'] == 'flag' else None),
-        'time': e['ts'],
-        'score': e['combined_score'],
+        'time': 'T+%ds' % e['offset'],
+        'score': e['anomaly_score'],
     } for e in user_events[-10:]]
 
-    # Baseline
-    u = _live_users.get(event['user_id'], {})
+    # Baseline: how this user normally behaves, from the training baseline
+    _init_scorer()
+    known_src = len(_scorer._seen_src_computers.get(event['user_id'], ()))
+    known_dst = len(_scorer._seen_dst_computers.get(event['user_id'], ()))
+    total_events = _scorer._user_totals.get(event['user_id'], 0)
+    u = {
+        'totalEvents': total_events,
+        'knownSrc': known_src,
+        'knownDst': known_dst,
+    }
 
+    flagged = event['decision'] in ('block', 'flag')
     return jsonify({
         'id': event['id'],
-        'displayName': event['name'],
+        'displayName': event['user_id'],
         'rawId': event['user_id'],
         'user_id': event['user_id'],
         'severity': 'critical' if event['decision'] == 'block' else ('high' if event['decision'] == 'flag' else 'low'),
-        'combinedScore': event['combined_score'],
+        'combinedScore': event['anomaly_score'],
         'devPoints': dev_points,
         'devReasons': dev_reasons,
         'type': event['decision'],
@@ -679,24 +781,29 @@ def api_investigation(event_id):
         'src_computer': event['src_computer'],
         'dst_computer': event['dst_computer'],
         'auth_type': event['auth_type'],
-        'result': 'Success',
+        'logon_type': event['logon_type'],
+        'result': event['result'],
+        'offsetSeconds': event['offset'],
+        'groundTruth': 'RED (confirmed attack)' if event['is_red'] else 'Normal',
+        'isRed': event['is_red'],
+        'modelCorrect': flagged == bool(event['is_red']),
         'featureContributions': feature_contributions,
         'timeline': timeline,
         'features': features,
         'baseline': {
-            'totalEvents': u.get('live_events', 0),
-            'failureRate': features.get('fail_rate', 0),
-            'avgEventsPerHour': features.get('vel_1h', 0),
-            'typicalSrcComputers': [],
-            'typicalDstComputers': [],
+            'totalEvents': total_events,
+            'knownSrcComputers': known_src,
+            'knownDstComputers': known_dst,
+            'srcIsNew': event['src_computer'] not in _scorer._seen_src_computers.get(event['user_id'], set()),
+            'dstIsNew': event['dst_computer'] not in _scorer._seen_dst_computers.get(event['user_id'], set()),
         },
     })
 
 
 @app.route('/api/alerts/<int:alert_id>/ack', methods=['POST'])
 def api_ack_alert(alert_id):
-    """Acknowledge an alert."""
-    for a in _live_alerts:
+    """Acknowledge an alert from the real replay window."""
+    for a in _replay_alerts():
         if a['id'] == alert_id:
             a['status'] = 'acknowledged'
             return jsonify({'ok': True})
@@ -874,10 +981,14 @@ def api_user_profile(user_id):
     # Typical pairs count
     pair_count = sum(1 for k in _scorer._pair_row_numbers if k.startswith(user_id + '|'))
 
-    # Live session events
-    user_live = [e for e in _live_events if e['user_id'] == user_id]
+    # Replay-window events for this user (real data, keeps baseline separate)
+    global _replay_events
+    if _replay_events is None:
+        _replay_events = _replay.get_events()
+    user_live = [e for e in _replay_events[:_replay_index] if e['user_id'] == user_id]
     session_flags = sum(1 for e in user_live if e['decision'] in ('flag', 'block'))
-    session_max = max((e['combined_score'] for e in user_live), default=0.0)
+    session_max = max((e['anomaly_score'] for e in user_live), default=0.0)
+    attacks = sum(1 for e in user_live if e['is_red'])
 
     return jsonify({
         'user_id': user_id,
@@ -890,12 +1001,14 @@ def api_user_profile(user_id):
             'avgIAT': round(avg_iat, 1),
             'typicalPairs': pair_count,
         },
-        'session': {
+        'replay': {
+            'source': 'real scored LANL events',
             'events': user_live[-20:],
             'totalEvents': len(user_live),
             'flags': session_flags,
+            'attacks': attacks,
             'maxScore': round(session_max, 6),
-            'firstSeen': user_live[0]['ts'] if user_live else None,
+            'firstSeen': 'T+%ds' % user_live[0]['offset'] if user_live else None,
         }
     })
 

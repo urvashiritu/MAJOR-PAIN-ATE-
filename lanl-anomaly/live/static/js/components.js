@@ -86,15 +86,23 @@ function alertRow(a, onInvestigate, onAck) {
 }
 
 function userRow(u, onClick) {
-    const personaCls = u.persona === 'attacker' ? 'stamp-critical' : (u.persona === 'normal' ? 'stamp-low' : 'stamp-info');
+    const personaCls = u.persona === 'attacker' ? 'stamp-critical'
+        : (u.persona === 'attacker_missed' ? 'stamp-info'
+        : (u.persona === 'normal' ? 'stamp-low' : 'stamp-info'));
+    const personaLabel = u.persona === 'attacker_missed' ? 'ATTACKER (MISSED)'
+        : (u.persona === 'flagged' ? 'FLAGGED' : u.persona);
     const uid = esc(u.user_id);
+    const missed = (u.attacks || 0) - (u.attacks_caught || 0);
     return `
         <tr class="clickable" data-uid="${uid}">
-            <td class="font-semibold">${esc(u.name)}</td>
-            <td><span class="stamp ${personaCls}">${esc(u.persona)}</span></td>
+            <td class="font-semibold mono">${esc(u.name)}</td>
+            <td><span class="stamp ${personaCls}">${esc(personaLabel)}</span></td>
             <td class="mono">${u.live_events}</td>
-            <td class="mono">${u.flags}</td>
-            <td class="mono">${u.max_score.toFixed(4)}</td>
+            <td class="mono" style="color:${u.attacks ? 'var(--critical)' : 'inherit'}">${u.attacks || 0}</td>
+            <td class="mono" style="color:var(--low)">${u.attacks_caught || 0}</td>
+            <td class="mono" style="color:${missed ? 'var(--ochre)' : 'inherit'}">${missed}</td>
+            <td class="mono" style="color:${u.false_positives ? 'var(--ochre)' : 'inherit'}">${u.false_positives || 0}</td>
+            <td class="mono">${Number(u.max_score).toFixed(6)}</td>
         </tr>`;
 }
 
