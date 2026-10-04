@@ -25,6 +25,12 @@
     let _liveScoreHist = null;
     let _ssePaused = false;
     let _prevKpis = { totalEvents: 0, anomalies: 0, highRiskUsers: 0, usersMonitored: 0 };
+
+    /* Real replay state — genuine LANL events from the parquet */
+    let _replayEvents = [];
+    let _replayMeta = null;
+    let _replayRunning = false;
+    let _replaySpeed = 40;
     let _searchOverlay = null;
 
     const _displayNames = { ace: 'Ace', luffy: 'Luffy', igris: 'Igris', ashborn: 'Ashborn' };
@@ -310,39 +316,52 @@
             </div>
 
             <div class="grid-12 gap-4 mb-4">
-                <div class="col-7">
+                <div class="col-12">
                     <div class="panel overflow-hidden">
                         <div class="flex-between px-4 py-3 hairline">
                             <div class="flex-center gap-2">
-                                <span class="section-title">Live Authentication Events</span>
+                                <span class="section-title">Real LANL Authentication Events</span>
                                 <div class="table-controls">
-                                    <button class="filter-btn active" id="evt-filter-all" onclick="window._evtFilter='all';window._renderEventsTable()">All</button>
-                                    <button class="filter-btn" id="evt-filter-block" onclick="window._evtFilter='block';window._renderEventsTable()">Block</button>
-                                    <button class="filter-btn" id="evt-filter-flag" onclick="window._evtFilter='flag';window._renderEventsTable()">Flag</button>
+                                    <button class="filter-btn active" id="evt-filter-all" onclick="window._evtFilter='all';window._renderReplayTable()">All</button>
+                                    <button class="filter-btn" id="evt-filter-block" onclick="window._evtFilter='block';window._renderReplayTable()">Block</button>
+                                    <button class="filter-btn" id="evt-filter-flag" onclick="window._evtFilter='flag';window._renderReplayTable()">Flag</button>
+                                    <button class="filter-btn" id="evt-filter-attack" onclick="window._evtFilter='attack';window._renderReplayTable()">Attacks</button>
                                 </div>
                             </div>
                             <span class="flex-center gap-1 text-10 text-faint uppercase tracking-widest">
-                                <span class="live-dot" id="live-indicator"></span>
-                                <span id="live-status-text">live</span>
-                                <button class="filter-btn" id="pause-btn" onclick="window._togglePause()" style="margin-left:4px;font-size:9px;padding:2px 6px">⏸ Pause</button>
+                                <span class="text-9 px-2 py-1" style="border:1px solid var(--low);color:var(--low);border-radius:3px;letter-spacing:.06em">REAL DATA</span>
                             </span>
                         </div>
+
+                        <div class="px-4 py-3 hairline flex-center gap-2" style="flex-wrap:wrap">
+                            <button class="filter-btn" id="replay-play" onclick="window._replayToggle()" style="border-color:var(--info);color:var(--info)">▶ Play</button>
+                            <button class="filter-btn" id="replay-reset" onclick="window._replayReset()">↺ Reset</button>
+                            <button class="filter-btn" id="replay-jump" onclick="window._replayJump()" style="border-color:var(--ochre);color:var(--ochre)">⚡ Jump to next attack</button>
+                            <select id="replay-speed" onchange="window._replaySpeedChange(this.value)" class="filter-btn" style="padding:4px 6px">
+                                <option value="10">10/s</option>
+                                <option value="40" selected>40/s</option>
+                                <option value="150">150/s</option>
+                                <option value="500">500/s</option>
+                            </select>
+                            <span id="replay-stats" class="text-10 text-faint" style="margin-left:auto"></span>
+                        </div>
+
                         <div class="overflow-auto" style="max-height: 360px">
                             <table class="table-glass">
                                 <thead><tr>
-                                    <th>Time</th><th>User</th><th>Source</th><th>Destination</th><th>Type</th><th>Score</th><th>Decision</th>
+                                    <th>T+</th><th>User</th><th>Source &rarr; Destination</th><th>Type</th><th>Score</th><th>Decision</th><th>Truth</th>
                                 </tr></thead>
-                                <tbody id="events-tbody">
+                                <tbody id="replay-tbody">
                                     <tr><td colspan="7" class="text-center text-faint py-8">
                                         <span class="live-dot"></span>
-                                        <span class="ml-2">Waiting for login events...</span>
+                                        <span class="ml-2">Press Play to replay real scored LANL events.</span>
                                     </td></tr>
                                 </tbody>
                             </table>
                         </div>
                     </div>
                 </div>
-                <div class="col-5">
+                <div class="col-12">
                     <div class="panel p-4">
                         <div class="section-title mb-3">Anomaly Score Distribution</div>
                         <div id="live-chart-scores" style="width:100%;height:340px"></div>
@@ -456,10 +475,9 @@
                     : '<div class="text-12 text-faint py-4 text-center">No risky users yet</div>';
             }
 
-            // Events table
-            if (_liveEvents.length) {
-                window._renderEventsTable();
-            }
+            // Real replay panel (loads window metadata on first paint)
+            window._renderReplayTable();
+            window._loadReplayMeta();
 
             // Alerts
             const alertsTbody = document.getElementById('dash-alerts-tbody');
@@ -838,6 +856,146 @@
         if (txt) txt.textContent = _ssePaused ? 'paused' : 'live';
     };
 
+    /* ── Real replay controls ───────────────────────────────────── */
+    let _replayPaintQueued = false;
+    window._scheduleReplayPaint = function() {
+        if (_replayPaintQueued) return;
+        _replayPaintQueued = true;
+        setTimeout(() => {
+            _replayPaintQueued = false;
+            window._renderReplayTable();
+            window._updateReplayStats();
+        }, 250);
+    };
+
+    window._updateReplayStats = function() {
+        const el = document.getElementById('replay-stats');
+        if (!el) return;
+        const attacks = _replayEvents.filter(e => e.is_red);
+        const caught = attacks.filter(e => e.decision === 'block' || e.decision === 'flag');
+        const missed = attacks.filter(e => e.decision === 'allow');
+        const fps = _replayEvents.filter(e => !e.is_red && (e.decision === 'block' || e.decision === 'flag'));
+        const total = _replayMeta ? _replayMeta.total : 0;
+        el.innerHTML =
+            `<strong>${_replayEvents.length}</strong> / ${total} replayed` +
+            `&nbsp;&middot;&nbsp; attacks <strong>${caught.length}</strong>/${attacks.length} caught` +
+            (missed.length ? `, <strong style="color:var(--ochre)">${missed.length}</strong> missed` : '') +
+            `&nbsp;&middot;&nbsp; false positives <strong>${fps.length}</strong>`;
+    };
+
+    window._renderReplayTable = function() {
+        const tbody = document.getElementById('replay-tbody');
+        if (!tbody) return;
+        let evts = _replayEvents.slice().reverse();
+        if (window._evtFilter === 'attack') evts = evts.filter(e => e.is_red);
+        else if (window._evtFilter !== 'all') evts = evts.filter(e => e.decision === window._evtFilter);
+
+        if (!evts.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-faint py-8">' +
+                'Press Play to replay real scored LANL events.</td></tr>';
+            ['all', 'block', 'flag', 'attack'].forEach(f => {
+                const b = document.getElementById('evt-filter-' + f);
+                if (b) b.classList.toggle('active', window._evtFilter === f);
+            });
+            return;
+        }
+
+        tbody.innerHTML = evts.slice(0, 40).map(e => {
+            const col = e.decision === 'block' ? 'var(--critical)'
+                : e.decision === 'flag' ? 'var(--ochre)' : 'var(--low)';
+            const truth = e.is_red
+                ? '<span style="color:var(--critical);font-weight:700">RED</span>'
+                : '<span class="text-faint">normal</span>';
+            return '<tr' + (e.is_red ? ' style="background:rgba(229,72,77,.08)"' : '') + '>' +
+                '<td class="mono text-faint nowrap">T+' + e.offset + 's</td>' +
+                '<td class="mono nowrap">' + esc(e.user_id) + '</td>' +
+                '<td class="mono nowrap">' + esc(e.src_computer) + ' &rarr; ' + esc(e.dst_computer) + '</td>' +
+                '<td class="text-faint nowrap">' + esc(e.auth_type) + '</td>' +
+                '<td class="mono" style="color:' + col + '">' + Number(e.anomaly_score).toFixed(6) + '</td>' +
+                '<td style="color:' + col + ';font-weight:600">' + esc(String(e.decision).toUpperCase()) + '</td>' +
+                '<td>' + truth + '</td></tr>';
+        }).join('');
+
+        ['all', 'block', 'flag', 'attack'].forEach(f => {
+            const b = document.getElementById('evt-filter-' + f);
+            if (b) b.classList.toggle('active', window._evtFilter === f);
+        });
+    };
+
+    window._setReplayPlayLabel = function(running) {
+        _replayRunning = running;
+        const b = document.getElementById('replay-play');
+        if (b) b.textContent = running ? '⏸ Pause' : '▶ Play';
+    };
+
+    window._replayToggle = async function() {
+        const btn = document.getElementById('replay-play');
+        if (btn) btn.disabled = true;
+        try {
+            if (_replayRunning) {
+                const r = await API.replayStop();
+                window._setReplayPlayLabel(false);
+                window._updateReplayStats();
+            } else {
+                await API.replayStart(_replaySpeed);
+                window._setReplayPlayLabel(true);
+            }
+        } catch (err) {
+            window._setReplayPlayLabel(!_replayRunning);
+        }
+        if (btn) btn.disabled = false;
+    };
+
+    window._replaySpeedChange = async function(v) {
+        _replaySpeed = parseInt(v, 10) || 40;
+        if (_replayRunning) {
+            try { await API.replayStart(_replaySpeed); } catch (err) { /* keep going */ }
+        }
+    };
+
+    window._replayReset = async function() {
+        _replayEvents = [];
+        window._renderReplayTable();
+        try {
+            await API.replayReset();
+            _replayMeta = null;
+            window._setReplayPlayLabel(false);
+            window._updateReplayStats();
+        } catch (err) { /* ignore */ }
+    };
+
+    window._replayJump = async function() {
+        try {
+            const r = await API.replayJumpAttack();
+            if (!r.ok) {
+                const el = document.getElementById('replay-stats');
+                if (el) el.innerHTML = '<span style="color:var(--ochre)">' + esc(r.error || 'no further attacks') + '</span>';
+                window._setReplayPlayLabel(false);
+                return;
+            }
+            // The jumped event arrives over SSE too, so the table updates itself.
+            window._updateReplayStats();
+        } catch (err) { /* ignore */ }
+    };
+
+    window._loadReplayMeta = async function() {
+        try {
+            const r = await API.replayStatus();
+            _replayMeta = r.meta;
+            // Rebuild from the server, not from memory. Navigating to Dataset
+            // Analysis is a full page load, so everything held here is gone by
+            // the time the user returns.
+            if (r.events && r.events.length) {
+                _replayEvents = r.events.slice();
+            } else if (r.progress && r.progress.emitted === 0) {
+                _replayEvents = [];
+            }
+            window._renderReplayTable();
+            window._updateReplayStats();
+            window._setReplayPlayLabel(!!(r.progress && r.progress.running));
+        } catch (err) { /* ignore */ }
+    };
+
     /* ── DateTime updater ──────────────────────────────────────── */
     function updateDateTime() {
         const el = document.getElementById('topbar-datetime');
@@ -933,6 +1091,18 @@
         if (_sse) _sse.close();
         _sse = API.connectSSE({
             onScore(event) {
+                // Real replay events carry replay:true. Keep them out of the
+                // simulated-event pipeline so the two never mix on screen.
+                if (event && event.replay) {
+                    _replayEvents.push(event);
+                    if (_replayEvents.length > 2000) _replayEvents = _replayEvents.slice(-1500);
+                    // Repaint on a timer, not per event. At 40 events/sec a
+                    // render-per-event rebuilds the table 40 times a second and
+                    // the browser drops the overflow, so the counters lagged far
+                    // behind the server.
+                    window._scheduleReplayPaint();
+                    return;
+                }
                 _liveEvents.push(event);
                 if (_liveEvents.length > 300) _liveEvents = _liveEvents.slice(-200);
 

@@ -60,6 +60,41 @@ const API = {
         return res.json();
     },
 
+    /* ── Real event replay (genuine LANL rows from the parquet) ── */
+    async replayStatus() {
+        const res = await fetch('/api/replay/status');
+        if (!res.ok) throw new Error(`replayStatus: ${res.status}`);
+        return res.json();
+    },
+
+    async replayStart(speed) {
+        const res = await fetch('/api/replay/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ speed })
+        });
+        if (!res.ok) throw new Error(`replayStart: ${res.status}`);
+        return res.json();
+    },
+
+    async replayStop() {
+        const res = await fetch('/api/replay/stop', { method: 'POST' });
+        if (!res.ok) throw new Error(`replayStop: ${res.status}`);
+        return res.json();
+    },
+
+    async replayReset() {
+        const res = await fetch('/api/replay/reset', { method: 'POST' });
+        if (!res.ok) throw new Error(`replayReset: ${res.status}`);
+        return res.json();
+    },
+
+    async replayJumpAttack() {
+        const res = await fetch('/api/replay/jump_attack', { method: 'POST' });
+        if (!res.ok) throw new Error(`replayJumpAttack: ${res.status}`);
+        return res.json();
+    },
+
     async devLogin(username) {
         const res = await fetch('/dev/login', {
             method: 'POST',

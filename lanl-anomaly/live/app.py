@@ -4,6 +4,7 @@ import os
 import queue
 import secrets
 import sys
+import threading
 import time
 from collections import Counter, deque
 from flask import (Flask, Response, jsonify, send_from_directory, render_template,
@@ -15,6 +16,7 @@ from db import SCORES_PARQUET
 from auth import authenticate, USERS, get_current_code, get_totp_secret, get_totp_remaining
 from scorer import init as scorer_init, score_event, THRESHOLD, DEMO_USERS
 import scorer as _scorer
+import replay as _replay
 
 app = Flask(__name__,
             template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
@@ -28,6 +30,16 @@ _live_users = {}  # user_id → {name, raw_id, persona, live_events, flags, max_
 _event_id_counter = 0
 _alert_id_counter = 0
 _sse_subscribers = []
+
+# ── Real replay state ───────────────────────────────────────────
+# Replays genuine scored LANL events from the parquet. Independent of
+# _live_events, which still holds events from the employee login simulation.
+_replay_events = None
+_replay_index = 0
+_replay_running = False
+_replay_speed = 20          # events pushed per second
+_replay_thread = None
+_replay_lock = threading.Lock()
 
 # ── Dataset state (precomputed parquet) ────────────────────────
 _scores_df = None
@@ -56,14 +68,24 @@ def _init_scorer():
 
 # ── SSE ─────────────────────────────────────────────────────────
 def _sse_push(event_data):
-    """Push event to all SSE subscribers."""
+    """Push event to all SSE subscribers.
+
+    A slow client must not lose the stream. If a subscriber queue is full we
+    discard its oldest message and keep the newest, because the live view only
+    cares about recent events. Dropping the whole subscriber instead made the
+    dashboard silently miss most events at high replay speeds.
+    """
     msg = f"event: score\ndata: {json.dumps(event_data)}\n\n"
     dead = []
     for q in _sse_subscribers:
         try:
             q.put_nowait(msg)
         except queue.Full:
-            dead.append(q)
+            try:
+                q.get_nowait()          # drop oldest
+                q.put_nowait(msg)       # keep newest
+            except queue.Empty:
+                dead.append(q)
     for q in dead:
         _sse_subscribers.remove(q)
 
@@ -71,7 +93,7 @@ def _sse_push(event_data):
 @app.route('/events/stream')
 def events_stream():
     """SSE: one `score` message per scored event."""
-    q = queue.Queue(maxsize=100)
+    q = queue.Queue(maxsize=2000)
     _sse_subscribers.append(q)
     def gen():
         try:
@@ -86,6 +108,119 @@ def events_stream():
                 _sse_subscribers.remove(q)
     return Response(gen(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ── Real event replay ───────────────────────────────────────────
+def _replay_progress():
+    """Counters for the events emitted so far."""
+    global _replay_events, _replay_index
+    if _replay_events is None:
+        _replay_events = _replay.get_events()
+    seen = _replay_events[:_replay_index]
+    attacks = [e for e in seen if e['is_red']]
+    return {
+        'emitted': len(seen),
+        'total': len(_replay_events),
+        'attacksSeen': len(attacks),
+        'attacksCaught': sum(1 for e in attacks if e['decision'] in ('block', 'flag')),
+        'attacksMissed': sum(1 for e in attacks if e['decision'] == 'allow'),
+        'flagged': sum(1 for e in seen if not e['is_red'] and e['decision'] in ('block', 'flag')),
+        'index': _replay_index,
+        'running': _replay_running,
+        'speed': _replay_speed,
+        'done': _replay_index >= len(_replay_events),
+    }
+
+
+def _replay_loop():
+    """Worker thread. Pushes real events over SSE at _replay_speed per second."""
+    global _replay_index, _replay_running, _replay_events, _replay_speed
+    if _replay_events is None:
+        _replay_events = _replay.get_events()
+    while True:
+        with _replay_lock:
+            if not _replay_running:
+                return
+            if _replay_index >= len(_replay_events):
+                _replay_running = False
+                return
+            event = _replay_events[_replay_index]
+            _replay_index += 1
+            speed = _replay_speed
+        _sse_push(event)
+        time.sleep(1.0 / max(1, speed))
+
+
+@app.route('/api/replay/status')
+def api_replay_status():
+    """Progress + summary for the real replay window.
+
+    Also returns the events already emitted. The dashboard reloads when the
+    user visits Dataset Analysis, which wipes browser-side state, so the client
+    rebuilds its table from here instead of trusting anything it held in memory.
+    """
+    limit = request.args.get('limit', type=int) or 2000
+    limit = max(0, min(limit, 5000))
+    with _replay_lock:
+        sent = list(_replay_events[:_replay_index])[-limit:] if _replay_events else []
+    return jsonify({'progress': _replay_progress(), 'meta': _replay.get_meta(),
+                    'events': sent})
+
+
+@app.route('/api/replay/start', methods=['POST'])
+def api_replay_start():
+    """Start streaming real events."""
+    global _replay_running, _replay_thread, _replay_speed, _replay_events, _replay_index
+    data = request.get_json() or {}
+    speed = data.get('speed')
+    with _replay_lock:
+        if speed:
+            _replay_speed = max(1, min(500, int(speed)))
+        if _replay_events is None:
+            _replay_events = _replay.get_events()
+        if _replay_index >= len(_replay_events):
+            _replay_index = 0
+        _replay_running = True
+        if _replay_thread is None or not _replay_thread.is_alive():
+            _replay_thread = threading.Thread(target=_replay_loop, daemon=True)
+            _replay_thread.start()
+    return jsonify({'ok': True, 'progress': _replay_progress()})
+
+
+@app.route('/api/replay/stop', methods=['POST'])
+def api_replay_stop():
+    """Pause the stream. The index is kept so playback resumes where it stopped."""
+    global _replay_running
+    with _replay_lock:
+        _replay_running = False
+    return jsonify({'ok': True, 'progress': _replay_progress()})
+
+
+@app.route('/api/replay/reset', methods=['POST'])
+def api_replay_reset():
+    """Rewind to the first event."""
+    global _replay_index, _replay_running
+    with _replay_lock:
+        _replay_index = 0
+        _replay_running = False
+    return jsonify({'ok': True, 'progress': _replay_progress()})
+
+
+@app.route('/api/replay/jump_attack', methods=['POST'])
+def api_replay_jump_attack():
+    """Skip ahead to the next confirmed attack and emit it immediately."""
+    global _replay_events, _replay_index
+    if _replay_events is None:
+        _replay_events = _replay.get_events()
+    with _replay_lock:
+        idx = _replay.next_attack_index(_replay_events, _replay_index)
+        if idx is None:
+            return jsonify({'ok': False, 'error': 'no further attacks in window',
+                            'progress': _replay_progress()})
+        _replay_index = idx + 1
+        event = _replay_events[idx]
+    _sse_push(event)
+    return jsonify({'ok': True, 'event': event, 'progress': _replay_progress()})
 
 
 # ── Auth routes ─────────────────────────────────────────────────
@@ -743,4 +878,4 @@ if __name__ == '__main__':
     print("initializing scorer...")
     _init_scorer()
     print("starting server on http://localhost:5000")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
