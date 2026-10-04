@@ -1399,24 +1399,21 @@
     }
 
     /* Model Performance page */
-    function renderModelPerformance() {
+    async function renderModelPerformance() {
         destroyCharts();
         setActiveNav('model');
-        const fi = [
-            { n: 'vel_1h', v: 6133 }, { n: 'hour_ratio', v: 5994 }, { n: 'hour_cos', v: 5811 },
-            { n: 'hour_sin', v: 5500 }, { n: 'dst_prior_events', v: 4339 }, { n: 'iat_zscore', v: 3114 },
-            { n: 'machine_popularity', v: 3000 }, { n: 'velocity_ratio', v: 2998 },
-            { n: 'pairs_last_100', v: 2572 }, { n: 'pair_freq_ratio', v: 1414 },
-            { n: 'fail_rate', v: 1090 }, { n: 'fail_1h', v: 632 },
-            { n: 'lstm_ae_recon_error', v: 350 }, { n: 'log_pair_rank', v: 475 },
-            { n: 'pair_first', v: 179 }, { n: 'is_ntlm', v: 171 },
-            { n: 'src_first', v: 64 }, { n: 'src_dst_pair_first', v: 48 },
-            { n: 'dst_first', v: 44 }, { n: 'is_rare_hour', v: 13 },
-            { n: 'dst_first_x_ntlm', v: 6 }
-        ];
-        const mx = Math.max(...fi.map(f => f.v));
-        const bars = fi.sort((a,b) => b.v - a.v).map(f =>
-            '<div class="feature-bar-row"><div class="feature-bar-label">' + f.n + '</div>' +
+
+        let fi = [];
+        try {
+            const m = await API.modelMetrics();
+            fi = (m.feature_importance || []).map(x => ({ n: x.feature, v: x.importance }));
+        } catch (err) {
+            content.innerHTML = '<div class="text-12 text-critical py-8">Could not load model metrics</div>';
+            return;
+        }
+        const mx = Math.max(...fi.map(f => f.v), 1);
+        const bars = fi.slice().sort((a,b) => b.v - a.v).map(f =>
+            '<div class="feature-bar-row"><div class="feature-bar-label">' + esc(f.n) + '</div>' +
             '<div class="feature-bar-track"><div class="feature-bar-fill" style="width:' + ((f.v/mx)*100) + '%"></div></div>' +
             '<div class="feature-bar-val">' + f.v.toLocaleString() + '</div></div>'
         ).join('');

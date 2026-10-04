@@ -101,6 +101,12 @@ const API = {
         return res.json();
     },
 
+    async modelMetrics() {
+        const res = await fetch('/api/model/metrics');
+        if (!res.ok) throw new Error(`modelMetrics: ${res.status}`);
+        return res.json();
+    },
+
     async devLogin(username) {
         const res = await fetch('/dev/login', {
             method: 'POST',

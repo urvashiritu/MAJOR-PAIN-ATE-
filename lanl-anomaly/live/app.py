@@ -7,14 +7,16 @@ import sys
 import threading
 import time
 from collections import Counter, deque
+
+import joblib
 from flask import (Flask, Response, jsonify, send_from_directory, render_template,
                    request, redirect, url_for, session)
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
-from db import SCORES_PARQUET
+from db import SCORES_PARQUET, FEATURE_COLS
 from auth import authenticate, USERS, get_current_code, get_totp_secret, get_totp_remaining
-from scorer import init as scorer_init, score_event, THRESHOLD, DEMO_USERS
+from scorer import init as scorer_init, score_event, THRESHOLD, DEMO_USERS, MODEL_PATH
 import scorer as _scorer
 import replay as _replay
 
@@ -284,7 +286,7 @@ def employee_view():
     if not user_id:
         return render_template('employee.html',
                                name=session.get('display_name', username),
-                               decision='ALLOW', score=0.0)
+                               decision='ALLOW', score=0.0, simulated=True)
 
     _init_scorer()
     score, decision, features = simulate_login_burst(user_id, username)
@@ -295,7 +297,8 @@ def employee_view():
                            decision=decision, score=round(score, 4),
                            threshold=round(THRESHOLD, 4),
                            timestamp=time.strftime('%Y-%m-%d %H:%M:%S'),
-                           reasons=reasons)
+                           reasons=reasons,
+                           simulated=True)
 
 
 # ── Page routes ─────────────────────────────────────────────────
@@ -808,6 +811,34 @@ def api_ack_alert(alert_id):
             a['status'] = 'acknowledged'
             return jsonify({'ok': True})
     return jsonify({'error': 'not found'}), 404
+
+
+@app.route('/api/model/metrics')
+def api_model_metrics():
+    """Feature importances read from the trained model, not hardcoded.
+
+    The booster was trained on a numpy array, so feature_name() returns
+    positional placeholders. The saved bundle carries the real feature names
+    alongside the model, so read them from there rather than guessing an order.
+    """
+    _init_scorer()
+    bundle = joblib.load(MODEL_PATH)
+    booster = getattr(bundle['model'], 'booster_', None)
+    if booster is None:
+        return jsonify({'error': 'booster unavailable'}), 503
+
+    gains = [float(g) for g in booster.feature_importance(importance_type='gain')]
+    names = bundle.get('features') or list(FEATURE_COLS)
+    if len(names) != len(gains):
+        return jsonify({'error': f'feature name count {len(names)} != importance count {len(gains)}'}), 500
+
+    pairs = sorted(zip(names, gains), key=lambda kv: -kv[1])
+    return jsonify({
+        'source': 'models/lanl_lgb_21feat.joblib',
+        'importance_type': 'gain',
+        'feature_count': len(pairs),
+        'feature_importance': [{'feature': n, 'importance': v} for n, v in pairs],
+    })
 
 
 @app.route('/api/simulation')
