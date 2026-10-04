@@ -71,6 +71,9 @@
         _echartsInstances.forEach(c => { try { c.dispose(); } catch(e){} });
         _echartsInstances = [];
         _echartsInitialized = false;
+        _liveTimelineChart = null;
+        _liveScoresChart = null;
+        _liveUsersChart = null;
         _liveAuthDonut = null;
         _liveScoreHist = null;
     }
@@ -309,7 +312,7 @@
 
             <div class="insight-box mb-4" id="live-narrative">
                 <div style="font-weight:700;color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Live Analysis</div>
-                Waiting for login events...
+                Loading replay window...
             </div>
 
             <div class="grid-12 gap-4 mb-4">
@@ -407,7 +410,11 @@
                                 <thead><tr>
                                     <th>Time</th><th>User</th><th>Reason</th><th>Score</th><th>Severity</th>
                                 </tr></thead>
-                                <tbody id="dash-alerts-tbody"></tbody>
+                                <tbody id="dash-alerts-tbody">
+                                            <tr><td colspan="5" class="py-4"><div class="skeleton-row"></div></td></tr>
+                                            <tr><td colspan="5" class="py-4"><div class="skeleton-row"></div></td></tr>
+                                            <tr><td colspan="5" class="py-4"><div class="skeleton-row"></div></td></tr>
+                                        </tbody>
                             </table>
                         </div>
                     </div>
@@ -546,7 +553,10 @@
                             <th>Time</th><th>User</th><th>Reason</th><th>Score</th><th>Severity</th><th>Actions</th>
                         </tr></thead>
                         <tbody id="alerts-page-tbody">
-                            <tr><td colspan="6" class="text-center text-faint py-8">Loading alerts...</td></tr>
+                            <tr><td colspan="6" class="py-4"><div class="skeleton-row"></div></td></tr>
+                            <tr><td colspan="6" class="py-4"><div class="skeleton-row"></div></td></tr>
+                            <tr><td colspan="6" class="py-4"><div class="skeleton-row"></div></td></tr>
+                            <tr><td colspan="6" class="py-4"><div class="skeleton-row"></div></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -629,8 +639,13 @@
                             <th>User</th><th>Persona</th><th>Events</th>
                             <th>Attacks</th><th>Caught</th><th>Missed</th><th>False Pos.</th><th>Max Score</th>
                         </tr></thead>
+                        <tfoot id="users-tfoot" class="text-10 text-faint"><tr><td colspan="8"></td></tr></tfoot>
                         <tbody id="users-tbody">
-                            <tr><td colspan="8" class="text-center text-faint py-8">Loading users...</td></tr>
+                            <tr><td colspan="8" class="py-4"><div class="skeleton-row"></div></td></tr>
+                            <tr><td colspan="8" class="py-4"><div class="skeleton-row"></div></td></tr>
+                            <tr><td colspan="8" class="py-4"><div class="skeleton-row"></div></td></tr>
+                            <tr><td colspan="8" class="py-4"><div class="skeleton-row"></div></td></tr>
+                            <tr><td colspan="8" class="py-4"><div class="skeleton-row"></div></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -661,6 +676,21 @@
                         const row = e.target.closest('tr[data-uid]');
                         if (row) openUserProfile(row.dataset.uid);
                     });
+                    // The page previously left ~700px of dead space below a
+                    // short table. Fill it with the numbers that matter.
+                    const tfoot = document.getElementById('users-tfoot');
+                    if (tfoot) {
+                        const tr = tfoot.querySelector('tr');
+                        const rate = caught + missed > 0 ? Math.round(100 * caught / (caught + missed)) : 0;
+                        if (tr) tr.innerHTML =
+                            '<td colspan="8" class="py-3" style="border-top:1px solid var(--hairline)">' +
+                            '<span class="mono">catch rate ' + rate + '%</span>' +
+                            '<span class="mono" style="color:var(--critical)"> &middot; ' + caught + ' caught</span>' +
+                            '<span class="mono" style="color:var(--ochre)"> &middot; ' + missed + ' missed</span>' +
+                            '<span class="mono" style="color:var(--ochre)"> &middot; ' + fps + ' false positives</span>' +
+                            '<span class="mono text-faint"> &middot; ' + fmt(users.length) + ' users in replay window</span>' +
+                            '</td>';
+                    }
                 }
             }
         } catch (err) {
@@ -1306,7 +1336,9 @@
     async function renderBehaviorInsights() {
         destroyCharts();
         setActiveNav('behavior');
-        content.innerHTML = '<div class="text-12 text-dim py-8">Loading behavior insights...</div>';
+        content.innerHTML = '<div class="dash-greeting"><h2>Behavior Insights</h2><p>Loading behavioral baselines...</p></div>' +
+            '<div class="panel p-4 mb-4"><div class="skeleton-block"></div></div>' +
+            '<div class="panel p-4 mb-4"><div class="skeleton-block"></div></div>';
         try {
             const users = await API.knownUsers();
             const profiles = [];
