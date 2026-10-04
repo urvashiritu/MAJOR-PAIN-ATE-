@@ -95,6 +95,12 @@ const API = {
         return res.json();
     },
 
+    async simulation() {
+        const res = await fetch('/api/simulation');
+        if (!res.ok) throw new Error(`simulation: ${res.status}`);
+        return res.json();
+    },
+
     async devLogin(username) {
         const res = await fetch('/dev/login', {
             method: 'POST',

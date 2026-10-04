@@ -5,15 +5,16 @@
 
     const content = document.getElementById('main-content');
     const LIVE_KPI_DEFS = [
-        { key: 'totalEvents', label: 'Events Scored', icon: '⚡', color: 'info' },
-        { key: 'anomalies', label: 'Anomalies', icon: '🛡', color: 'critical' },
-        { key: 'highRiskUsers', label: 'High-Risk Users', icon: '⚠', color: 'medium' },
-        { key: 'usersMonitored', label: 'Users Monitored', icon: '👥', color: 'low' },
+        { key: 'replayed', label: 'Events Replayed', icon: '⚡', color: 'info' },
+        { key: 'attacksCaught', label: 'Attacks Caught', icon: '🛡', color: 'critical' },
+        { key: 'attacksMissed', label: 'Attacks Missed', icon: '⚠', color: 'medium' },
+        { key: 'falsePositives', label: 'False Positives', icon: '👥', color: 'low' },
     ];
     const GREETINGS = ['Good morning', 'Good afternoon', 'Good evening'];
 
     let _liveEvents = [];
-    let _liveSparkData = { totalEvents: [], anomalies: [], highRiskUsers: [], usersMonitored: [] };
+    let _liveSparkData = { replayed: [], attacksCaught: [], attacksMissed: [], falsePositives: [] };
+    let _replayProgress = null;
     let _activeCharts = [];
     let _sse = null;
     let _echartsInstances = [];
@@ -24,7 +25,7 @@
     let _liveAuthDonut = null;
     let _liveScoreHist = null;
     let _ssePaused = false;
-    let _prevKpis = { totalEvents: 0, anomalies: 0, highRiskUsers: 0, usersMonitored: 0 };
+    let _prevKpis = { replayed: 0, attacksCaught: 0, attacksMissed: 0, falsePositives: 0 };
 
     /* Real replay state — genuine LANL events from the parquet */
     let _replayEvents = [];
@@ -102,23 +103,36 @@
         const el = document.getElementById('live-narrative');
         if (!el) return;
         const C = getThemeColors();
-        if (_liveEvents.length === 0) {
-            el.innerHTML = '<div style="font-weight:700;color:' + C.inkDim + ';font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">System Status</div>Waiting for login events. Users will appear here as they authenticate against the LANL network.';
+        const head = (color, text) => '<div style="font-weight:700;color:' + color +
+            ';font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">' + text + '</div>';
+
+        if (!_replayEvents.length) {
+            el.innerHTML = head(C.inkDim, 'Real Replay') +
+                'Press Play to stream genuine scored LANL authentication events. ' +
+                'Every row is a real record from the 29.9M event dataset, with its model score and its ground-truth label.';
             return;
         }
-        const anomalies = _liveEvents.filter(e => e.decision === 'flag' || e.decision === 'block').length;
-        const users = new Set(_liveEvents.map(e => e.user_id)).size;
-        const blocks = _liveEvents.filter(e => e.decision === 'block').length;
-        const highRisk = _liveEvents.filter(e => e.decision === 'flag' || e.decision === 'block');
-        const topUser = highRisk.length > 0 ? highRisk.reduce((acc, e) => { const k = e.name || 'unknown'; acc[k] = (acc[k] || 0) + 1; return acc; }, {}) : {};
-        const topEntry = Object.entries(topUser).sort((a, b) => b[1] - a[1])[0];
-        let html = '<div style="font-weight:700;color:' + C.critical + ';font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Live Analysis</div>';
-        html += 'Scored <b>' + _liveEvents.length + '</b> events from <b>' + users + '</b> users. ';
-        html += '<span style="color:' + C.low + '">' + (_liveEvents.length - anomalies) + '</span> allowed, ';
-        html += '<span style="color:' + C.ochre + '">' + (anomalies - blocks) + '</span> flagged, ';
-        html += '<span style="color:' + C.critical + '">' + blocks + '</span> blocked. ';
-        if (topEntry) {
-            html += '<b style="color:' + C.critical + '">' + _fmtUser(topEntry[0], highRisk.find(e => e.name === topEntry[0])?.user_id) + '</b> has ' + topEntry[1] + ' anomaly events.';
+
+        const attacks = _replayEvents.filter(e => e.is_red);
+        const caught = attacks.filter(e => e.decision !== 'allow');
+        const missed = attacks.length - caught.length;
+        const fps = _replayEvents.filter(e => !e.is_red && (e.decision === 'block' || e.decision === 'flag')).length;
+        const blocks = _replayEvents.filter(e => e.decision === 'block').length;
+        const flags = _replayEvents.filter(e => e.decision === 'flag').length;
+
+        let html = head(C.critical, 'Live Analysis');
+        html += 'Replayed <b>' + _replayEvents.length + '</b> real events. ';
+        html += 'Ground truth shows <b style="color:' + C.critical + '">' + attacks.length + '</b> confirmed attacks: ';
+        html += '<b style="color:' + C.low + '">' + caught.length + '</b> caught, ';
+        html += '<b style="color:' + (missed ? C.ochre : C.inkDim) + '">' + missed + '</b> missed. ';
+        if (attacks.length) {
+            const rate = Math.round(100 * caught.length / attacks.length);
+            html += 'Catch rate <b>' + rate + '%</b>. ';
+        }
+        html += 'The model raised <b>' + blocks + '</b> blocks and <b>' + flags + '</b> flags, of which <b>' +
+            fps + '</b> fell on normal traffic.';
+        if (missed) {
+            html += ' <span style="color:' + C.ochre + '">Missed attacks are real detection failures, shown rather than hidden.</span>';
         }
         el.innerHTML = html;
     }
@@ -185,11 +199,12 @@
 
     function updateLiveCharts() {
         if (!_echartsInitialized) initLiveCharts();
-        if (!_liveEvents.length) return;
+        // Charts read the real replay, not the retired simulation
+        if (!_replayEvents.length) return;
 
         if (_liveTimelineChart) {
             const buckets = {};
-            _liveEvents.forEach(e => {
+            _replayEvents.forEach(e => {
                 const t = e.ts || '';
                 const key = t.length > 8 ? t.slice(0, 8) : t.slice(0, 5);
                 if (!buckets[key]) buckets[key] = { total: 0, anomalies: 0 };
@@ -208,14 +223,16 @@
 
         if (_liveScoresChart) {
             const bins = 15;
-            const scores = _liveEvents.map(e => e.combined_score || 0);
+            const scores = _replayEvents.map(e => e.anomaly_score || 0);
             const maxS = Math.max(...scores, 0.001);
             const binSize = maxS / bins;
             const normal = new Array(bins).fill(0);
             const attack = new Array(bins).fill(0);
-            _liveEvents.forEach(e => {
-                const bin = Math.min(Math.floor((e.combined_score || 0) / binSize), bins - 1);
-                if (e.decision === 'flag' || e.decision === 'block') attack[bin]++;
+            // Split by ground truth so the chart shows real attacks, not just
+            // whatever the model happened to flag.
+            _replayEvents.forEach(e => {
+                const bin = Math.min(Math.floor((e.anomaly_score || 0) / binSize), bins - 1);
+                if (e.is_red) attack[bin]++;
                 else normal[bin]++;
             });
             const labels = Array.from({ length: bins }, (_, i) => (i * binSize).toFixed(3));
@@ -229,21 +246,27 @@
         }
 
         if (_liveUsersChart) {
-            const userCounts = {};
-            _liveEvents.forEach(e => {
-                const name = _fmtUser(e.name, e.user_id);
-                userCounts[name] = (userCounts[name] || 0) + 1;
+            // Attackers the model actually caught, ranked by score
+            const byUser = {};
+            _replayEvents.forEach(e => {
+                if (!e.is_red) return;
+                const cur = byUser[e.user_id];
+                if (!cur || e.anomaly_score > cur.max) {
+                    byUser[e.user_id] = { max: e.anomaly_score, caught: e.decision !== 'allow',
+                                          src: e.src_computer };
+                }
             });
-            const sorted = Object.entries(userCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).reverse();
+            const sorted = Object.entries(byUser)
+                .sort((a, b) => b[1].max - a[1].max).slice(0, 8).reverse();
             _liveUsersChart.setOption({
                 yAxis: { data: sorted.map(s => s[0]) },
-                series: [{ data: sorted.map(s => s[1]) }]
+                series: [{ data: sorted.map(s => s[1].max) }]
             });
         }
 
         if (_liveAuthDonut) {
             const authCounts = {};
-            _liveEvents.forEach(e => {
+            _replayEvents.forEach(e => {
                 const t = e.auth_type || 'Unknown';
                 authCounts[t] = (authCounts[t] || 0) + 1;
             });
@@ -292,23 +315,23 @@
             <div class="grid-12 gap-4 mb-4">
                 <div class="col-5">
                     <div class="panel p-4">
-                        <div class="section-title mb-3">Activity Timeline</div>
+                        <div class="section-title mb-3">Replay Progress</div>
                         <div id="live-chart-timeline" style="width:100%;height:240px"></div>
                     </div>
                 </div>
                 <div class="col-3">
                     <div class="panel p-4">
-                        <div class="section-title mb-3">Threat Level</div>
+                        <div class="section-title mb-3">Attack Catch Rate</div>
                         <div id="gauge-container" class="text-center"></div>
-                        <div class="section-title mb-2 mt-3">Risk Distribution</div>
+                        <div class="section-title mb-2 mt-3">Decision Split</div>
                         <div id="risk-dist-legend" class="text-12 text-dim" style="margin-top:8px"></div>
                     </div>
                 </div>
                 <div class="col-4">
                     <div class="panel p-4">
                         <div class="section-header">
-                            <div class="section-title">Top Risky Users</div>
-                            <a class="view-all" href="#/users">View All &#8594;</a>
+                            <div class="section-title">Attackers Caught</div>
+                            <span class="text-10 text-faint">from ground truth</span>
                         </div>
                         <div id="top-risky-users"></div>
                     </div>
@@ -415,15 +438,11 @@
             const dash = await API.dashboard();
             _liveEvents = dash.recentEvents || [];
 
-            // KPIs
+            // KPIs now describe the real replay, not the retired simulation
             const k = dash.kpis;
-            const vals = { totalEvents: fmt(k.totalEvents), anomalies: fmt(k.anomalies),
-                           highRiskUsers: fmt(k.highRiskUsers), usersMonitored: fmt(k.usersMonitored) };
-
-            LIVE_KPI_DEFS.forEach(kpi => {
-                const el = document.getElementById('kpi-grid');
-                // just update text
-            });
+            const p = _replayProgress || {};
+            const vals = { replayed: fmt(p.emitted || 0), attacksCaught: fmt(p.attacksCaught || 0),
+                           attacksMissed: fmt(p.attacksMissed || 0), falsePositives: fmt(p.flagged || 0) };
 
             LIVE_KPI_DEFS.forEach(kpi => {
                 const card = document.querySelector(`[id="spark-${kpi.key}"]`)?.closest('.panel');
@@ -434,10 +453,10 @@
             });
 
             // Update spark data
-            _liveSparkData.totalEvents.push(k.totalEvents);
-            _liveSparkData.anomalies.push(k.anomalies);
-            _liveSparkData.highRiskUsers.push(k.highRiskUsers);
-            _liveSparkData.usersMonitored.push(k.usersMonitored);
+            _liveSparkData.replayed.push(p.emitted || 0);
+            _liveSparkData.attacksCaught.push(p.attacksCaught || 0);
+            _liveSparkData.attacksMissed.push(p.attacksMissed || 0);
+            _liveSparkData.falsePositives.push(p.flagged || 0);
 
             LIVE_KPI_DEFS.forEach(kpi => {
                 const sparkEl = document.getElementById('spark-' + kpi.key);
@@ -448,16 +467,24 @@
                 }
             });
 
-            // Gauge
-            const threatRatio = k.totalEvents > 0 ? k.anomalies / k.totalEvents : 0;
+            // Gauge: share of confirmed attacks caught, straight from real ground truth
+            const caught = p.attacksCaught || 0, missed = p.attacksMissed || 0;
+            const seenAttacks = caught + missed;
             const gaugeEl = document.getElementById('gauge-container');
-            if (gaugeEl) renderGauge(gaugeEl, threatRatio);
+            if (gaugeEl) renderGauge(gaugeEl, seenAttacks > 0 ? caught / seenAttacks : 0);
 
-            // Risk distribution legend
+            // Decision split across replayed events, counted client-side
             const legendEl = document.getElementById('risk-dist-legend');
-            if (legendEl && dash.riskDistribution) {
-                const total = dash.riskDistribution.reduce((s, d) => s + d.value, 0) || 1;
-                legendEl.innerHTML = dash.riskDistribution.map(d => {
+            if (legendEl) {
+                const counts = { allow: 0, flag: 0, block: 0 };
+                _replayEvents.forEach(e => { if (counts[e.decision] !== undefined) counts[e.decision]++; });
+                const total = _replayEvents.length || 1;
+                const dist = [
+                    { name: 'Allow', value: counts.allow, color: '#57b06c' },
+                    { name: 'Flag', value: counts.flag, color: '#e8a33d' },
+                    { name: 'Block', value: counts.block, color: '#e5484d' },
+                ];
+                legendEl.innerHTML = dist.map(d => {
                     const pct = ((d.value / total) * 100).toFixed(1);
                     return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">' +
                         '<span style="width:8px;height:8px;border-radius:2px;background:' + d.color + ';flex-shrink:0"></span>' +
@@ -467,12 +494,10 @@
                 }).join('');
             }
 
-            // Top risky users
+            // Attackers caught — filled from real replay events by _paintReplayAttackers
             const riskyEl = document.getElementById('top-risky-users');
-            if (riskyEl && dash.topRiskyUsers) {
-                riskyEl.innerHTML = dash.topRiskyUsers.length
-                    ? dash.topRiskyUsers.map(u => topRiskyUserRow(u)).join('')
-                    : '<div class="text-12 text-faint py-4 text-center">No risky users yet</div>';
+            if (riskyEl) {
+                riskyEl.innerHTML = '<div class="text-12 text-faint py-4 text-center">Press Play to replay</div>';
             }
 
             // Real replay panel (loads window metadata on first paint)
@@ -798,7 +823,7 @@
                 try {
                     await API.reset();
                     _liveEvents = [];
-                    _liveSparkData = { totalEvents: [], anomalies: [], highRiskUsers: [], usersMonitored: [] };
+                    _liveSparkData = { replayed: [], attacksCaught: [], attacksMissed: [], falsePositives: [] };
                     const status = document.getElementById('reset-status');
                     if (status) status.textContent = 'Dashboard cleared.';
                 } catch (err) {
@@ -863,9 +888,116 @@
         _replayPaintQueued = true;
         setTimeout(() => {
             _replayPaintQueued = false;
+            _replayProgress = window._deriveReplayProgress();
             window._renderReplayTable();
             window._updateReplayStats();
+            window._paintReplayKpis();
+            window._paintReplayCharts();
+            updateNarrative();
         }, 250);
+    };
+
+    // Counters derived from the events actually held by the client, so the KPI
+    // tiles can never disagree with the table below them.
+    window._deriveReplayProgress = function() {
+        let caught = 0, missed = 0, flagged = 0;
+        for (const e of _replayEvents) {
+            if (e.is_red) {
+                if (e.decision === 'allow') missed++; else caught++;
+            } else if (e.decision === 'block' || e.decision === 'flag') {
+                flagged++;
+            }
+        }
+        const total = _replayMeta ? _replayMeta.total : 0;
+        return { emitted: _replayEvents.length, total: total, index: _replayEvents.length,
+                 attacksSeen: caught + missed, attacksCaught: caught,
+                 attacksMissed: missed, flagged: flagged,
+                 running: _replayRunning, done: _replayEvents.length >= total };
+    };
+
+    window._paintReplayAttackers = function() {
+        const el = document.getElementById('top-risky-users');
+        if (!el) return;
+        const byUser = {};
+        _replayEvents.forEach(e => {
+            if (!e.is_red) return;
+            const cur = byUser[e.user_id];
+            const caught = e.decision !== 'allow';
+            if (!cur) byUser[e.user_id] = { uid: e.user_id, max: e.anomaly_score, caught: caught,
+                                              src: e.src_computer, n: 1 };
+            else {
+                cur.n++;
+                if (e.anomaly_score > cur.max) cur.max = e.anomaly_score;
+                if (caught) cur.caught = true;
+            }
+        });
+        const rows = Object.values(byUser).sort((a, b) => b.max - a.max).slice(0, 8);
+        if (!rows.length) {
+            el.innerHTML = '<div class="text-12 text-faint py-4 text-center">No attacks replayed yet</div>';
+            return;
+        }
+        el.innerHTML = '<table class="table-glass" style="font-size:11px"><tbody>' + rows.map(r => {
+            const col = r.caught ? 'var(--critical)' : 'var(--ochre)';
+            const tag = r.caught ? 'CAUGHT' : 'MISSED';
+            return '<tr><td class="mono">' + esc(r.uid) + '</td>' +
+                '<td class="mono" style="color:' + col + ';font-weight:600">' + r.max.toFixed(6) + '</td>' +
+                '<td style="text-align:right"><span style="color:' + col + ';font-size:9px;font-weight:800">' +
+                tag + '</span> <span class="text-faint" style="font-size:10px">×' + r.n + '</span></td></tr>';
+        }).join('') + '</tbody></table>';
+    };
+
+    window._paintReplayCharts = function() {
+        try { updateLiveCharts(); } catch (err) { /* charts are cosmetic */ }
+        window._paintReplayAttackers();
+    };
+
+    window._paintReplayKpis = function() {
+        const p = _replayProgress || window._deriveReplayProgress();
+        p.emitted = _replayEvents.length;
+        p.attacksCaught = 0; p.attacksMissed = 0; p.flagged = 0;
+        for (const e of _replayEvents) {
+            if (e.is_red) { if (e.decision === 'allow') p.attacksMissed++; else p.attacksCaught++; }
+            else if (e.decision === 'block' || e.decision === 'flag') p.flagged++;
+        }
+        const vals = { replayed: fmt(p.emitted), attacksCaught: fmt(p.attacksCaught),
+                       attacksMissed: fmt(p.attacksMissed), falsePositives: fmt(p.flagged) };
+        LIVE_KPI_DEFS.forEach(kpi => {
+            const card = document.querySelector(`[id="spark-${kpi.key}"]`)?.closest('.panel');
+            if (!card) return;
+            const numEl = card.querySelector('.tape-num');
+            if (numEl) numEl.textContent = vals[kpi.key];
+            const sparkEl = document.getElementById('spark-' + kpi.key);
+            const series = _liveSparkData[kpi.key] || (_liveSparkData[kpi.key] = []);
+            series.push(p[{ replayed: 'emitted', attacksCaught: 'attacksCaught',
+                            attacksMissed: 'attacksMissed', falsePositives: 'flagged' }[kpi.key]] || 0);
+            if (series.length > 60) series.shift();
+            if (sparkEl && series.length > 1) {
+                const color = kpi.color === 'info' ? '#6ea8e8' : kpi.color === 'critical' ? '#e5484d'
+                            : kpi.color === 'medium' ? '#e8a33d' : '#57b06c';
+                renderSparkline(sparkEl, series, color);
+            }
+        });
+
+        const seen = p.attacksCaught + p.attacksMissed;
+        const gaugeEl = document.getElementById('gauge-container');
+        if (gaugeEl) renderGauge(gaugeEl, seen > 0 ? p.attacksCaught / seen : 0);
+
+        const legendEl = document.getElementById('risk-dist-legend');
+        if (legendEl) {
+            const counts = { allow: 0, flag: 0, block: 0 };
+            _replayEvents.forEach(e => { if (counts[e.decision] !== undefined) counts[e.decision]++; });
+            const total = _replayEvents.length || 1;
+            legendEl.innerHTML = [
+                { name: 'Allow', value: counts.allow, color: '#57b06c' },
+                { name: 'Flag', value: counts.flag, color: '#e8a33d' },
+                { name: 'Block', value: counts.block, color: '#e5484d' },
+            ].map(d => '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">' +
+                '<span style="width:8px;height:8px;border-radius:2px;background:' + d.color + ';flex-shrink:0"></span>' +
+                '<span style="flex:1">' + d.name + '</span>' +
+                '<span class="mono" style="font-weight:600">' + d.value + '</span>' +
+                '<span class="mono text-faint" style="font-size:10px">(' +
+                ((d.value / total) * 100).toFixed(1) + '%)</span></div>').join('');
+        }
     };
 
     window._updateReplayStats = function() {
@@ -982,6 +1114,7 @@
         try {
             const r = await API.replayStatus();
             _replayMeta = r.meta;
+            _replayProgress = r.progress;
             // Rebuild from the server, not from memory. Navigating to Dataset
             // Analysis is a full page load, so everything held here is gone by
             // the time the user returns.
@@ -992,6 +1125,9 @@
             }
             window._renderReplayTable();
             window._updateReplayStats();
+            window._paintReplayKpis();
+            window._paintReplayCharts();
+            updateNarrative();
             window._setReplayPlayLabel(!!(r.progress && r.progress.running));
         } catch (err) { /* ignore */ }
     };
@@ -1106,48 +1242,13 @@
                 _liveEvents.push(event);
                 if (_liveEvents.length > 300) _liveEvents = _liveEvents.slice(-200);
 
-                // Update KPI spark data
-                const k = {
-                    totalEvents: _liveEvents.length,
-                    anomalies: _liveEvents.filter(e => e.decision === 'flag' || e.decision === 'block').length,
-                    highRiskUsers: new Set(_liveEvents.filter(e => e.decision === 'flag' || e.decision === 'block').map(e => e.user_id)).size,
-                    usersMonitored: new Set(_liveEvents.map(e => e.user_id)).size,
-                };
-                Object.keys(_liveSparkData).forEach(key => _liveSparkData[key].push(k[key] || 0));
-
-                // Re-render if on dashboard
+                // The retired simulation no longer drives the KPI tiles or the
+                // charts, so there is nothing to repaint here. This branch only
+                // fires for non-replay events, which the Simulation Lab shows.
                 const page = getPage();
                 if (page === 'dashboard') {
-                    // Update KPI values
-                    const kpiEl = document.getElementById('kpi-grid');
-                    if (kpiEl) {
-                        const panels = kpiEl.querySelectorAll('.panel');
-                        LIVE_KPI_DEFS.forEach((kpi, i) => {
-                            if (panels[i]) {
-                                const numEl = panels[i].querySelector('.tape-num');
-                                if (numEl) numEl.textContent = fmt(k[kpi.key] || 0);
-                            }
-                        });
-                    }
-                    // Update sparklines
-                    LIVE_KPI_DEFS.forEach(kpi => {
-                        const sparkEl = document.getElementById('spark-' + kpi.key);
-                        if (sparkEl) {
-                            const color = kpi.color === 'info' ? '#6ea8e8' : kpi.color === 'critical' ? '#e5484d'
-                                        : kpi.color === 'medium' ? '#e8a33d' : '#57b06c';
-                            renderSparkline(sparkEl, _liveSparkData[kpi.key], color);
-                        }
-                    });
-                    // Update gauge
-                    const gaugeEl = document.getElementById('gauge-container');
-                    if (gaugeEl) renderGauge(gaugeEl, k.totalEvents > 0 ? k.anomalies / k.totalEvents : 0);
-                    // Update narrative
                     updateNarrative();
                     updateGreeting();
-                    // Update ECharts
-                    updateLiveCharts();
-                    // Update events table
-                    window._renderEventsTable();
                 }
             },
             onError() {
@@ -1256,11 +1357,81 @@
             '<tr><td>11</td><td>LGB-23feat v2</td><td>0.4735</td><td>143</td><td>221</td></tr>'+
             '</tbody></table></div></div>';
     }
+    /* ── Simulation Lab (synthetic employee-login events) ────────── */
+    async function renderSimulationLab() {
+        destroyCharts();
+        setActiveNav('simulation');
+        content.innerHTML = `
+            <div class="insight-box mb-4" style="border-color:var(--ochre);background:rgba(232,163,61,.10)">
+                <div style="font-weight:700;color:var(--ochre);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Simulated Data</div>
+                Everything on this page is <b>synthetic</b>. These events are generated when an employee logs in through
+                <span class="mono">/login</span> &mdash; machine names, hours and auth types are drawn at random and match no LANL record.
+                Real scored events live on <a href="#/dashboard" style="color:var(--info)">Live Monitoring</a>.
+            </div>
+
+            <div class="grid-4 gap-4 mb-4">
+                ${['Simulated Events', 'Anomalies', 'Distinct Users', 'Alerts'].map((label, i) => `
+                    <div class="panel p-4">
+                        <div class="text-10 text-faint uppercase tracking-widest" style="font-weight:700">${label}</div>
+                        <div class="tape-num" id="sim-kpi-${i}" style="font-size:24px;font-weight:700;margin-top:6px">0</div>
+                    </div>`).join('')}
+            </div>
+
+            <div class="panel overflow-hidden">
+                <div class="flex-between px-4 py-3 hairline">
+                    <span class="section-title">Simulated Events</span>
+                    <button class="filter-btn" onclick="window._simReset()">Clear</button>
+                </div>
+                <div class="overflow-auto" style="max-height:420px">
+                    <table class="table-glass">
+                        <thead><tr>
+                            <th>Time</th><th>User</th><th>Source &rarr; Destination</th>
+                            <th>Type</th><th>Score</th><th>Decision</th><th>Truth</th>
+                        </tr></thead>
+                        <tbody id="sim-tbody">
+                            <tr><td colspan="7" class="text-center text-faint py-8">
+                                No simulated events yet. Log in as an employee to generate some.
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+
+        try {
+            const s = await API.simulation();
+            const vals = [s.total, s.anomalies, s.users.length, s.alerts.length];
+            vals.forEach((v, i) => {
+                const el = document.getElementById('sim-kpi-' + i);
+                if (el) el.textContent = fmt(v);
+            });
+            const tbody = document.getElementById('sim-tbody');
+            if (tbody) {
+                tbody.innerHTML = s.events.length ? s.events.slice().reverse().map(e => {
+                    const col = e.decision === 'block' ? 'var(--critical)'
+                        : e.decision === 'flag' ? 'var(--ochre)' : 'var(--low)';
+                    return '<tr><td class="mono text-faint">' + esc(e.ts) + '</td>' +
+                        '<td class="mono">' + esc(e.name || e.user_id) + '</td>' +
+                        '<td class="mono nowrap">' + esc(e.src_computer) + ' &rarr; ' + esc(e.dst_computer) + '</td>' +
+                        '<td class="text-faint">' + esc(e.auth_type) + '</td>' +
+                        '<td class="mono" style="color:' + col + '">' + Number(e.combined_score).toFixed(6) + '</td>' +
+                        '<td style="color:' + col + ';font-weight:600">' + esc(String(e.decision).toUpperCase()) + '</td>' +
+                        '<td class="text-faint">n/a</td></tr>';
+                }).join('') : '<tr><td colspan="7" class="text-center text-faint py-8">No simulated events yet. Log in as an employee to generate some.</td></tr>';
+            }
+        } catch (err) { /* leave the empty state in place */ }
+    }
+
+    window._simReset = async function() {
+        try { await API.reset(); } catch (err) { /* ignore */ }
+        renderSimulationLab();
+    };
+
     /* ── Route dispatcher ───────────────────────────────────────── */
     function route() {
         const page = getPage();
         switch (page) {
             case 'dashboard': renderDashboard(); break;
+            case 'simulation': renderSimulationLab(); break;
             case 'alerts': renderAlerts(); break;
             case 'users': renderUsers(); break;
             case 'settings': renderSettings(); break;
