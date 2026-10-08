@@ -91,6 +91,24 @@
                 <div class="insight-box" id="insight-score" style="display:none"><div class="insight-title">Score Analysis</div><div id="insight-score-text"></div></div>
 
                 <div class="panel p-4 mb-4">
+                    <div class="flex-between mb-3">
+                        <span class="section-title">Confusion Matrix</span>
+                        <span class="text-10 text-faint uppercase tracking-widest">block boundary, full dataset</span>
+                    </div>
+                    <div class="grid-2 mb-3">
+                        <div id="cm-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px"></div>
+                        <div>
+                            <div id="cm-metrics"><span class="skeleton"></span></div>
+                            <div class="hairline" style="margin:14px 0"></div>
+                            <div class="section-title mb-2">Three-class breakdown</div>
+                            <div id="cm-three"><span class="skeleton"></span></div>
+                        </div>
+                    </div>
+                    <div class="insight-box" id="cm-caveat"></div>
+                    <div class="text-11 text-faint mt-2" id="cm-alert"></div>
+                </div>
+
+                <div class="panel p-4 mb-4">
                     <div class="section-title mb-3">Top Attackers</div>
                     <div id="chart-attackers" class="chart-box-sm"></div>
                 </div>
@@ -189,6 +207,44 @@
                 if(el('kpi-fp'))el('kpi-fp').textContent=fmt(k.false_positives);
                 if(el('kpi-rate'))el('kpi-rate').textContent=k.detection_rate+'%';
                 if(el('kpi-threshold'))el('kpi-threshold').textContent=k.threshold.toFixed(4);
+
+                // Confusion matrix, computed server-side from the same parquet
+                if(dash.confusion){
+                    var cf=dash.confusion, m=cf[cf.primary]||cf.block_only;
+                    var cell=function(v,color,bg,label){
+                        return '<div style="padding:14px 10px;text-align:center;border:1px solid '+
+                            (color||'var(--hairline)')+';border-radius:6px;background:'+bg+'">'+
+                            '<div class="mono" style="font-size:22px;font-weight:700;color:'+
+                            (color||'var(--ink)')+'">'+v.toLocaleString('en-US')+'</div>'+
+                            '<div class="text-10 text-faint uppercase" style="margin-top:3px">'+label+'</div></div>';
+                    };
+                    if(el('cm-grid'))el('cm-grid').innerHTML=
+                        cell(m.tp,C.critical,'rgba(229,72,77,0.08)','TP attack caught')+
+                        cell(m.fn,C.ochre,'rgba(232,163,61,0.08)','FN attack missed')+
+                        cell(m.fp,C.ochre,'rgba(232,163,61,0.08)','FP normal flagged')+
+                        cell(m.tn,C.low,'rgba(87,176,108,0.08)','TN normal allowed');
+                    if(el('cm-metrics'))el('cm-metrics').innerHTML=
+                        '<div class="grid-4 gap-2">'+
+                        '<div><div class="text-10 text-faint uppercase">Precision</div><div class="text-lg mono" style="white-space:nowrap">'+m.precision.toFixed(4)+'</div></div>'+
+                        '<div><div class="text-10 text-faint uppercase">Recall</div><div class="text-lg mono" style="white-space:nowrap">'+m.recall.toFixed(4)+'</div></div>'+
+                        '<div><div class="text-10 text-faint uppercase">F1</div><div class="text-lg mono" style="white-space:nowrap">'+m.f1.toFixed(4)+'</div></div>'+
+                        '<div><div class="text-10 text-faint uppercase">FPR</div><div class="text-lg mono" style="white-space:nowrap">'+m.fpr.toExponential(2)+'</div></div>'+
+                        '</div>';
+                    var al=cf.alert_level;
+                    if(el('cm-alert'))el('cm-alert').innerHTML=
+                        'Counting FLAG as an alert: <b>'+fmt(al.tp)+'</b> caught, <b>'+fmt(al.fp)+'</b> false positives, recall <b>'+al.recall.toFixed(4)+'</b>. '+
+                        'The two boundaries differ because scorer.py raises FLAG above <span class="mono">'+(cf.threshold*0.7).toFixed(4)+'</span> and BLOCK above <span class="mono">'+cf.threshold.toFixed(4)+'</span>.';
+                    var t3=cf.three_class||[];
+                    if(el('cm-three'))el('cm-three').innerHTML=
+                        '<table class="table-glass" style="font-size:12px"><thead><tr><th>Decision</th><th>Attack</th><th>Normal</th></tr></thead><tbody>'+
+                        t3.map(function(t){
+                            var col=t.decision==='BLOCK'?C.critical:t.decision==='FLAG'?C.ochre:C.low;
+                            return '<tr><td style="color:'+col+';font-weight:700">'+t.decision+'</td>'+
+                                '<td class="mono">'+t.attack.toLocaleString('en-US')+'</td>'+
+                                '<td class="mono">'+t.normal.toLocaleString('en-US')+'</td></tr>';
+                        }).join('')+'</tbody></table>';
+                    if(el('cm-caveat'))el('cm-caveat').innerHTML=cf.caveat;
+                }
 
                 var avgScore=alerts.length?alerts.reduce(function(s,a){return s+a.anomaly_score;},0)/alerts.length:0;
                 el('insight-overview').innerHTML='<div class="insight-title">Dataset Overview</div>Scanned <b>'+fmt(k.total_events)+'</b> authentication events across 6 months. Model flagged <b style="color:'+C.critical+'">'+fmt(k.detections)+'</b> threats with <b style="color:'+C.low+'">'+k.detection_rate+'%</b> detection rate. Top '+alerts.length+' alerts average score: <b style="color:'+C.ochre+'">'+avgScore.toFixed(3)+'</b>: model is highly confident.';

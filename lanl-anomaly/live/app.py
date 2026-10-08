@@ -930,6 +930,53 @@ def _precompute_dashboard():
     detections = int((df.loc[red_mask, 'anomaly_score'] > threshold).sum())
     fp = int(((df['anomaly_score'] > threshold) & normal_mask).sum())
 
+    # Confusion matrix at two decision boundaries.
+    # scorer.py raises BLOCK above THRESHOLD and FLAG above THRESHOLD * 0.7, so
+    # "predicted attack" is ambiguous. Both are reported rather than silently
+    # picking one: an analyst is notified on a FLAG just as on a BLOCK.
+    def _matrix(cut):
+        pos = df['anomaly_score'] > cut
+        tp = int((pos & red_mask).sum())
+        f_p = int((pos & normal_mask).sum())
+        fn = int((~pos & red_mask).sum())
+        tn = int((~pos & normal_mask).sum())
+        prec = tp / (tp + f_p) if (tp + f_p) else 0.0
+        rec = tp / (tp + fn) if (tp + fn) else 0.0
+        return {
+            'cutoff': round(float(cut), 6),
+            'tp': tp, 'fp': f_p, 'tn': tn, 'fn': fn,
+            'precision': round(prec, 4),
+            'recall': round(rec, 4),
+            'f1': round(2 * prec * rec / (prec + rec), 4) if (prec + rec) else 0.0,
+            'specificity': round(tn / (tn + f_p), 8) if (tn + f_p) else 0.0,
+            'fpr': round(f_p / (f_p + tn), 8) if (f_p + tn) else 0.0,
+            'accuracy': round((tp + tn) / total, 6) if total else 0.0,
+        }
+
+    block_only = _matrix(threshold)
+    alert_level = _matrix(threshold * 0.7)
+
+    three_class = []
+    for dec in ('ALLOW', 'FLAG', 'BLOCK'):
+        sel = df['decision'] == dec
+        three_class.append({
+            'decision': dec,
+            'attack': int((sel & red_mask).sum()),
+            'normal': int((sel & normal_mask).sum()),
+        })
+
+    confusion = {
+        'population': 'full dataset, 29.9M events (includes training rows)',
+        'threshold': threshold,
+        'primary': 'block_only',
+        'block_only': block_only,
+        'alert_level': alert_level,
+        'three_class': three_class,
+        'caveat': ('Accuracy is near 1.0 because attacks are 0.0023% of the '
+                   'dataset. A model that never alerts scores higher. Prefer '
+                   'recall and false positive count.'),
+    }
+
     df['_hour_bucket'] = (df['time'] // 3600).astype(int)
     hourly = df.groupby('_hour_bucket').agg(
         mean_score=('anomaly_score', 'mean'),
@@ -967,6 +1014,7 @@ def _precompute_dashboard():
         },
         'timeline': hourly.to_dict('records'),
         'top_users': top_users.to_dict('records'),
+        'confusion': confusion,
         'heatmap': heatmap_data
     }
 
