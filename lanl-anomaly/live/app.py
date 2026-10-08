@@ -836,6 +836,21 @@ def api_ack_alert(alert_id):
     return jsonify({'ok': True, 'alert': alert})
 
 
+def _bundle_float(bundle, key):
+    """Read a float from the model bundle, or None if the key is absent.
+
+    The bundle is written by the training script. If a retrain drops a metric,
+    the page must show "not recorded" rather than a stale literal.
+    """
+    v = bundle.get(key)
+    return float(v) if isinstance(v, (int, float)) else None
+
+
+def _bundle_int(bundle, key):
+    v = bundle.get(key)
+    return int(v) if isinstance(v, (int, float)) else None
+
+
 @app.route('/api/model/metrics')
 def api_model_metrics():
     """Feature importances read from the trained model, not hardcoded.
@@ -861,6 +876,24 @@ def api_model_metrics():
         'importance_type': 'gain',
         'feature_count': len(pairs),
         'feature_importance': [{'feature': n, 'importance': v} for n, v in pairs],
+        # Held-out metrics, read from the same bundle so the Model Performance
+        # page cannot drift from the model after a retrain.
+        'held_out': {
+            'roc_auc': _bundle_float(bundle, 'roc_auc'),
+            'pr_auc': _bundle_float(bundle, 'pr_auc'),
+            'f1': _bundle_float(bundle, 'f1'),
+            'tp': _bundle_int(bundle, 'tp'),
+            'fp': _bundle_int(bundle, 'fp'),
+            'threshold': _bundle_float(bundle, 'threshold'),
+        },
+        # Split sizes are properties of the RUN 9 evaluation, not of the model
+        # bundle, so they cannot be read from it. Cited in
+        # reports/experiment_log.md line 258 (RUN 9 held-out split table).
+        'split': {
+            'test_rows': 5399886,
+            'test_reds': 240,
+            'source': 'reports/experiment_log.md:258',
+        },
     })
 
 

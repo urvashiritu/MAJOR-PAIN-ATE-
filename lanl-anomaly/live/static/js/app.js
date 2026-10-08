@@ -1418,14 +1418,29 @@
         destroyCharts();
         setActiveNav('model');
 
-        let fi = [];
+        let fi = [], held = null, split = null;
         try {
             const m = await API.modelMetrics();
             fi = (m.feature_importance || []).map(x => ({ n: x.feature, v: x.importance }));
+            held = m.held_out || null;
+            split = m.split || null;
         } catch (err) {
             content.innerHTML = '<div class="text-12 text-critical py-8">Could not load model metrics</div>';
             return;
         }
+        // Every figure below comes from the model bundle. If a metric is
+        // missing from it, say so rather than falling back to a literal.
+        if (!held || held.roc_auc == null) {
+            content.innerHTML = '<div class="dash-greeting"><h2>Model Performance</h2></div>' +
+                '<div class="insight-box" style="border-color:var(--critical)">' +
+                '<b>Held-out metrics not recorded.</b> ' + esc('models/lanl_lgb_21feat.joblib') +
+                ' carries no roc_auc key, so this page has nothing truthful to show.</div>';
+            return;
+        }
+        const num = (v, d) => (v == null ? 'not recorded' : v.toFixed(d));
+        const pct = (v) => (v == null ? 'not recorded' : (v * 100).toFixed(1) + '%');
+        const fpr = held.fp / split.test_rows;
+        const recall = held.tp / split.test_reds;
         const mx = Math.max(...fi.map(f => f.v), 1);
         const bars = fi.slice().sort((a,b) => b.v - a.v).map(f =>
             '<div class="feature-bar-row"><div class="feature-bar-label">' + esc(f.n) + '</div>' +
@@ -1434,23 +1449,24 @@
         ).join('');
         content.innerHTML = '<div class="dash-greeting"><h2>Model Performance</h2><p>LGB-21 ensemble \u2014 LightGBM + LSTM Autoencoder.</p></div>' +
             '<div class="grid-3 gap-4 mb-4">'+
-            '<div class="insight-card"><h4>ROC-AUC</h4><div class="tape-num" style="color:var(--low)">0.9999</div></div>'+
-            '<div class="insight-card"><h4>F1 Score</h4><div class="tape-num" style="color:var(--info)">0.4866</div></div>'+
-            '<div class="insight-card"><h4>Threshold</h4><div class="tape-num" style="color:var(--ochre)">0.1872</div></div></div>'+
+            '<div class="insight-card"><h4>ROC-AUC</h4><div class="tape-num" style="color:var(--low)">'+num(held.roc_auc, 4)+'</div></div>'+
+            '<div class="insight-card"><h4>F1 Score</h4><div class="tape-num" style="color:var(--info)">'+num(held.f1, 4)+'</div></div>'+
+            '<div class="insight-card"><h4>Threshold</h4><div class="tape-num" style="color:var(--ochre)">'+num(held.threshold, 4)+'</div></div></div>'+
             '<div class="grid-2 gap-4 mb-4">'+
             '<div class="insight-card"><h4>Detection Performance</h4>'+
             '<div class="grid-2 gap-4" style="margin-top:8px">'+
-            '<div><div class="text-12 text-dim">True Positives</div><div class="tape-num" style="font-size:1.4rem;color:var(--low)">136 <span class="text-11 text-faint">/ 240</span></div><div class="text-10 text-faint">56.7% recall</div></div>'+
-            '<div><div class="text-12 text-dim">False Positives</div><div class="tape-num" style="font-size:1.4rem;color:var(--ochre)">183 <span class="text-11 text-faint">/ 5.4M</span></div><div class="text-10 text-faint">0.003% FPR</div></div></div></div>'+
+            '<div><div class="text-12 text-dim">True Positives</div><div class="tape-num" style="font-size:1.4rem;color:var(--low)">'+held.tp+' <span class="text-11 text-faint">/ '+split.test_reds+'</span></div><div class="text-10 text-faint">'+pct(recall)+' recall</div></div>'+
+            '<div><div class="text-12 text-dim">False Positives</div><div class="tape-num" style="font-size:1.4rem;color:var(--ochre)">'+held.fp+' <span class="text-11 text-faint">/ '+(split.test_rows/1e6).toFixed(1)+'M</span></div><div class="text-10 text-faint">'+fpr.toExponential(1).replace('e-','e-')+' FPR</div></div></div></div>'+
             '<div class="insight-card"><h4>Architecture</h4>'+
-            '<div class="text-12 text-dim" style="margin-top:8px">LightGBM (21 features) + LSTM-AE recon error<br>GroupShuffleSplit, spw=3<br>29.9M total events scored</div></div></div>'+
+            '<div class="text-12 text-dim" style="margin-top:8px">LightGBM (21 features) + LSTM-AE recon error<br>GroupShuffleSplit, spw=3<br>Held-out test: '+split.test_rows.toLocaleString()+' rows, '+split.test_reds+' red events</div></div></div>'+
             '<div class="grid-2 gap-4 mb-4">'+
             '<div class="insight-card"><h4>Feature Importance</h4>' + bars + '</div>'+
             '<div class="insight-card"><h4>Run Comparison</h4>'+
+            '<div class="text-10 text-faint" style="margin:4px 0 2px">Runs 7, 8, 10, 11 are historical values from reports/experiment_log.md. Run 9 is read from the model bundle.</div>'+
             '<table class="table-glass" style="margin-top:8px"><thead><tr><th>Run</th><th>Config</th><th>F1</th><th>TP</th><th>FP</th></tr></thead><tbody>'+
             '<tr><td>7</td><td>LGB-20feat</td><td>0.4817</td><td>145</td><td>217</td></tr>'+
             '<tr><td>8</td><td>LSTM-AE solo</td><td>0.0095</td><td>118</td><td>24,482</td></tr>'+
-            '<tr style="background:var(--surface-2)"><td><strong>9</strong></td><td><strong>LGB-21feat</strong></td><td><strong>0.4866</strong></td><td><strong>136</strong></td><td><strong>183</strong></td></tr>'+
+            '<tr style="background:var(--surface-2)"><td><strong>9</strong></td><td><strong>LGB-21feat</strong></td><td><strong>'+num(held.f1, 4)+'</strong></td><td><strong>'+held.tp+'</strong></td><td><strong>'+held.fp+'</strong></td></tr>'+
             '<tr><td>10</td><td>LGB-37feat</td><td>0.4772</td><td>157</td><td>261</td></tr>'+
             '<tr><td>11</td><td>LGB-23feat v2</td><td>0.4735</td><td>143</td><td>221</td></tr>'+
             '</tbody></table></div></div>';
