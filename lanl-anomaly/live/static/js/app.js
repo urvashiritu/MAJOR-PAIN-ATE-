@@ -36,7 +36,9 @@
 
     const _displayNames = { ace: 'Ace', luffy: 'Luffy', igris: 'Igris', ashborn: 'Ashborn' };
     function _fmtUser(name, userId) {
-        const display = _displayNames[name] || name || 'unknown';
+        // Accepts either a demo username ('ace') or a raw LANL id ('U293@DOM1'),
+    // so replay events that only carry a user id still render a label.
+    const display = _displayNames[name] || name || 'unknown';
         const id = (userId || '').split('@')[0];
         return id ? display + ' (' + id + ')' : display;
     }
@@ -1111,7 +1113,10 @@
             const truth = e.is_red
                 ? '<span style="color:var(--critical);font-weight:700">RED</span>'
                 : '<span class="text-faint">normal</span>';
-            return '<tr' + (e.is_red ? ' style="background:rgba(229,72,77,.08)"' : '') + '>' +
+            // Rows must open the investigation drawer. Without this the whole
+            // investigate flow is unreachable from the main dashboard.
+            return '<tr class="clickable" data-event-id="' + e.id + '"' +
+                (e.is_red ? ' style="background:rgba(229,72,77,.08)"' : '') + '>' +
                 '<td class="mono text-faint nowrap">T+' + e.offset + 's</td>' +
                 '<td class="mono nowrap">' + esc(e.user_id) + '</td>' +
                 '<td class="mono nowrap">' + esc(e.src_computer) + ' &rarr; ' + esc(e.dst_computer) + '</td>' +
@@ -1125,6 +1130,16 @@
             const b = document.getElementById('evt-filter-' + f);
             if (b) b.classList.toggle('active', window._evtFilter === f);
         });
+
+        // Delegate once on the tbody: innerHTML is replaced on every repaint,
+        // so per-row onclick handlers would be destroyed each time.
+        if (!tbody._replayClickBound) {
+            tbody._replayClickBound = true;
+            tbody.addEventListener('click', (ev) => {
+                const row = ev.target.closest('tr[data-event-id]');
+                if (row) openInvestigate(parseInt(row.dataset.eventId, 10));
+            });
+        }
     };
 
     window._setReplayPlayLabel = function(running) {

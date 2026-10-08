@@ -42,6 +42,10 @@ _replay_running = False
 _replay_speed = 20          # events pushed per second
 _replay_thread = None
 _replay_lock = threading.Lock()
+# Acknowledged alert ids. _replay_alerts() rebuilds its dicts on every call, so
+# acknowledgement cannot be stored on the alert itself; the mutation would be
+# discarded before anyone read it back.
+_replay_acked = set()
 
 # ── Dataset state (precomputed parquet) ────────────────────────
 _scores_df = None
@@ -200,11 +204,12 @@ def api_replay_stop():
 
 @app.route('/api/replay/reset', methods=['POST'])
 def api_replay_reset():
-    """Rewind to the first event."""
+    """Rewind to the first event and drop acknowledgements."""
     global _replay_index, _replay_running
     with _replay_lock:
         _replay_index = 0
         _replay_running = False
+        _replay_acked.clear()
     return jsonify({'ok': True, 'progress': _replay_progress()})
 
 
@@ -580,7 +585,7 @@ def _replay_alerts():
             'correct': correct,
             'src_computer': e['src_computer'],
             'dst_computer': e['dst_computer'],
-            'status': 'new',
+            'status': 'acknowledged' if e['id'] in _replay_acked else 'new',
         })
     out.sort(key=lambda a: -a['combined_score'])
     return out
@@ -746,7 +751,23 @@ def api_investigation(event_id):
 
     # Deviation points
     dev_points = len(feature_contributions)
-    dev_reasons = _derive_reasons(features)
+    if features:
+        dev_reasons = _derive_reasons(features)
+    else:
+        # Replay events carry no per-event feature vector, so _derive_reasons
+        # would fall through to "Multiple behavioral indicators deviate from
+        # baseline" for an event that scored 0.0000. Say what is actually known.
+        if event['is_red']:
+            dev_reasons = ('Confirmed red-team attack. The model '
+                           + ('blocked it.' if event['decision'] == 'block'
+                              else 'flagged it.' if event['decision'] == 'flag'
+                              else 'allowed it, which is a miss.'))
+        elif event['decision'] in ('block', 'flag'):
+            dev_reasons = ('The model raised an alert on normal traffic. '
+                           'This is a false positive.')
+        else:
+            dev_reasons = ('No deviation. The event matches this user\'s '
+                           'normal pattern and was allowed.')
 
     # Timeline — recent events for same user
     user_events = [e for e in _replay_events[:_replay_index]
@@ -779,6 +800,7 @@ def api_investigation(event_id):
         'combinedScore': event['anomaly_score'],
         'devPoints': dev_points,
         'devReasons': dev_reasons,
+        'hasFeatureDetail': bool(features),
         'type': event['decision'],
         'description': dev_reasons,
         'src_computer': event['src_computer'],
@@ -806,11 +828,12 @@ def api_investigation(event_id):
 @app.route('/api/alerts/<int:alert_id>/ack', methods=['POST'])
 def api_ack_alert(alert_id):
     """Acknowledge an alert from the real replay window."""
-    for a in _replay_alerts():
-        if a['id'] == alert_id:
-            a['status'] = 'acknowledged'
-            return jsonify({'ok': True})
-    return jsonify({'error': 'not found'}), 404
+    with _replay_lock:
+        _replay_acked.add(alert_id)
+    alert = next((a for a in _replay_alerts() if a['id'] == alert_id), None)
+    if alert is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, 'alert': alert})
 
 
 @app.route('/api/model/metrics')
@@ -1021,8 +1044,15 @@ def api_user_profile(user_id):
     session_max = max((e['anomaly_score'] for e in user_live), default=0.0)
     attacks = sum(1 for e in user_live if e['is_red'])
 
+    from auth import USERS as _USERS
+    _demo = next((v for v in _USERS.values() if v.get('user_id') == user_id), None)
+
     return jsonify({
         'user_id': user_id,
+        # The drawer title is built from data.name; without this it renders
+        # "unknown (U293)" instead of a readable label.
+        'name': _demo['name'] if _demo else user_id.split('@')[0],
+        'demo_user': _demo is not None,
         'baseline': {
             'totalEvents': user_total,
             'knownSrcComputers': sorted(known_src),
