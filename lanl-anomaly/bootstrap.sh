@@ -21,8 +21,8 @@ DUCKDB_PATH="data/raw/lanl/lanl.duckdb"
 ZST_PATH="data/raw/lanl/lanl.duckdb.zst"   # the file you host
 DUCKDB_BYTES=10399002624        # size of the database after decompression
 DUCKDB_MIN_BYTES=9000000000     # refuse anything meaningfully smaller
-ZST_MIN_BYTES=3000000000        # smallest compressed file we accept
-ZST_MAX_BYTES=4500000000        # largest compressed file we accept
+ZST_MIN_BYTES=5000000000        # smallest compressed file we accept
+ZST_MAX_BYTES=6500000000        # largest compressed file we accept
 VENV="${VENV:-venv}"
 PY="$VENV/bin/python"
 
@@ -95,8 +95,38 @@ PYEOF
 }
 
 # ── Fetch and decompress the dataset ──────────────────────────────────
+# A file the user copied here by hand. This makes a USB stick or a phone
+# transfer enough to set up a machine. No network is used.
+use_local_copy() {
+  if [[ -f "$DUCKDB_PATH" ]]; then
+    local size
+    size=$(file_size "$DUCKDB_PATH")
+    if [[ "$size" -eq "$DUCKDB_BYTES" ]]; then
+      ok "found lanl.duckdb in place — no download necessary"
+      return 0
+    fi
+    warn "lanl.duckdb is $size bytes, which is not correct"
+    return 1
+  fi
+
+  if [[ -f "$ZST_PATH" ]]; then
+    local size
+    size=$(file_size "$ZST_PATH")
+    if [[ "$size" -lt "$ZST_MIN_BYTES" || "$size" -gt "$ZST_MAX_BYTES" ]]; then
+      warn "lanl.duckdb.zst is $size bytes. This copy is probably incomplete."
+      warn "Copy the file again, or delete it to download a new one."
+      return 1
+    fi
+    ok "found lanl.duckdb.zst ($size bytes) — using the local copy"
+    decompress_duckdb
+    return $?
+  fi
+
+  return 1
+}
+
 decompress_duckdb() {
-  say "Decompressing lanl.duckdb.zst (about 3.7 GB to 9.7 GiB)"
+  say "Decompressing lanl.duckdb.zst (5.6 GB to 9.7 GiB)"
 
   command -v zstd >/dev/null || die "zstd is not installed. Install it with: sudo apt install zstd"
 
@@ -114,7 +144,7 @@ decompress_duckdb() {
 }
 
 fetch_zst() {
-  say "Fetching lanl.duckdb.zst (about 3.7 GB)"
+  say "Fetching lanl.duckdb.zst (5.6 GB)"
   mkdir -p "$(dirname "$ZST_PATH")"
 
   if [[ -f "$ZST_PATH" ]]; then
@@ -128,7 +158,22 @@ fetch_zst() {
   fi
 
   if [[ "$LANL_DUCKDB_ID" == "REPLACE_WITH_YOUR_DRIVE_FILE_ID" && -z "$LANL_DUCKDB_URL" ]]; then
-    die "set LANL_DUCKDB_ID to your Google Drive file id, or set LANL_DUCKDB_URL to a direct link. See SETUP.md"
+    say "No dataset found, and no download location is configured."
+    cat <<EOF
+
+  You have two ways to supply the database.
+
+  1. Copy the file to this computer
+     Copy $(basename "$ZST_PATH") (5.6 GB) or lanl.duckdb (9.7 GiB) into:
+       $(pwd)/$(dirname "$ZST_PATH")
+     A USB stick or a phone cable works. Then run ./bootstrap.sh again.
+
+  2. Download the file
+     Set LANL_DUCKDB_ID in this script to your Google Drive file id, or set
+     LANL_DUCKDB_URL to a direct link. See SETUP.md.
+
+EOF
+    die "the dataset is not available"
   fi
 
   if [[ -z "$LANL_DUCKDB_URL" ]]; then
@@ -214,7 +259,10 @@ case "$MODE" in
   *)
     install_deps
     fetch_lfs
-    verify_duckdb || fetch_duckdb
+    # Order matters. A file the user copied here wins over any download.
+    if ! use_local_copy; then
+      fetch_duckdb
+    fi
     verify_duckdb
     verify_models
     verify_scores

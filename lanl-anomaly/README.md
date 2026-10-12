@@ -29,7 +29,7 @@ The data layer consists of these items.
 
 | Item | Size | Use |
 |------|------|-----|
-| `data/raw/lanl/lanl.duckdb.zst` | 3.75 GB | The compressed source events |
+| `data/raw/lanl/lanl.duckdb.zst` | 5.61 GB | The compressed source events |
 | `data/raw/lanl/lanl.duckdb` | 9.7 GiB | The source events after decompression. Read only |
 | `data/processed/lanl_scores.parquet` | 370 MB | Model scores for 29.9M events |
 | `models/*.joblib`, `models/*.pt` | 17.6 MB | LGB and LSTM-AE weights |
@@ -66,11 +66,13 @@ LANL_DEV=1 venv/bin/python -m live.app
 #    The address is http://localhost:5000
 ```
 
-The script downloads 1.5 GB from Git LFS and 3.75 GB from Google Drive. The
+The script downloads 1.5 GB from Git LFS and 5.6 GB from Google Drive. The
 script decompresses the second file. The Google Drive file must have the sharing
 setting "Anyone with the link".
 
-See `SETUP.md` for the full list of settings.
+You can also copy `lanl.duckdb.zst` to `<repo>/data/raw/lanl/` with a memory
+stick or a phone cable. The script uses this file and downloads nothing. See
+`SETUP.md` for the full list of settings.
 
 ## Dataset
 

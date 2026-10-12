@@ -47,6 +47,29 @@ script does not change a correct file.
 The script downloads 9.7 GiB from Google Drive. This download is slow. Start it
 before the event.
 
+## Copying the database with a cable or a memory stick
+
+This method does not use the network. Use this method when the upload is too
+slow, or when the event has no internet connection.
+
+1. Copy `lanl.duckdb.zst` (5.6 GB) to the new computer. You can use a memory
+   stick, a phone cable, or a network share. The file name must stay
+   `lanl.duckdb.zst`.
+2. Put the file in this directory:
+   ```
+   <repo>/data/raw/lanl/
+   ```
+3. Run the script:
+   ```bash
+   ./bootstrap.sh
+   ```
+
+The script finds the file. It does not download anything. It decompresses the
+file and then checks the result.
+
+You can also copy `lanl.duckdb` (9.7 GiB) instead. The script uses this file
+directly and does not decompress it.
+
 To check a machine without changing it, run:
 
 ```bash
@@ -57,8 +80,9 @@ The check confirms these items.
 
 1. The file `lanl.duckdb` has the correct size.
 2. The database opens and the table `feat` has 29,905,488 rows.
-3. The two model files exist.
-4. The parquet file has 29,905,488 rows.
+3. The count of red team events is 702.
+4. The two model files exist.
+5. The parquet file has 29,905,488 rows.
 
 ## Settings for the installation
 
@@ -100,7 +124,7 @@ bigger than 2 GB on the free plan. This file is 9.7 GiB. The script downloads it
 from Google Drive.
 
 The script downloads a compressed copy named `lanl.duckdb.zst`. The size of this
-file is 3.75 GB. The script decompresses it after the download.
+file is 5,613,536,885 bytes. The script decompresses it after the download.
 
 To make the compressed file, run:
 
