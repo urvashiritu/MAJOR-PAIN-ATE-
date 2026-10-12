@@ -1,199 +1,248 @@
-# LANL Anomaly Detection — Setup & Run
+# LANL Anomaly Detection — Installation and Running
 
-AI-powered identity anomaly detection on **29.9M authentication events** from Los Alamos National Laboratory. Catches attacks in **0.3 seconds**.
+This system finds abnormal authentication activity. It scores 29,905,488
+authentication events from Los Alamos National Laboratory.
 
----
-
-## Quick Start (5 min)
+## Installation
 
 ```bash
-# 1. Clone
-git clone https://github.com/urvashiritu/MAJOR-PAIN-ATE-.git
+# 1. Get the code
+git clone -b feature/lanl-rebuild https://github.com/urvashiritu/MAJOR-PAIN-ATE-.git
 cd MAJOR-PAIN-ATE-/lanl-anomaly
 
-# 2. Install Python dependencies
-pip install -r requirements.txt
+# 2. Install Git LFS
+sudo apt install git-lfs
+git lfs install
 
-# 3. Seed demo database (creates data/live.duckdb with 4 real LANL users)
-python -m live.seed_demo
+# 3. Install the packages, download the data, and check the setup
+./bootstrap.sh
 
-# 4. Start backend (Flask on port 5000)
-python -m live.app
-
-# 5. Open dashboard
-# Flask serves the vanilla HTML/CSS/JS dashboard at http://localhost:5000/dashboard
+# 4. Start the system
+LANL_DEV=1 venv/bin/python -m live.app
 ```
 
----
+Then open `http://localhost:5000` in a browser.
 
-## Prerequisites
+The replay starts by itself. The dashboard has data when the system is ready.
 
-- **Python 3.12+**
-- **Git** (with Git LFS for dataset download)
-- **~2 GB disk space** for the dataset
+## Hardware and software requirements
 
----
+| Item | Requirement |
+|------|-------------|
+| Python | 3.12 or later |
+| Git | With Git LFS |
+| Disk space | 12 GB or more |
+| RAM | 16 GB or more |
+| GPU | Not necessary |
+
+The models use the CPU. The script installs the CPU version of PyTorch by
+default. This install uses about 1 GB. Set `USE_GPU=1` to install the CUDA
+version. That install uses about 5.9 GB.
+
+## Running on a second machine
+
+Run `./bootstrap.sh` again. The script continues an install that stopped. The
+script does not change a correct file.
+
+The script downloads 9.7 GiB from Google Drive. This download is slow. Start it
+before the event.
+
+To check a machine without changing it, run:
+
+```bash
+./bootstrap.sh --verify
+```
+
+The check confirms these items.
+
+1. The file `lanl.duckdb` has the correct size.
+2. The database opens and the table `feat` has 29,905,488 rows.
+3. The two model files exist.
+4. The parquet file has 29,905,488 rows.
+
+## Settings for the installation
+
+| Name | Default | Meaning |
+|------|---------|---------|
+| `LANL_DUCKDB_ID` | Value in `bootstrap.sh` | Google Drive file ID for `lanl.duckdb` |
+| `LANL_DUCKDB_URL` | not set | Direct URL. This value replaces the Drive ID |
+| `USE_GPU` | `0` | Set `1` to install the CUDA version of PyTorch |
+| `VENV` | `venv` | The directory for the virtual environment |
+
+## Settings for running
+
+| Name | Default | Meaning |
+|------|---------|---------|
+| `LANL_DEV` | not set | Show the passwords and the TOTP codes on the login page |
+| `LANL_AUTOPLAY` | `1` | Start the replay when the system starts. Set `0` to start it with the Play button |
+| `LANL_REPLAY_SPEED` | `20` | Events each second. The range is 1 to 500 |
+
+**Warning:** `LANL_DEV` shows real passwords and real TOTP codes. Do not use this
+setting on a server that the public internet can reach.
 
 ## Data
 
-The dataset lives in `data/raw/lanl/lanl.duckdb` (tracked via Git LFS). It contains:
+The file `data/raw/lanl/lanl.duckdb` has a size of 9.7 GiB. It contains these
+tables.
 
-| Table | Rows | Purpose |
-|-------|------|---------|
-| `feat` | 29,905,488 | Engineered features (20 columns incl. `is_ntlm`) — used for training |
-| `auth_slice` | 29,905,488 | Raw auth events (9 columns) — used for demo seeding |
-| `redteam` | 702 | Red team attacker users |
+| Table | Rows | Use |
+|-------|------|-----|
+| `feat` | 29,905,488 | 21 features and 16 latent values for each event |
+| `auth_slice` | 29,905,488 | The raw authentication events |
+| `redteam` | 702 | The red team attackers |
 
-**Git LFS is required** to download the database (~1.2 GB):
+Git LFS does not carry this file. GitHub does not accept a Git LFS file that is
+bigger than 2 GB on the free plan. This file is 9.7 GiB. The script downloads it
+from Google Drive.
+
+Git LFS carries the models and the parquet files. The total size is 1.5 GB.
+
 ```bash
-# Install Git LFS (if not already installed)
-sudo apt install git-lfs   # Ubuntu/Debian
-# or: brew install git-lfs  # macOS
-
 git lfs install
-git lfs pull   # downloads the actual .duckdb file
+git lfs pull
 ```
 
----
+## How the system works
 
-## Retraining Models
+The system processes each event in these steps.
 
-### Retrain IF + LGB (production dual-model)
+1. The feature engine computes 21 features.
+2. The LSTM autoencoder computes the reconstruction error. This is feature 21.
+3. LightGBM computes the risk score.
+4. The threshold module sets the decision.
+
+The decision rules are as follows.
+
+| Condition | Decision |
+|-----------|----------|
+| The score is above 0.187195 | BLOCK |
+| The score is above 0.131 | FLAG |
+| The score is any other value | ALLOW |
+
+The model metrics for a held-out set are as follows.
+
+| Metric | Value |
+|--------|-------|
+| ROC-AUC | 0.9999 |
+| F1 | 0.4866 |
+| True positives | 136 of 240 |
+| False positives | 183 of 5,399,886 |
+
+The test set has 5,399,886 events. Of these, 240 are attacks.
+
+## Retraining the models
+
+You do not have to retrain the models for a demonstration. The models are in the
+repository.
+
+To retrain the Isolation Forest and LightGBM, run:
 
 ```bash
-python src/03_retrain_both.py --verbose
+venv/bin/python src/03_retrain_both.py --verbose
 ```
 
-- Reads `feat` table from `lanl.duckdb`
-- Outputs: `models/lanl_if.joblib` (2 MB), `models/lanl_lgb.joblib` (1 MB)
-- Runtime: ~5 min, requires ~6 GB RAM
-- See `reports/both_report.json` for metrics
+The run uses about 6 GB of RAM. It takes about 5 minutes. It writes
+`models/lanl_if.joblib` and `models/lanl_lgb.joblib`.
 
-### Rebuild the dataset from raw (rarely needed)
-
-Only if you downloaded the original LANL archive (`archive.zip`, 7.1 GB) and want
-to reproduce the 29.9M dataset from scratch — see `docs/PROJECT_STORY.md`:
+To rebuild the data from the original LANL archive, run:
 
 ```bash
-# 00: stream-audit all 1.05B events (writes users.txt), then slice to 604 users
-unzip -p ~/Downloads/archive.zip auth.txt/auth.txt | python src/00_build_slice.py count
-unzip -p ~/Downloads/archive.zip auth.txt/auth.txt | python src/00_build_slice.py slice
-python src/00_build_slice.py load            # -> auth_slice table + slice.parquet
-
-# 01: compute the 9 features (self-verifying against the existing feat table)
-python src/01_build_features.py
-
-# 02: per-feature separation probe (red-team vs normal behavior, ROC-AUCs)
-python src/02_feature_probe.py
+unzip -p ~/Downloads/archive.zip auth.txt/auth.txt | venv/bin/python src/00_build_slice.py count
+unzip -p ~/Downloads/archive.zip auth.txt/auth.txt | venv/bin/python src/00_build_slice.py slice
+venv/bin/python src/00_build_slice.py load
+venv/bin/python src/01_build_features.py
+venv/bin/python src/02_feature_probe.py
 ```
 
----
+You must download `archive.zip` first. The file has a size of 7.1 GB.
 
-## Project Structure
+## Project structure
 
 ```
 lanl-anomaly/
-├── data/raw/lanl/
-│   └── lanl.duckdb              # Full dataset (Git LFS, 1.2 GB)
-├── models/
-│   ├── lanl_if.joblib           # Isolation Forest (2 MB)
-│   └── lanl_lgb.joblib          # LightGBM (1 MB)
-├── src/                         # Training pipeline
-│   ├── 00_build_slice.py        # Stream 1.05B events -> audit + 604-user slice
-│   ├── 01_build_features.py     # 9 features via window SQL (self-verifying)
-│   ├── 02_feature_probe.py      # Per-feature separation probe (AUCs)
-│   └── 03_retrain_both.py       # Main: retrain IF + LGB
-├── live/                        # Live scoring system
-│   ├── scoring.py               # Core scoring engine
-│   ├── app.py                   # Flask backend (port 5000)
-│   ├── db.py                    # Database schema + helpers
-│   ├── seed_demo.py             # Seed demo DB from lanl.duckdb
-│   ├── vanilla-dashboard/       # HTML/CSS/JS dashboard
-│   │   ├── index.html
-│   │   ├── css/style.css
-│   │   ├── js/app.js            # Main app (router, pages, SSE)
-│   │   ├── js/api.js            # API client
-│   │   ├── js/charts.js         # Chart.js visualizations
-│   │   ├── js/components.js     # UI components
-│   │   ├── js/utils.js          # Utilities
-│   │   └── serve.py             # Static file proxy (port 8080)
-│   └── web/                     # React dashboard (optional, not used)
-├── docs/                        # Documentation
-│   ├── model_deep_dive.md       # Technical deep dive
-│   ├── phase2_ppt.md            # Presentation slides
-│   └── phase2_report.md         # Project report
-├── reports/                     # Analysis reports
-├── scripts/                     # Utility scripts
-├── requirements.txt             # Python dependencies
+├── data/
+│   ├── raw/lanl/
+│   │   ├── lanl.duckdb          # 9.7 GiB. The script downloads this file
+│   │   ├── users.txt            # 604 users
+│   │   ├── redteam.txt          # The attackers
+│   │   └── *.parquet            # Git LFS
+│   └── processed/
+│       └── lanl_scores.parquet  # Git LFS, 370 MB
+├── models/                      # Git LFS. LGB and LSTM-AE
+├── src/                         # The training scripts
+│   ├── 00_build_slice.py        # 1.05B events to a 604-user slice
+│   ├── 01_build_features.py     # The first 9 features
+│   ├── 02_feature_probe.py      # The ROC-AUC of each feature
+│   ├── 03_retrain_both.py       # Retrain IF and LGB
+│   ├── 04_lstm_surprisal.py     # LSTM surprisal
+│   ├── 05_lstm_autoencoder.py   # LSTM autoencoder
+│   └── 06_extract_latent.py     # The latent values
+├── live/                        # The live system
+│   ├── app.py                   # Flask, port 5000
+│   ├── scorer.py                # The scoring engine
+│   ├── replay.py                # The replay window
+│   ├── auth.py                  # Password and TOTP
+│   ├── db.py                    # Paths and the feature names
+│   ├── scoring.py               # Batch scoring
+│   ├── templates/               # Login, analyst, dataset, employee
+│   ├── static/                  # CSS, JavaScript, the diagram
+│   ├── test_audit.py            # 36 browser checks
+│   └── test_blind_event.py      # Blind event tests
+├── docs/                        # The documentation
+├── reports/                     # The metrics and the run log
+├── bootstrap.sh                 # The installation script
+├── requirements.txt             # The Python packages
 ├── SETUP.md                     # This file
-└── README.md                    # Project overview
+└── README.md                    # The project overview
 ```
 
----
-
-## Dashboard Architecture
+## Architecture
 
 ```
-Browser (port 8080 or 5000)
+Browser → http://localhost:5000
   │
-  ├── GET /api/dashboard     → KPIs, recent events, alerts
-  ├── GET /api/alerts        → Alert list
-  ├── GET /api/users         → User list
-  ├── POST /api/alerts/<id>/ack  → Acknowledge alert
-  ├── POST /api/reset        → Clear all live data
-  ├── GET /events/stream     → SSE (live score updates)
+  ├── GET  /api/dashboard          → KPIs, events, alerts
+  ├── GET  /api/replay/status      → The replay position
+  ├── POST /api/replay/start       → Start the replay
+  ├── POST /api/replay/stop        → Stop the replay
+  ├── POST /api/replay/reset       → Go to the first event
+  ├── POST /api/replay/jump_attack → Go to the next attack
+  ├── GET  /api/alerts             → The alerts
+  ├── GET  /api/users              → The users
+  ├── GET  /api/user_profile/<id>  → The baseline for one user
+  ├── POST /api/alerts/<id>/ack    → Acknowledge an alert
+  ├── GET  /api/model/metrics      → The metrics and the importances
+  ├── GET  /api/dataset/dashboard  → The KPIs for all 29.9M events
+  └── GET  /events/stream          → SSE
   │
-  └── Flask backend (port 5000)
-        ├── scoring.py       → IF + LGB + habit deviation
-        └── data/live.duckdb → Live state (users, events, alerts)
+  └── Flask, port 5000
+        ├── scorer.py  → 21 features → LGB + LSTM-AE
+        ├── replay.py  → The real events
+        └── auth.py    → Password and TOTP
 ```
 
-### Running the vanilla dashboard (two options)
+## Pages
 
-**Option A: Flask serves everything (recommended)**
+| Address | Page |
+|---------|------|
+| `/` | Goes to `/analyst`. Signs in as the analyst |
+| `/login` | The sign-in page |
+| `/analyst` | Live Monitoring |
+| `/analyst/dataset` | Dataset Analysis |
+| `/#/behavior` | Behavior Insights |
+| `/#/model` | Model Performance |
+| `/#/alerts` | Alerts |
+| `/#/users` | Users |
+| `/#/settings` | Settings |
+
+## Tests
+
+Start the system first. Then run:
+
 ```bash
-python -m live.app
-# Open http://localhost:5000/dashboard
+venv/bin/python test_live.py
+venv/bin/python live/test_audit.py
 ```
 
-**Option B: Separate proxy server**
-```bash
-# Terminal 1: Flask backend
-python -m live.app
-
-# Terminal 2: Vanilla dashboard proxy (port 8080)
-python live/vanilla-dashboard/serve.py
-# Open http://localhost:8080
-```
-
----
-
-## How It Works
-
-1. **Feature Engineering**: 9 features computed from raw auth events
-   - `dst_first`, `src_first` — first-time destination/source
-   - `hour_ratio` — hour-of-day ratio
-   - `dst_prior_events` — prior events to this destination
-   - `fail_1h` — failures in last hour
-   - `vel_1h` — velocity in last hour
-   - `hour_sin`, `hour_cos` — cyclical hour encoding
-   - `is_ntlm` — NTLM auth type flag
-
-2. **Scoring Pipeline**:
-   - Isolation Forest anomaly score (primary detector)
-   - LightGBM probability (displayed for transparency)
-   - Habit-deviation boost (per-user baseline)
-   - Combined score → BLOCK (>0.75) / FLAG (>0.65) / ALLOW
-
-3. **Metrics** (test set, 29.9M events):
-   | Model | ROC-AUC | PR-AUC | FPR |
-   |-------|---------|--------|-----|
-   | IF | 0.989 | 0.0063 | 0.00% |
-   | LGB | 0.847 | 0.0153 | 0.07% |
-   | Combined | **0.994** | **0.0323** | **0.02%** |
-
----
-
-## Team
-
-Hemanth Kumar KS, Urvashi Tanwar, Veenashree S T, Vishwanath Sanapur — guided by Dr. Anitha A C at GSKSJTI, CSE.
+The first script runs 9 checks. The second script runs 36 checks. Both scripts
+use Playwright.

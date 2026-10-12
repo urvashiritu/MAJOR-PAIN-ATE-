@@ -1163,5 +1163,21 @@ if __name__ == '__main__':
     _precompute_dashboard()
     print("initializing scorer...")
     _init_scorer()
+
+    # Start the replay without waiting for anyone to click Play. On a stage the
+    # dashboard showing zeros looks broken. Set LANL_AUTOPLAY=0 to opt out.
+    if os.environ.get('LANL_AUTOPLAY', '1') != '0':
+        _replay_events = _replay.get_events()
+        if os.environ.get('LANL_REPLAY_SPEED'):
+            try:
+                _replay_speed = max(1, min(500, int(os.environ['LANL_REPLAY_SPEED'])))
+            except ValueError:
+                print(f"  ignoring bad LANL_REPLAY_SPEED={os.environ['LANL_REPLAY_SPEED']!r}")
+        _replay_running = True
+        _replay_thread = threading.Thread(target=_replay_loop, daemon=True)
+        _replay_thread.start()
+        print(f"replay autoplaying at {_replay_speed}/s "
+              f"({len(_replay_events):,} events, {_replay.get_meta().get('attacks', 0)} attacks)")
+
     print("starting server on http://localhost:5000")
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)

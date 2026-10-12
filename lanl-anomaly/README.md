@@ -1,89 +1,147 @@
-# LANL Anomaly Detection System
+# LANL Anomaly Detection
 
-AI-powered authentication anomaly detection on 29.9M events from Los Alamos National Laboratory.
+This system finds abnormal authentication activity. It uses 29,905,488
+authentication events from Los Alamos National Laboratory (LANL).
 
 ## Architecture
 
-[Interactive Architecture Diagram](live/static/lanl-ueba-architecture.html) — open in browser, click nodes for details, toggle themes.
+[Interactive diagram](live/static/lanl-ueba-architecture.html) — open the file in
+a browser. Click a node for details. Use the button to change the theme.
 
 ```
 ┌─────────────┐    ┌──────────────┐    ┌──────────────┐    ┌─────────────┐
 │  Employees  │───▶│  Flask API   │───▶│  Feature Eng │───▶│  LGB-21     │
 │  (4 users)  │    │  :5000       │    │  21 feats    │    │  Model      │
 └─────────────┘    └──────────────┘    └──────┬───────┘    └──────┬──────┘
-                                              │                   │
-                                     ┌────────▼────────┐   ┌──────▼──────┐
-                                     │  LSTM-AE        │──▶│  Threshold  │
-                                     │  Recon Error    │   │  BLOCK/FLAG │
-                                     │  (Feature 21)   │   └──────┬──────┘
-                                     └─────────────────┘          │
-                                                    ┌─────────────▼─────────────┐
-                                                    │  SSE Stream → Dashboard   │
-                                                    │  ECharts + Alerts         │
-                                                    └───────────────────────────┘
+                                               │                   │
+                                      ┌────────▼────────┐   ┌──────▼──────┐
+                                      │  LSTM-AE        │──▶│  Threshold  │
+                                      │  Recon Error    │   │  BLOCK/FLAG │
+                                      │  (Feature 21)   │   └──────┬──────┘
+                                      └─────────────────┘          │
+                                                     ┌─────────────▼─────────────┐
+                                                     │  SSE Stream → Dashboard   │
+                                                     │  ECharts + Alerts         │
+                                                     └───────────────────────────┘
 ```
 
-**Data layer:** DuckDB (29.9M events, read-only) + Parquet (precomputed scores) + Model files (.joblib + .pt)
+The data layer consists of these items.
 
-## Prerequisites
+| Item | Size | Use |
+|------|------|-----|
+| `data/raw/lanl/lanl.duckdb` | 9.7 GiB | Source events. Read only |
+| `data/processed/lanl_scores.parquet` | 370 MB | Model scores for 29.9M events |
+| `models/*.joblib`, `models/*.pt` | 17.6 MB | LGB and LSTM-AE weights |
 
-- Python 3.12+
-- pip
-- Git
+## Requirements
+
+You must have these items.
+
+- Python 3.12 or later
+- Git with Git LFS
+- 12 GB free disk space
+- 16 GB RAM
+
+The GPU is not necessary. The models run on the CPU.
 
 ## Setup
 
 ```bash
-# 1. Clone
+# 1. Get the code
 git clone -b feature/lanl-rebuild https://github.com/urvashiritu/MAJOR-PAIN-ATE-.git
 cd MAJOR-PAIN-ATE-/lanl-anomaly
 
-# 2. Install dependencies
-pip install -r requirements.txt
-pip install gdown
+# 2. Install Git LFS
+sudo apt install git-lfs
+git lfs install
 
-# 3. Download dataset (~1.2 GB)
-mkdir -p data/raw/lanl
-gdown 147vxAEqS7hGj_KDSG8JJc2hLNq4lyd4c -O data/raw/lanl/lanl.duckdb
+# 3. Install the packages, download the data, and verify the setup
+./bootstrap.sh
 
-# 4. Train
-python src/03_retrain_both.py --verbose
+# 4. Start the system
+LANL_DEV=1 venv/bin/python -m live.app
+
+# 5. Open the dashboard
+#    The address is http://localhost:5000
 ```
 
-Models save to `models/lanl_if.joblib` and `models/lanl_lgb.joblib`.
+The script downloads 1.5 GB from Git LFS and 9.7 GiB from Google Drive. The
+Google Drive file must have the sharing setting "Anyone with the link".
+
+See `SETUP.md` for the full list of settings.
 
 ## Dataset
 
-Download: [Google Drive](https://drive.google.com/file/d/147vxAEqS7hGj_KDSG8JJc2hLNq4lyd4c/view?usp=sharing)
+The file `lanl.duckdb` contains these tables.
 
-The `lanl.duckdb` file contains:
-
-| Table | Rows | Description |
-|-------|------|-------------|
-| `feat` | 29,905,488 | Engineered features used for training |
+| Table | Rows | Use |
+|-------|------|-----|
+| `feat` | 29,905,488 | 21 features for each event |
 | `auth_slice` | 29,905,488 | Raw authentication events |
-| `redteam` | 702 | Red team attacker users |
+| `redteam` | 702 | Red team attackers |
 
-## Training
+The system scores the events as follows.
+
+1. The feature engine computes 21 features for each event.
+2. The LSTM autoencoder computes the reconstruction error. This is feature 21.
+3. LightGBM computes the risk score.
+4. The threshold module sets the decision. The value is BLOCK above 0.1872, FLAG
+   above 0.131, or ALLOW for all other values.
+
+## Results
+
+The model was tested on a held-out set. The split groups the data by user, so no
+user appears in both the training set and the test set.
+
+| Metric | Value |
+|--------|-------|
+| ROC-AUC | 0.9999 |
+| F1 | 0.4866 |
+| True positives | 136 of 240 |
+| False positives | 183 of 5,399,886 |
+
+Over the complete dataset the system found 590 of 702 attacks. This is 84%.
+
+## Retraining
+
+You do not have to retrain for the demo. The models are in the repository.
+
+To retrain the Isolation Forest and LightGBM, run:
 
 ```bash
-# Retrain IF + LightGBM (production dual-model)
-python src/03_retrain_both.py --verbose
+venv/bin/python src/03_retrain_both.py --verbose
 ```
 
-The full pipeline from raw data (rarely needed — the dataset above is ready to use):
+The run uses about 6 GB of RAM. It takes about 5 minutes.
+
+To rebuild the dataset from the original LANL archive, run:
 
 ```bash
-# 00: audit the 1.05B stream -> users.txt, then slice to 604 users -> slice.csv.gz
-unzip -p ~/Downloads/archive.zip auth.txt/auth.txt | python src/00_build_slice.py count
-unzip -p ~/Downloads/archive.zip auth.txt/auth.txt | python src/00_build_slice.py slice
-python src/00_build_slice.py load          # slice.csv.gz -> auth_slice + slice.parquet
-
-# 01: compute the 9 features -> feat table + feat.parquet (self-verifying)
-python src/01_build_features.py
-
-# 02: per-feature separation probe (AUCs of attacks vs normal behavior)
-python src/02_feature_probe.py
+unzip -p ~/Downloads/archive.zip auth.txt/auth.txt | venv/bin/python src/00_build_slice.py count
+unzip -p ~/Downloads/archive.zip auth.txt/auth.txt | venv/bin/python src/00_build_slice.py slice
+venv/bin/python src/00_build_slice.py load
+venv/bin/python src/01_build_features.py
+venv/bin/python src/02_feature_probe.py
 ```
 
-Runtime: ~5 minutes, requires ~6 GB RAM.
+## Tests
+
+Start the server first. Then run:
+
+```bash
+venv/bin/python test_live.py        # 9 checks, including the browser
+venv/bin/python live/test_audit.py  # 36 checks
+```
+
+Both scripts require Playwright. Run `./bootstrap.sh --deps-only` first, then
+`venv/bin/pip install playwright && venv/bin/playwright install chromium`.
+
+## Documentation
+
+| File | Content |
+|------|---------|
+| `SETUP.md` | Installation and running |
+| `LIVE_README.md` | Architecture of the live system |
+| `docs/model_deep_dive.md` | Model design |
+| `docs/FEATURE_ENGINEERING_SUMMARY.md` | Feature design |
+| `reports/experiment_log.md` | All 14 runs |

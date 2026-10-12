@@ -308,6 +308,13 @@
         setActiveNav('dashboard');
 
         content.innerHTML = `
+            <div class="headline-bar mb-4" id="headline-bar">
+                <div class="headline-stat"><span class="headline-num" id="hl-events">&mdash;</span><span class="headline-label">Events scored</span></div>
+                <div class="headline-stat"><span class="headline-num" id="hl-caught">&mdash;</span><span class="headline-label">Attacks caught</span></div>
+                <div class="headline-stat"><span class="headline-num" id="hl-auc">&mdash;</span><span class="headline-label">ROC-AUC</span></div>
+                <div class="headline-stat"><span class="headline-num" id="hl-rate">&mdash;</span><span class="headline-label">Detection rate</span></div>
+            </div>
+
             <div class="grid-4 gap-4 mb-4" id="kpi-grid">
                 ${LIVE_KPI_DEFS.map((k, i) => kpiCard(k, null, 'spark-' + k.key)).join('')}
             </div>
@@ -430,6 +437,7 @@
             </div>`;
 
         await loadDashboard();
+        loadHeadlineBar();
         initLiveCharts();
         updateLiveCharts();
         updateNarrative();
@@ -440,6 +448,24 @@
         setTimeout(() => {
             _echartsInstances.forEach(c => { try { c.resize(); } catch(e){} });
         }, 300);
+    }
+
+    async function loadHeadlineBar() {
+        // Everything here is read from the API rather than hardcoded, so the
+        // headline numbers can never drift from what the model actually scored.
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        try {
+            const ds = await fetch('/api/dataset/dashboard').then(r => r.json()).catch(() => null);
+            if (ds && ds.kpis) {
+                set('hl-events', fmt(ds.kpis.total_events));
+                set('hl-caught', fmt(ds.kpis.detections) + ' / ' + fmt(ds.kpis.red_events));
+                set('hl-rate', ds.kpis.detection_rate + '%');
+            }
+            const mm = await API.modelMetrics().catch(() => null);
+            if (mm && mm.held_out) set('hl-auc', Number(mm.held_out.roc_auc).toFixed(4));
+        } catch (e) {
+            // A missing headline is not worth breaking the dashboard over.
+        }
     }
 
     async function loadDashboard() {

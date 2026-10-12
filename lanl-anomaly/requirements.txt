@@ -1,6 +1,15 @@
+# Core
 duckdb>=1.0.0
 numpy>=2.0.0
 scikit-learn>=1.5.0
 joblib>=1.3.0
 lightgbm>=4.0.0
 flask>=3.0.0
+
+# Required by live/ — without these, `python -m live.app` dies at import.
+# pandas/pyarrow: read the scores parquet. pyotp: TOTP auth.
+# torch: the LSTM autoencoder in live/scorer.py.
+pandas>=2.0.0
+pyarrow>=14.0.0
+pyotp>=2.9.0
+torch>=2.0.0
