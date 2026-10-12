@@ -10,14 +10,18 @@ authentication events from Los Alamos National Laboratory.
 git clone -b feature/lanl-rebuild https://github.com/urvashiritu/MAJOR-PAIN-ATE-.git
 cd MAJOR-PAIN-ATE-/lanl-anomaly
 
-# 2. Install Git LFS
-sudo apt install git-lfs
+# 2. Copy the database into this directory before you continue
+#    Copy lanl.duckdb.zst (5.6 GB) into data/raw/lanl/
+#    See "Copying the database" below.
+
+# 3. Install Git LFS
+sudo apt install git-lfs zstd
 git lfs install
 
-# 3. Install the packages, download the data, and check the setup
+# 4. Install the packages and check the setup
 ./bootstrap.sh
 
-# 4. Start the system
+# 5. Start the system
 LANL_DEV=1 venv/bin/python -m live.app
 ```
 
@@ -44,17 +48,13 @@ version. That install uses about 5.9 GB.
 Run `./bootstrap.sh` again. The script continues an install that stopped. The
 script does not change a correct file.
 
-The script downloads 9.7 GiB from Google Drive. This download is slow. Start it
-before the event.
-
 ## Copying the database with a cable or a memory stick
 
-This method does not use the network. Use this method when the upload is too
-slow, or when the event has no internet connection.
+The script does not download the database. You must copy the file to the
+computer. Use a memory stick, a phone cable, or a network share.
 
-1. Copy `lanl.duckdb.zst` (5.6 GB) to the new computer. You can use a memory
-   stick, a phone cable, or a network share. The file name must stay
-   `lanl.duckdb.zst`.
+1. Copy `lanl.duckdb.zst` (5,613,536,885 bytes) to the new computer. The file
+   name must stay `lanl.duckdb.zst`.
 2. Put the file in this directory:
    ```
    <repo>/data/raw/lanl/
@@ -64,13 +64,15 @@ slow, or when the event has no internet connection.
    ./bootstrap.sh
    ```
 
-The script finds the file. It does not download anything. It decompresses the
-file and then checks the result.
+The script finds the file and decompresses it. The script does not use the
+network for the database.
 
-You can also copy `lanl.duckdb` (9.7 GiB) instead. The script uses this file
-directly and does not decompress it.
+You can also copy `lanl.duckdb` (10,399,002,624 bytes) instead. The script uses
+this file directly and does not decompress it.
 
-To check a machine without changing it, run:
+## Checking a machine without changing it
+
+Run:
 
 ```bash
 ./bootstrap.sh --verify
@@ -88,8 +90,6 @@ The check confirms these items.
 
 | Name | Default | Meaning |
 |------|---------|---------|
-| `LANL_DUCKDB_ID` | Value in `bootstrap.sh` | Google Drive file ID for `lanl.duckdb.zst` |
-| `LANL_DUCKDB_URL` | not set | Direct URL. This value replaces the Drive ID |
 | `USE_GPU` | `0` | Set `1` to install the CUDA version of PyTorch |
 | `VENV` | `venv` | The directory for the virtual environment |
 
@@ -120,11 +120,15 @@ The `feat` table has 702 rows where `is_red` is true. The system found 590 of
 these rows.
 
 Git LFS does not carry this file. GitHub does not accept a Git LFS file that is
-bigger than 2 GB on the free plan. This file is 9.7 GiB. The script downloads it
-from Google Drive.
+bigger than 2 GB on the free plan. This file is 9.7 GiB. You must copy the file
+to each computer.
 
-The script downloads a compressed copy named `lanl.duckdb.zst`. The size of this
-file is 5,613,536,885 bytes. The script decompresses it after the download.
+Copy the compressed file instead. It is 2.78 times smaller:
+
+| File | Size |
+|------|------|
+| `lanl.duckdb` | 10,399,002,624 bytes |
+| `lanl.duckdb.zst` | 5,613,536,885 bytes |
 
 To make the compressed file, run:
 
@@ -132,12 +136,8 @@ To make the compressed file, run:
 zstd -19 -T0 -f data/raw/lanl/lanl.duckdb -o data/raw/lanl/lanl.duckdb.zst
 ```
 
-Then upload `lanl.duckdb.zst` to Google Drive. Set the sharing to "Anyone with
-the link". Then set `LANL_DUCKDB_ID` in `bootstrap.sh` to the file ID from the
-address bar.
-
-The disk needs 14 GB during the setup. The script needs the space for both the
-compressed file and the database.
+The disk needs 14 GB during the setup. The disk needs this space for the
+compressed file and for the database.
 
 Git LFS carries the models and the parquet files. The total size is 1.5 GB.
 

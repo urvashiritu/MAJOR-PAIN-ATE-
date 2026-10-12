@@ -52,11 +52,14 @@ The GPU is not necessary. The models run on the CPU.
 git clone -b feature/lanl-rebuild https://github.com/urvashiritu/MAJOR-PAIN-ATE-.git
 cd MAJOR-PAIN-ATE-/lanl-anomaly
 
-# 2. Install Git LFS
-sudo apt install git-lfs
+# 2. Copy the database into data/raw/lanl/ before you continue.
+#    The file is lanl.duckdb.zst (5,613,536,885 bytes). See SETUP.md.
+
+# 3. Install Git LFS and zstd
+sudo apt install git-lfs zstd
 git lfs install
 
-# 3. Install the packages, download the data, and verify the setup
+# 4. Install the packages and check the setup
 ./bootstrap.sh
 
 # 4. Start the system
@@ -66,13 +69,9 @@ LANL_DEV=1 venv/bin/python -m live.app
 #    The address is http://localhost:5000
 ```
 
-The script downloads 1.5 GB from Git LFS and 5.6 GB from Google Drive. The
-script decompresses the second file. The Google Drive file must have the sharing
-setting "Anyone with the link".
-
-You can also copy `lanl.duckdb.zst` to `<repo>/data/raw/lanl/` with a memory
-stick or a phone cable. The script uses this file and downloads nothing. See
-`SETUP.md` for the full list of settings.
+The script fetches 1.5 GB from Git LFS. It does not fetch the database. Copy
+`lanl.duckdb.zst` into `data/raw/lanl/` before you run the script. A memory
+stick or a phone cable works. See `SETUP.md` for the instructions.
 
 ## Dataset
 
@@ -97,8 +96,8 @@ The system scores the events as follows.
 
 ## Results
 
-The model was tested on a held-out set. The split groups the data by user, so no
-user appears in both the training set and the test set.
+The team tested the model on a held-out set. The split groups the data by user.
+No user appears in both the training set and the test set.
 
 | Metric | Value |
 |--------|-------|

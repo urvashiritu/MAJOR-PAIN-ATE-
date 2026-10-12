@@ -78,11 +78,11 @@ The threshold is 0.187195. The flag threshold is 0.7 of this value.
 The replay window contains events 765000 through 767000. The window has 9,954
 real events. Of these, 20 are red team attacks.
 
-The window was chosen for one reason. Source machine `C17693` authenticates as
-many users against many new destinations. This is lateral movement.
+The team chose the window for one reason. Source machine `C17693` authenticates
+as many users against many new destinations. This activity is lateral movement.
 
-Run 14 scored the complete dataset. It found 590 of 702 attacks. It also gave 349
-false positives.
+Run 14 scored the complete dataset. The run found 590 of 702 attacks. The run
+also gave 349 false positives.
 
 ## Running
 
@@ -160,8 +160,8 @@ The values in this table are test data. They are not real accounts.
 | `ashborn` | U66@DOM1 | monarch99 | employee | ALLOW |
 | `soc_admin` | none | defender | analyst | Dashboard |
 
-The secrets are in `live/.totp_secrets.json`. The file is created on the first
-run. It is not in Git.
+The script stores the secrets in `live/.totp_secrets.json`. The script creates
+the file on the first run. Git does not track the file.
 
 ## Known limits
 
