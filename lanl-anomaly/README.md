@@ -29,7 +29,8 @@ The data layer consists of these items.
 
 | Item | Size | Use |
 |------|------|-----|
-| `data/raw/lanl/lanl.duckdb` | 9.7 GiB | Source events. Read only |
+| `data/raw/lanl/lanl.duckdb.zst` | 3.75 GB | The compressed source events |
+| `data/raw/lanl/lanl.duckdb` | 9.7 GiB | The source events after decompression. Read only |
 | `data/processed/lanl_scores.parquet` | 370 MB | Model scores for 29.9M events |
 | `models/*.joblib`, `models/*.pt` | 17.6 MB | LGB and LSTM-AE weights |
 
@@ -65,8 +66,9 @@ LANL_DEV=1 venv/bin/python -m live.app
 #    The address is http://localhost:5000
 ```
 
-The script downloads 1.5 GB from Git LFS and 9.7 GiB from Google Drive. The
-Google Drive file must have the sharing setting "Anyone with the link".
+The script downloads 1.5 GB from Git LFS and 3.75 GB from Google Drive. The
+script decompresses the second file. The Google Drive file must have the sharing
+setting "Anyone with the link".
 
 See `SETUP.md` for the full list of settings.
 
@@ -78,7 +80,10 @@ The file `lanl.duckdb` contains these tables.
 |-------|------|-----|
 | `feat` | 29,905,488 | 21 features for each event |
 | `auth_slice` | 29,905,488 | Raw authentication events |
-| `redteam` | 702 | Red team attackers |
+| `redteam` | 749 | 104 red team attackers, one row per event |
+
+The `feat` table has 702 rows where `is_red` is true. The system found 590 of
+these rows.
 
 The system scores the events as follows.
 

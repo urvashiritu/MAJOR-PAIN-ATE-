@@ -12,13 +12,17 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
 # ── Config ────────────────────────────────────────────────────────────
-# Google Drive file id for lanl.duckdb. Sharing must be "Anyone with the link".
-LANL_DUCKDB_ID="${LANL_DUCKDB_ID:-147vxAEqS7hGj_KDSG8JJc2hLNq4lyd4c}"
+# Google Drive file id for lanl.duckdb.zst. The sharing must be
+# "Anyone with the link". Override with LANL_DUCKDB_ID or LANL_DUCKDB_URL.
+LANL_DUCKDB_ID="${LANL_DUCKDB_ID:-REPLACE_WITH_YOUR_DRIVE_FILE_ID}"
 LANL_DUCKDB_URL="${LANL_DUCKDB_URL:-}"
 
 DUCKDB_PATH="data/raw/lanl/lanl.duckdb"
-DUCKDB_BYTES=10399002624        # exact size of the real database
+ZST_PATH="data/raw/lanl/lanl.duckdb.zst"   # the file you host
+DUCKDB_BYTES=10399002624        # size of the database after decompression
 DUCKDB_MIN_BYTES=9000000000     # refuse anything meaningfully smaller
+ZST_MIN_BYTES=3000000000        # smallest compressed file we accept
+ZST_MAX_BYTES=4500000000        # largest compressed file we accept
 VENV="${VENV:-venv}"
 PY="$VENV/bin/python"
 
@@ -29,6 +33,8 @@ ok()   { printf '\033[1;32m  ok\033[0m  %s\n' "$*"; }
 warn() { printf '\033[1;33m  !!\033[0m  %s\n' "$*"; }
 die()  { printf '\033[1;31m  XX\033[0m  %s\n' "$*" >&2; exit 1; }
 
+file_size() { stat -c %s "$1" 2>/dev/null || stat -f %z "$1"; }
+
 # ── Verify the dataset is real and usable ─────────────────────────────
 verify_duckdb() {
   say "Verifying dataset"
@@ -38,7 +44,7 @@ verify_duckdb() {
   fi
 
   local size
-  size=$(stat -c %s "$DUCKDB_PATH" 2>/dev/null || stat -f %z "$DUCKDB_PATH")
+  size=$(file_size "$DUCKDB_PATH")
   printf '  size: %s bytes (expected %s)\n' "$size" "$DUCKDB_BYTES"
 
   if [[ "$size" -lt "$DUCKDB_MIN_BYTES" ]]; then
@@ -53,7 +59,8 @@ import sys, duckdb
 con = duckdb.connect(sys.argv[1], read_only=True)
 n = con.execute("SELECT COUNT(*) FROM feat").fetchone()[0]
 assert n > 29_000_000, f"feat has only {n:,} rows, expected ~29.9M"
-print(f"  feat rows: {n:,}")
+red = con.execute("SELECT COUNT(*) FROM feat WHERE is_red").fetchone()[0]
+print(f"  feat rows: {n:,}  (red: {red})")
 PYEOF
   ok "dataset opens and feat is intact"
 }
@@ -87,38 +94,73 @@ PYEOF
   ok "scores parquet readable"
 }
 
-# ── Fetch the dataset ────────────────────────────────────────────────
-fetch_duckdb() {
-  say "Fetching lanl.duckdb (~9.7 GiB)"
-  mkdir -p "$(dirname "$DUCKDB_PATH")"
+# ── Fetch and decompress the dataset ──────────────────────────────────
+decompress_duckdb() {
+  say "Decompressing lanl.duckdb.zst (about 3.7 GB to 9.7 GiB)"
 
-  if [[ -f "$DUCKDB_PATH" ]]; then
+  command -v zstd >/dev/null || die "zstd is not installed. Install it with: sudo apt install zstd"
+
+  # Decompress to a temporary name. A partial write must never look complete.
+  local tmp="${DUCKDB_PATH}.partial"
+  rm -f "$tmp"
+  zstd -d -T0 -f "$ZST_PATH" -o "$tmp" || die "zstd could not read $ZST_PATH. The download is probably truncated."
+
+  local size
+  size=$(file_size "$tmp")
+  [[ "$size" -eq "$DUCKDB_BYTES" ]] || die "decompressed to $size bytes, expected $DUCKDB_BYTES"
+
+  mv "$tmp" "$DUCKDB_PATH"
+  ok "decompressed to $(numfmt --to=iec "$size")"
+}
+
+fetch_zst() {
+  say "Fetching lanl.duckdb.zst (about 3.7 GB)"
+  mkdir -p "$(dirname "$ZST_PATH")"
+
+  if [[ -f "$ZST_PATH" ]]; then
     local size
-    size=$(stat -c %s "$DUCKDB_PATH" 2>/dev/null || stat -f %z "$DUCKDB_PATH")
-    if [[ "$size" -eq "$DUCKDB_BYTES" ]]; then
-      ok "already present and correct size — skipping download"
+    size=$(file_size "$ZST_PATH")
+    if [[ "$size" -ge "$ZST_MIN_BYTES" && "$size" -le "$ZST_MAX_BYTES" ]]; then
+      ok "already downloaded ($size bytes)"
       return
     fi
-    warn "existing file is $size bytes, resuming"
+    warn "existing .zst is $size bytes, resuming"
+  fi
+
+  if [[ "$LANL_DUCKDB_ID" == "REPLACE_WITH_YOUR_DRIVE_FILE_ID" && -z "$LANL_DUCKDB_URL" ]]; then
+    die "set LANL_DUCKDB_ID to your Google Drive file id, or set LANL_DUCKDB_URL to a direct link. See SETUP.md"
   fi
 
   if [[ -z "$LANL_DUCKDB_URL" ]]; then
     "$PY" -m pip install -q gdown || die "could not install gdown"
-    # gdown is the happy path. It is known to fail on some large Drive files.
-    if "$PY" -m gdown "$LANL_DUCKDB_ID" -O "$DUCKDB_PATH" --continue;
-      then
-        ok "gdown finished"
-        return
-      fi
-    warn "gdown failed, falling back to curl with confirm token"
+    # gdown is the first choice. It fails on some large Drive files.
+    if "$PY" -m gdown "$LANL_DUCKDB_ID" -O "$ZST_PATH" --continue; then
+      ok "gdown finished"
+      return
+    fi
+    warn "gdown failed, using curl with the confirm token"
   fi
 
-  # Drive serves an HTML "too big for virus scan" page above ~100 MB.
-  # confirm=t skips it; -C - resumes a partial file.
+  # Drive serves an HTML page instead of files above about 100 MB.
+  # The token skips this page. -C - resumes a partial file.
   curl -fL --retry 10 --retry-delay 5 -C - \
-       -o "$DUCKDB_PATH" \
+       -o "$ZST_PATH" \
        "${LANL_DUCKDB_URL:-https://drive.usercontent.google.com/download?id=${LANL_DUCKDB_ID}&export=download&confirm=t}"
   ok "curl finished"
+}
+
+fetch_duckdb() {
+  if [[ -f "$DUCKDB_PATH" ]]; then
+    local size
+    size=$(file_size "$DUCKDB_PATH")
+    if [[ "$size" -eq "$DUCKDB_BYTES" ]]; then
+      ok "lanl.duckdb is already correct — no download necessary"
+      return
+    fi
+    warn "lanl.duckdb is $size bytes, which is not correct"
+  fi
+  fetch_zst
+  decompress_duckdb
 }
 
 install_deps() {

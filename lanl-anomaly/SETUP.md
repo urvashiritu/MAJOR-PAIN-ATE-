@@ -64,7 +64,7 @@ The check confirms these items.
 
 | Name | Default | Meaning |
 |------|---------|---------|
-| `LANL_DUCKDB_ID` | Value in `bootstrap.sh` | Google Drive file ID for `lanl.duckdb` |
+| `LANL_DUCKDB_ID` | Value in `bootstrap.sh` | Google Drive file ID for `lanl.duckdb.zst` |
 | `LANL_DUCKDB_URL` | not set | Direct URL. This value replaces the Drive ID |
 | `USE_GPU` | `0` | Set `1` to install the CUDA version of PyTorch |
 | `VENV` | `venv` | The directory for the virtual environment |
@@ -89,11 +89,31 @@ tables.
 |-------|------|-----|
 | `feat` | 29,905,488 | 21 features and 16 latent values for each event |
 | `auth_slice` | 29,905,488 | The raw authentication events |
-| `redteam` | 702 | The red team attackers |
+| `redteam` | 749 | 104 red team attackers, one row per event |
+| `redteam_distinct` | 715 | The red team attackers |
+
+The `feat` table has 702 rows where `is_red` is true. The system found 590 of
+these rows.
 
 Git LFS does not carry this file. GitHub does not accept a Git LFS file that is
 bigger than 2 GB on the free plan. This file is 9.7 GiB. The script downloads it
 from Google Drive.
+
+The script downloads a compressed copy named `lanl.duckdb.zst`. The size of this
+file is 3.75 GB. The script decompresses it after the download.
+
+To make the compressed file, run:
+
+```bash
+zstd -19 -T0 -f data/raw/lanl/lanl.duckdb -o data/raw/lanl/lanl.duckdb.zst
+```
+
+Then upload `lanl.duckdb.zst` to Google Drive. Set the sharing to "Anyone with
+the link". Then set `LANL_DUCKDB_ID` in `bootstrap.sh` to the file ID from the
+address bar.
+
+The disk needs 14 GB during the setup. The script needs the space for both the
+compressed file and the database.
 
 Git LFS carries the models and the parquet files. The total size is 1.5 GB.
 

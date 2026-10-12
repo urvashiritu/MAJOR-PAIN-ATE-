@@ -11,6 +11,7 @@ screenshots/
 .zcode/
 data/**/*.duckdb
 data/**/*.duckdb.wal
+data/**/*.zst
 data/**/*.csv.gz
 node_modules/
 dist/
