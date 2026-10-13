@@ -38,6 +38,7 @@ The data layer consists of these items.
 
 You must have these items.
 
+- Linux, or Windows using WSL
 - Python 3.12 or later
 - Git with Git LFS
 - 12 GB free disk space

@@ -33,6 +33,7 @@ The replay starts by itself. The dashboard has data when the system is ready.
 
 | Item | Requirement |
 |------|-------------|
+| Operating system | Linux, or Windows using WSL |
 | Python | 3.12 or later |
 | Git | With Git LFS |
 | Disk space | 12 GB or more |
