@@ -312,7 +312,7 @@
             <div class="headline-bar mb-2" id="headline-bar">
                 <div class="headline-stat"><span class="headline-num" id="hl-events">&mdash;</span><span class="headline-label">Events scored</span></div>
                 <div class="headline-stat"><span class="headline-num" id="hl-caught">&mdash;</span><span class="headline-label" id="hl-caught-label">Attacks caught</span></div>
-                <div class="headline-stat"><span class="headline-num" id="hl-auc">&mdash;</span><span class="headline-label">ROC-AUC</span></div>
+                <div class="headline-stat"><span class="headline-num" id="hl-auc">&mdash;</span><span class="headline-label">PR-AUC</span></div>
                 <div class="headline-stat"><span class="headline-num" id="hl-rate">&mdash;</span><span class="headline-label" id="hl-rate-label">Detection rate</span></div>
             </div>
             <div class="text-11 text-faint mb-4" id="hl-population"></div>
@@ -509,7 +509,10 @@
                     : (ds.kpis.population || ''));
             }
             const mm = await API.modelMetrics().catch(() => null);
-            if (mm && mm.held_out) set('hl-auc', Number(mm.held_out.roc_auc).toFixed(4));
+            // PR-AUC, not ROC-AUC. At 0.0044% attack prevalence ROC-AUC is near-saturated
+            // by construction; PR-AUC against the random baseline is the figure
+            // that discriminates. ROC-AUC stays in /api/model/metrics.
+            if (mm && mm.held_out) set('hl-auc', Number(mm.held_out.pr_auc).toFixed(4));
         } catch (e) {
             // A missing headline is not worth breaking the dashboard over.
         }
@@ -1580,17 +1583,26 @@
         }
         // Every figure below comes from the model bundle. If a metric is
         // missing from it, say so rather than falling back to a literal.
-        if (!held || held.roc_auc == null) {
+        // pr_auc is the gate: ROC-AUC is near-saturated at this class ratio, so
+        // the page is only truthful if it can show the metric that discriminates.
+        if (!held || held.pr_auc == null) {
             content.innerHTML = '<div class="dash-greeting"><h2>Model Performance</h2></div>' +
                 '<div class="insight-box" style="border-color:var(--critical)">' +
                 '<b>Held-out metrics not recorded.</b> ' + esc('models/lanl_lgb_21feat.joblib') +
-                ' carries no roc_auc key, so this page has nothing truthful to show.</div>';
+                ' carries no pr_auc key, so this page has nothing truthful to show.</div>';
             return;
         }
         const num = (v, d) => (v == null ? 'not recorded' : v.toFixed(d));
         const pct = (v) => (v == null ? 'not recorded' : (v * 100).toFixed(1) + '%');
         const fpr = held.fp / split.test_rows;
         const recall = held.tp / split.test_reds;
+        // A random ranker scores PR-AUC equal to the attack prevalence, which is
+        // the baseline every PR number has to be read against. At this class
+        // ratio that baseline is ~4e-5, so quoting PR-AUC alone understates it.
+        const prevalence = split.test_reds / split.test_rows;
+        const lift = prevalence > 0 ? held.pr_auc / prevalence : null;
+        const liftTxt = lift == null ? 'not available'
+            : lift.toLocaleString('en-US', { maximumFractionDigits: 0 }) + '× random';
         const mx = Math.max(...fi.map(f => f.v), 1);
         const bars = fi.slice().sort((a,b) => b.v - a.v).map(f =>
             '<div class="feature-bar-row"><div class="feature-bar-label">' + esc(f.n) + '</div>' +
@@ -1598,10 +1610,17 @@
             '<div class="feature-bar-val">' + f.v.toLocaleString() + '</div></div>'
         ).join('');
         content.innerHTML = '<div class="dash-greeting"><h2>Model Performance</h2><p>LGB-21 ensemble \u2014 LightGBM + LSTM Autoencoder.</p></div>' +
-            '<div class="grid-3 gap-4 mb-4">'+
-            '<div class="insight-card"><h4>ROC-AUC</h4><div class="tape-num" style="color:var(--low)">'+num(held.roc_auc, 4)+'</div></div>'+
+            '<div class="grid-4 gap-4 mb-4">'+
+            '<div class="insight-card"><h4>PR-AUC</h4><div class="tape-num" style="color:var(--low)">'+num(held.pr_auc, 4)+'</div><div class="text-10 text-faint">random baseline '+prevalence.toExponential(1)+'</div></div>'+
+            '<div class="insight-card"><h4>Lift over random</h4><div class="tape-num" style="color:var(--info)">'+liftTxt+'</div><div class="text-10 text-faint">attacks are '+(prevalence*100).toFixed(4)+'% of the test split</div></div>'+
             '<div class="insight-card"><h4>F1 Score</h4><div class="tape-num" style="color:var(--info)">'+num(held.f1, 4)+'</div></div>'+
             '<div class="insight-card"><h4>Threshold</h4><div class="tape-num" style="color:var(--ochre)">'+num(held.threshold, 4)+'</div></div></div>'+
+            '<div class="insight-box" style="border-color:var(--hairline)">'+
+            '<b>Why PR-AUC and not ROC-AUC.</b> ROC-AUC for this model is '+num(held.roc_auc, 4)+
+            ', but at '+(prevalence*100).toFixed(4)+'% attack prevalence ROC-AUC is near-saturated by construction and separates almost nothing. '+
+            'PR-AUC against a '+prevalence.toExponential(1)+' random baseline is the metric that carries information here. '+
+            'ROC-AUC is still reported by /api/model/metrics, it is just not a headline figure.'+
+            '</div>'+
             '<div class="grid-2 gap-4 mb-4">'+
             '<div class="insight-card"><h4>Detection Performance</h4>'+
             '<div class="grid-2 gap-4" style="margin-top:8px">'+
