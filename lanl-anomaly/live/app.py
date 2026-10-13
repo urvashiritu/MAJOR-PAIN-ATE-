@@ -331,11 +331,17 @@ def _derive_reasons(features):
     """Derive plain-language reasons from feature values."""
     reasons = []
     if features.get('dst_first', 0) > 0:
-        reasons.append('Accessing a machine never visited before in 6 months of history')
+        # Was "never visited before in 6 months of history". The LANL dataset
+        # spans 58 days, so that claim was false on every new-machine event.
+        reasons.append('Destination machine never seen for this user in the dataset')
     if features.get('src_first', 0) > 0:
         reasons.append('Login from a machine this user has never used before')
     if features.get('vel_1h', 0) > 10:
-        reasons.append(f"{int(features['vel_1h'])} login attempts in 1 hour (normal is 2-5/hr)")
+        # Was "(normal is 2-5/hr)". That was a hardcoded literal, not this
+        # user's baseline: U2899@DOM1 averages 290 events/hour, so calling 281
+        # abnormal told the user they were 140x normal. State the measurement
+        # and let the analyst compare it to the Baseline panel instead.
+        reasons.append(f"{int(features['vel_1h'])} login attempts in the last hour")
     if features.get('fail_1h', 0) > 0:
         reasons.append(f"{int(features['fail_1h'])} failed authentication attempts in the last hour")
     if features.get('hour_ratio', 0) > 0.01:
@@ -414,25 +420,23 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
 
 
 def simulate_login_burst(user_id, username):
-    """Score a synthetic login burst for the Simulation Lab.
+    """Score one synthetic login for the employee sign-in path.
 
-    SIMULATED DATA. Machine names, hours and auth types are drawn with
-    random.choice and do not correspond to any LANL record. It exists only so
-    the employee login path still has something to exercise; the analyst
-    dashboard reads real events from live/replay.py instead.
+    SIMULATED INPUTS. Machine name, hour and auth type are drawn with
+    random.choice and do not correspond to any LANL record. The scoring
+    itself is real: score_event() queries the live LANL DuckDB for this
+    user's actual recent activity and runs the real LSTM + LightGBM models.
 
-    For attackers (ace): 8-12 events, 80% anomalous. For normal users:
-    3-5 events, 30% anomalous.
+    One login produces exactly one event. The loop that used to fan a single
+    sign-in out into 3-12 events was removed: it inflated the dashboard with
+    events no user ever created, and the velocity figures that make a login
+    scoreable come from the DuckDB count, not from the number of rows here.
     """
     import random
 
     is_attacker = (user_id == 'U293@DOM1')
-    if is_attacker:
-        n_events = random.randint(8, 12)
-        anomalous_rate = 0.8
-    else:
-        n_events = random.randint(3, 5)
-        anomalous_rate = 0.3
+    n_events = 1
+    anomalous_rate = 0.8 if is_attacker else 0.3
 
     known_dst = _scorer._seen_dst_computers.get(user_id, set()).copy()
     known_src = _scorer._seen_src_computers.get(user_id, set()).copy()
@@ -487,15 +491,23 @@ def simulate_login_burst(user_id, username):
         _record_event(user_id, username, src, dst, auth, score, decision, features, time_val)
         results.append((score, decision, features))
 
+    # With one event there is nothing to maximise, but max() keeps this stable
+    # if the burst is ever reintroduced.
     best = max(results, key=lambda r: r[0])
 
     # The forced-BLOCK branch that used to live here was removed. It set
     # score = THRESHOLD + 0.15 whenever the model failed to flag the burst,
     # which meant the employee page reported a detection the model never made.
-    # reports/experiment_log.md records why live scoring is weak (training-
-    # serving skew: incremental in-memory features against a model trained on
-    # batch SQL features, live scores ~0.001 versus a 0.187 threshold), so the
-    # honest result is now reported even when it is ALLOW.
+    # The honest result is reported even when it is ALLOW.
+    #
+    # An earlier version of this comment claimed live scores are always ~0.001
+    # against a 0.187 threshold because of training-serving skew. That is wrong:
+    # vel_1h and vel_24h are counted from the live LANL DuckDB at this user's
+    # real last-seen timestamp, not from the events generated here. Users whose
+    # real final hour was busy do cross the threshold - U2899@DOM1 scores 0.379
+    # on a single event. Whether a login is flagged depends on the user's real
+    # activity density and on whether a new machine was drawn, not on the
+    # number of events this loop produces.
     return best
 
 
