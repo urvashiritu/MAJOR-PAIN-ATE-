@@ -176,17 +176,29 @@ install_deps() {
     ok "created $VENV"
   fi
 
-  "$VENV/bin/pip" install -q --upgrade pip
+  "$VENV/bin/pip" install -q --upgrade pip --retries 5 --timeout 120
 
-  # The CUDA build of torch is about 5.9 GB. The demo does not use a GPU.
-  # This script installs the CPU build. Set USE_GPU=1 for the CUDA build.
-  if [[ "${USE_GPU:-0}" == "1" ]]; then
-    "$VENV/bin/pip" install -q -r requirements.txt
-  else
-    "$VENV/bin/pip" install -q --index-url https://download.pytorch.org/whl/cpu \
-                                   --extra-index-url https://pypi.org/simple \
-                                   -r requirements.txt
-  fi
+  # A slow or shared connection drops packets. pip exits with an error after
+  # one failure. Retry the install a few times before giving up.
+  local attempt=1
+  local max=4
+  while :; do
+    if [[ "${USE_GPU:-0}" == "1" ]]; then
+      "$VENV/bin/pip" install -q --retries 5 --timeout 120 -r requirements.txt
+    else
+      "$VENV/bin/pip" install -q --retries 5 --timeout 120 \
+          --index-url https://download.pytorch.org/whl/cpu \
+          --extra-index-url https://pypi.org/simple \
+          -r requirements.txt
+    fi && break
+
+    if [[ $attempt -ge $max ]]; then
+      die "the packages did not install after $max attempts. Check the connection and run again."
+    fi
+    warn "the connection failed during the install. Trying again. ($attempt of $max)"
+    attempt=$((attempt + 1))
+    sleep 5
+  done
   ok "the packages are installed"
 
   "$PY" -c "import live.app" >/dev/null 2>&1 \
@@ -200,7 +212,17 @@ fetch_lfs() {
     die "git-lfs is not installed. Install it with: sudo apt install git-lfs"
   fi
   git lfs install >/dev/null 2>&1 || true
-  git lfs pull
+
+  # A large download over a slow link can drop. Retry the whole pull.
+  local attempt=1
+  while ! git lfs pull; do
+    if [[ $attempt -ge 3 ]]; then
+      die "git lfs pull failed after 3 attempts. Run it again when the connection is better."
+    fi
+    warn "the LFS download failed. Trying again. ($attempt of 3)"
+    attempt=$((attempt + 1))
+    sleep 5
+  done
   ok "the LFS files are in place"
 }
 
