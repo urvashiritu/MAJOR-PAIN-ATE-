@@ -46,13 +46,13 @@
             </header>
 
             <div class="content">
-                <div class="grid-5 gap-4 mb-4">
+                <div class="grid-5 gap-4 mb-2">
                     <div class="panel panel-hover p-3">
                         <div class="kpi-label mb-1">Total Events</div>
                         <div class="tape-num text-ink" id="kpi-total"><span class="skeleton"></span></div>
                     </div>
                     <div class="panel panel-hover p-3">
-                        <div class="kpi-label mb-1">Threats Detected</div>
+                        <div class="kpi-label mb-1" id="kpi-detections-label">Threats Detected</div>
                         <div class="tape-num text-critical" id="kpi-detections"><span class="skeleton"></span></div>
                     </div>
                     <div class="panel panel-hover p-3">
@@ -60,7 +60,7 @@
                         <div class="tape-num text-medium" id="kpi-fp"><span class="skeleton"></span></div>
                     </div>
                     <div class="panel panel-hover p-3">
-                        <div class="kpi-label mb-1">Detection Rate</div>
+                        <div class="kpi-label mb-1" id="kpi-rate-label">Detection Rate</div>
                         <div class="tape-num text-low" id="kpi-rate"><span class="skeleton"></span></div>
                     </div>
                     <div class="panel panel-hover p-3">
@@ -68,6 +68,9 @@
                         <div class="tape-num text-info" id="kpi-threshold"><span class="skeleton"></span></div>
                     </div>
                 </div>
+
+                <div class="text-11 text-faint mb-2" id="kpi-population"></div>
+                <div class="mb-4" id="kpi-insample"></div>
 
                 <div class="insight-box" id="insight-overview"><div class="insight-title">Loading...</div></div>
 
@@ -203,11 +206,41 @@
 
                 var k=dash.kpis;
                 var el=function(id){return document.getElementById(id);};
+                // The KPI row above shows the in-sample figures, measured over all
+                // 29.9M rows -- the train+test union, so it includes rows the model
+                // was fitted on. The headline is the held-out number instead: the
+                // only one measured on unseen data. Both are shown, labelled.
+                var h=k.held_out||{};
+                var hasHeld=h && !h.error && h.test_reds;
                 if(el('kpi-total'))el('kpi-total').textContent=fmt(k.total_events);
-                if(el('kpi-detections'))el('kpi-detections').textContent=fmt(k.detections);
-                if(el('kpi-fp'))el('kpi-fp').textContent=fmt(k.false_positives);
-                if(el('kpi-rate'))el('kpi-rate').textContent=k.detection_rate+'%';
+                if(el('kpi-detections'))el('kpi-detections').textContent=
+                    hasHeld?(fmt(h.tp)+' / '+fmt(h.test_reds)):fmt(k.detections);
+                if(el('kpi-fp'))el('kpi-fp').textContent=
+                    hasHeld?fmt(h.fp):fmt(k.false_positives);
+                if(el('kpi-rate'))el('kpi-rate').textContent=
+                    hasHeld?(Math.round(h.recall*1000)/10+'%'):k.detection_rate+'%';
                 if(el('kpi-threshold'))el('kpi-threshold').textContent=k.threshold.toFixed(4);
+
+                var lbl=function(id,t){var e2=el(id);if(e2)e2.textContent=t;};
+                lbl('kpi-detections-label', hasHeld?'Attacks Caught (held-out)':'Threats Detected');
+                lbl('kpi-rate-label', hasHeld?'Recall (held-out)':'Detection Rate');
+                lbl('kpi-population', hasHeld
+                    ? 'Held-out split: '+h.test_reds+' attacks among '+fmt(h.test_rows)+
+                      ' rows. GroupShuffleSplit by user - no user appears in both train and test.'
+                    : (k.population||''));
+
+                // In-sample figures are still worth showing, but only with their
+                // population stated so they cannot be read as generalisation.
+                var ins=el('kpi-insample');
+                if(ins){
+                    ins.innerHTML=hasHeld
+                        ? '<div class="text-11 text-faint">In-sample (all '+fmt(k.total_events)+
+                          ' rows, includes training rows): '+
+                          '<strong>'+fmt(k.detections)+' / '+fmt(k.red_events)+'</strong> attacks &middot; '+
+                          '<strong>'+k.detection_rate+'%</strong> recall &middot; '+
+                          fmt(k.false_positives)+' false positives</div>'
+                        : '';
+                }
 
                 // Confusion matrix, computed server-side from the same parquet
                 if(dash.confusion){

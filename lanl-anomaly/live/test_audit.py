@@ -235,10 +235,13 @@ with sync_playwright() as p:
     # Check dataset KPIs
     dataset_text = page.inner_text("body")
     check("29.9M" in dataset_text or "29.9" in dataset_text, "Dataset shows total events KPI")
-    # Assert on the KPI label, not a hardcoded count. The count moved 590 -> 591
-    # when app.py stopped casting the threshold to a weak float; pinning the
-    # number here made this check fail on a correct dashboard.
-    check("threats detected" in dataset_text.lower(), "Dataset shows threats detected KPI")
+    # Assert on the label, not a hardcoded count or the old label text. The count
+    # moved 590 -> 591, and the KPI now reads "Attacks Caught (held-out)" because
+    # the headline shows the held-out split rather than the in-sample one. Accept
+    # either label so a wording change does not fail a correct dashboard.
+    _low = dataset_text.lower()
+    check(any(lbl in _low for lbl in ("attacks caught", "threats detected")),
+          "Dataset shows threats detected KPI")
 
     # ── Phase 5: Search Overlay ─────────────────────────────────
     log("\n" + "=" * 60)

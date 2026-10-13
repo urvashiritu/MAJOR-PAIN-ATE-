@@ -1065,12 +1065,45 @@ def _precompute_dashboard():
     heatmap_data = [{'user': r['src_user'], 'hour': int(r['hour']), 'score': float(r['mean_score'])}
                     for _, r in heatmap.iterrows()]
 
+    # Two different populations, kept separate on purpose.
+    #   detections/recall below are measured on ALL 29.9M rows, which is the
+    #   train+test union from RUN 9 -- so they include training rows and read
+    #   high. The held-out numbers come from the model bundle and are the only
+    #   ones measured on data the model never saw. The UI shows the held-out
+    #   figures as the headline and labels the in-sample ones.
+    held = {}
+    try:
+        # The bundle is flat (tp/fp/f1/roc_auc sit at the top level), and the
+        # split sizes are properties of the RUN 9 evaluation rather than of the
+        # model, so they are cited from the experiment log -- same sources
+        # /api/model/metrics already uses, so the two cannot disagree.
+        b = joblib.load(MODEL_PATH)
+        held = {
+            'tp': int(b.get('tp', 0)),
+            'fp': int(b.get('fp', 0)),
+            'f1': round(float(b.get('f1', 0.0)), 4),
+            'roc_auc': round(float(b.get('roc_auc', 0.0)), 6),
+            'pr_auc': round(float(b.get('pr_auc', 0.0)), 4),
+            'test_rows': 5399886,     # reports/experiment_log.md:258
+            'test_reds': 240,         # reports/experiment_log.md:258
+        }
+        held['fn'] = max(0, held['test_reds'] - held['tp'])
+        held['recall'] = (round(held['tp'] / held['test_reds'], 4)
+                          if held['test_reds'] else 0.0)
+    except Exception as exc:                      # metrics are optional
+        held = {'error': f'{type(exc).__name__}: {exc}'}
+
     _cached_dashboard = {
         'kpis': {
             'total_events': total, 'red_events': red_count,
             'detections': detections, 'false_positives': fp,
             'detection_rate': round(100 * detections / red_count, 1) if red_count > 0 else 0,
-            'threshold': threshold
+            'threshold': threshold,
+            # Population label for the figures above. Surfaced in the UI so the
+            # in-sample recall is never read as a generalisation result.
+            'population': 'in-sample: all 29.9M rows (train+test union), '
+                          'includes rows the model was fitted on',
+            'held_out': held,
         },
         'timeline': hourly.to_dict('records'),
         'top_users': top_users.to_dict('records'),
