@@ -67,6 +67,16 @@ const API = {
         return res.json();
     },
 
+    /* Live-scored employee sign-ins. Separate from replayStatus: these are
+       scored in-process by the employee login path, not replayed from the
+       parquet. Ids are event times, NOT replay row indices -- do not pass a
+       live event id to /api/investigation/. */
+    async liveEvents() {
+        const res = await fetch('/api/live_events');
+        if (!res.ok) throw new Error(`liveEvents: ${res.status}`);
+        return res.json();
+    },
+
     async replayStart(speed) {
         const res = await fetch('/api/replay/start', {
             method: 'POST',

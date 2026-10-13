@@ -83,7 +83,7 @@ The file `lanl.duckdb` contains these tables.
 | `auth_slice` | 29,905,488 | Raw authentication events |
 | `redteam` | 749 | 104 red team attackers, one row per event |
 
-The `feat` table has 702 rows where `is_red` is true. The system found 590 of
+The `feat` table has 702 rows where `is_red` is true. The system found 591 of
 these rows.
 
 The system scores the events as follows.
@@ -106,7 +106,7 @@ No user appears in both the training set and the test set.
 | True positives | 136 of 240 |
 | False positives | 183 of 5,399,886 |
 
-Over the complete dataset the system found 590 of 702 attacks. This is 84%.
+Over the complete dataset the system found 591 of 702 attacks. This is 84.2%.
 
 ## Retraining
 

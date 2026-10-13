@@ -81,7 +81,7 @@ real events. Of these, 20 are red team attacks.
 The team chose the window for one reason. Source machine `C17693` authenticates
 as many users against many new destinations. This activity is lateral movement.
 
-Run 14 scored the complete dataset. The run found 590 of 702 attacks. The run
+Run 14 scored the complete dataset. The run found 591 of 702 attacks. The run
 also gave 349 false positives.
 
 ## Running

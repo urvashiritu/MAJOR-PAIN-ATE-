@@ -235,8 +235,10 @@ with sync_playwright() as p:
     # Check dataset KPIs
     dataset_text = page.inner_text("body")
     check("29.9M" in dataset_text or "29.9" in dataset_text, "Dataset shows total events KPI")
-    check("590" in dataset_text or "Threats" in dataset_text or "detections" in dataset_text.lower(),
-          "Dataset shows threats detected KPI")
+    # Assert on the KPI label, not a hardcoded count. The count moved 590 -> 591
+    # when app.py stopped casting the threshold to a weak float; pinning the
+    # number here made this check fail on a correct dashboard.
+    check("threats detected" in dataset_text.lower(), "Dataset shows threats detected KPI")
 
     # ── Phase 5: Search Overlay ─────────────────────────────────
     log("\n" + "=" * 60)

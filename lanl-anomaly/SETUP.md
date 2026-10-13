@@ -116,7 +116,7 @@ tables.
 | `redteam` | 749 | 104 red team attackers, one row per event |
 | `redteam_distinct` | 715 | The red team attackers |
 
-The `feat` table has 702 rows where `is_red` is true. The system found 590 of
+The `feat` table has 702 rows where `is_red` is true. The system found 591 of
 these rows.
 
 Git LFS does not carry this file. GitHub does not accept a Git LFS file that is

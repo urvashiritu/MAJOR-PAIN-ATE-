@@ -11,6 +11,7 @@ from collections import Counter, deque
 import joblib
 from flask import (Flask, Response, jsonify, send_from_directory, render_template,
                    request, redirect, url_for, session)
+import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -326,6 +327,26 @@ def dataset_analysis():
 
 
 # ── Live event recording ────────────────────────────────────────
+def _derive_reasons(features):
+    """Derive plain-language reasons from feature values."""
+    reasons = []
+    if features.get('dst_first', 0) > 0:
+        reasons.append('Accessing a machine never visited before in 6 months of history')
+    if features.get('src_first', 0) > 0:
+        reasons.append('Login from a machine this user has never used before')
+    if features.get('vel_1h', 0) > 10:
+        reasons.append(f"{int(features['vel_1h'])} login attempts in 1 hour (normal is 2-5/hr)")
+    if features.get('fail_1h', 0) > 0:
+        reasons.append(f"{int(features['fail_1h'])} failed authentication attempts in the last hour")
+    if features.get('hour_ratio', 0) > 0.01:
+        reasons.append('Activity at an unusual hour for this user')
+    if features.get('iat_zscore', 0) > 2:
+        reasons.append('Login timing does not match the user\'s typical pattern')
+    if features.get('lstm_ae_recon_error', 0) > 0.5:
+        reasons.append('Sequence of events does not match known behavior patterns')
+    return '; '.join(reasons) if reasons else 'Multiple behavioral indicators deviate from baseline'
+
+
 def _record_event(user_id, name, src, dst, auth_type, score, decision, features, time_val):
     """Record a SIMULATED event from the employee login path.
 
@@ -349,6 +370,10 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
         'is_red': None,
         'ts': time.strftime('%H:%M:%S'),
         'time': int(time_val),
+        # The event carries no reasons field of its own; the alert built below
+        # derives them. Without this the Live Detections panel rendered an empty
+        # "Why" column for every row.
+        'reasons': _derive_reasons(features),
         'features': {k: round(float(v), 6) for k, v in features.items()},
     }
     _live_events.append(event)
@@ -386,26 +411,6 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
 
     # Push to SSE
     _sse_push(event)
-
-
-def _derive_reasons(features):
-    """Derive plain-language reasons from feature values."""
-    reasons = []
-    if features.get('dst_first', 0) > 0:
-        reasons.append('Accessing a machine never visited before in 6 months of history')
-    if features.get('src_first', 0) > 0:
-        reasons.append('Login from a machine this user has never used before')
-    if features.get('vel_1h', 0) > 10:
-        reasons.append(f"{int(features['vel_1h'])} login attempts in 1 hour (normal is 2-5/hr)")
-    if features.get('fail_1h', 0) > 0:
-        reasons.append(f"{int(features['fail_1h'])} failed authentication attempts in the last hour")
-    if features.get('hour_ratio', 0) > 0.01:
-        reasons.append('Activity at an unusual hour for this user')
-    if features.get('iat_zscore', 0) > 2:
-        reasons.append('Login timing does not match the user\'s typical pattern')
-    if features.get('lstm_ae_recon_error', 0) > 0.5:
-        reasons.append('Sequence of events does not match known behavior patterns')
-    return '; '.join(reasons) if reasons else 'Multiple behavioral indicators deviate from baseline'
 
 
 def simulate_login_burst(user_id, username):
@@ -652,6 +657,23 @@ def api_known_users():
             'totalEvents': _user_totals.get(uid, 0),
         })
     return jsonify(users)
+
+
+@app.route('/api/live_events')
+def api_live_events():
+    """Live-scored employee logins, oldest first.
+
+    Replay events are served by /api/replay/status. This endpoint is the
+    employee login path only: events the model scored in this process, which
+    otherwise vanish on the next page refresh because /api/dashboard reports
+    the replay window only.
+
+    These carry no ground truth (is_red is None) and their ids come from the
+    event time column, NOT the replay window index, so they must never be fed
+    to /api/investigation/<id> -- that endpoint addresses replay rows and the
+    id spaces overlap.
+    """
+    return jsonify(list(_live_events))
 
 
 @app.route('/api/stats')
@@ -955,7 +977,12 @@ def _precompute_dashboard():
     global _cached_dashboard, _cached_alerts
     df = _load_scores()
     t0 = time.time()
-    threshold = float(df['threshold'].iloc[0])
+    # np.float64, not float. The parquet stores anomaly_score as float32, and
+    # NumPy 2 casts a weak Python float down to float32 before comparing. A red
+    # event sitting exactly on the threshold then compares as equal, so `>`
+    # dropped it and the KPI undercounted 591 attacks as 590. np.float64
+    # compares in full precision, matching the pre-computed decision column.
+    threshold = np.float64(df['threshold'].iloc[0])
     total = len(df)
     red_mask = df['is_red'] == True
     normal_mask = df['is_red'] == False

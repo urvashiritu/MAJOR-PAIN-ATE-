@@ -99,7 +99,7 @@ Fixed:
    against a 0.187 threshold. The proper fix is retraining, not threshold
    tuning.
 3. Two different metric sets exist and must be labelled when presented:
-   full-dataset figures (590/702 caught, 349 false positives) include training
+   full-dataset figures (591/702 caught, 349 false positives) include training
    rows, while the held-out test split from RUN 9 gives 136/240 at 183 false
    positives. The honest headline number is the test-split one.
 4. Model Performance figures on that page are hardcoded in JavaScript rather

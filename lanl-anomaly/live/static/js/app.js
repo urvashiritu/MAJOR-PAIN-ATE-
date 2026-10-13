@@ -33,6 +33,7 @@
     let _replayRunning = false;
     let _replaySpeed = 40;
     let _searchOverlay = null;
+    let _livePaintQueued = false;
 
     const _displayNames = { ace: 'Ace', luffy: 'Luffy', igris: 'Igris', ashborn: 'Ashborn' };
     function _fmtUser(name, userId) {
@@ -398,6 +399,32 @@
                 </div>
                 <div class="col-12">
                     <div class="panel p-4">
+                        <div class="section-title mb-2">Live Detections</div>
+                        <div class="text-11 text-faint mb-3">
+                            Authentication events the model scored <strong>right now</strong>, in this process,
+                            from the employee sign-in path. These are computed live and are not part of the
+                            replay window above.
+                        </div>
+                        <div class="flex-center gap-2 mb-3" style="flex-wrap:wrap">
+                            <span class="text-9 px-2 py-1" style="border:1px solid var(--info);color:var(--info);border-radius:3px;letter-spacing:.06em">SCORED NOW</span>
+                            <span class="text-10 text-faint">No ground-truth label &mdash; a login is not a labelled event.</span>
+                        </div>
+                        <div class="overflow-auto" style="max-height: 300px">
+                            <table class="table-glass">
+                                <thead><tr>
+                                    <th>Time</th><th>User</th><th>Source &rarr; Destination</th><th>Score</th><th>Decision</th><th>Why</th>
+                                </tr></thead>
+                                <tbody id="live-tbody">
+                                    <tr><td colspan="6" class="text-center text-faint py-8">
+                                        No live sign-ins scored yet.
+                                    </td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <div class="panel p-4">
                         <div class="section-title mb-3">Anomaly Score Distribution</div>
                         <div id="live-chart-scores" style="width:100%;height:340px"></div>
                     </div>
@@ -471,7 +498,13 @@
     async function loadDashboard() {
         try {
             const dash = await API.dashboard();
-            _liveEvents = dash.recentEvents || [];
+            // Was: _liveEvents = dash.recentEvents || []
+            // recentEvents comes from /api/dashboard, which serves the REPLAY
+            // window. Assigning it here overwrote the live-signin buffer with
+            // replay rows and would have wiped every live detection on reload.
+            // Replay events are restored separately by _loadReplayMeta().
+            // Nothing was lost by removing it: _liveEvents was only ever read by
+            // _renderEventsTable(), which is dead code.
 
             // KPIs now describe the real replay, not the retired simulation
             const k = dash.kpis;
@@ -538,6 +571,12 @@
             // Real replay panel (loads window metadata on first paint)
             window._renderReplayTable();
             window._loadReplayMeta();
+
+            // Live detections. Restored from the server for the same reason the
+            // replay panel is: a page load empties the client buffer, and these
+            // events are scored in-process, so they exist only until restart.
+            window._renderLiveTable();
+            window._loadLiveEvents();
 
             // Alerts
             const alertsTbody = document.getElementById('dash-alerts-tbody');
@@ -907,11 +946,18 @@
             const stats = await API.stats();
             const el = document.getElementById('stats-content');
             if (el) {
+                /* The old labels called replay_events "Live events", which is exactly
+                   backwards: those are pre-scored parquet rows. The live path is
+                   simulated_events -- sign-ins the model scored right now. */
                 el.innerHTML = `
                     <div class="space-y-15">
-                        <div>Live events: <strong>${stats.live_events}</strong></div>
-                        <div>Alerts: <strong>${stats.alerts}</strong></div>
-                        <div>Users tracked: <strong>${stats.users}</strong></div>
+                        <div>Replay events: <strong>${stats.replay_events}</strong> <span class="text-faint">of ${stats.replay_total}</span></div>
+                        <div>Replay alerts: <strong>${stats.replay_alerts}</strong></div>
+                        <div>Replay users: <strong>${stats.replay_users}</strong></div>
+                        <div class="pt-2" style="border-top:1px solid var(--hairline)">
+                            <div>Live-scored logins: <strong style="color:var(--info)">${stats.simulated_events}</strong></div>
+                            <div class="text-10 text-faint mt-1">Employee sign-ins scored in this process, not part of the replay window.</div>
+                        </div>
                     </div>`;
             }
         } catch (err) {
@@ -995,6 +1041,18 @@
             window._paintReplayKpis();
             window._paintReplayCharts();
             updateNarrative();
+        }, 250);
+    };
+
+    // Same 250ms throttle shape as the replay paint. Sign-in bursts arrive as a
+    // short flood, so an unthrottled repaint would rebuild the table once per
+    // event and the browser would drop the tail.
+    window._scheduleLivePaint = function() {
+        if (_livePaintQueued) return;
+        _livePaintQueued = true;
+        setTimeout(() => {
+            _livePaintQueued = false;
+            window._renderLiveTable();
         }, 250);
     };
 
@@ -1168,6 +1226,39 @@
         }
     };
 
+    /* ── Live detections (employee sign-ins scored now) ─────────── */
+    /* Deliberately NOT clickable. Replay rows open the investigation drawer
+       via /api/investigation/<id>, which addresses the replay window by its
+       1..N row index. Live event ids come from the event time column, so the
+       two id spaces overlap: clicking live id 27 returned replay #27, a
+       different user entirely. The plain-English `reasons` string is rendered
+       inline instead. */
+    window._renderLiveTable = function() {
+        const tbody = document.getElementById('live-tbody');
+        if (!tbody) return;
+        const evts = _liveEvents.slice().reverse();
+        if (!evts.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-faint py-8">' +
+                'No live sign-ins scored yet.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = evts.slice(0, 20).map(e => {
+            const dec = String(e.decision || '').toLowerCase();
+            const col = dec === 'block' ? 'var(--critical)'
+                : dec === 'flag' ? 'var(--ochre)' : 'var(--low)';
+            const score = Number(e.combined_score != null ? e.combined_score : e.anomaly_score);
+            return '<tr>' +
+                '<td class="mono text-faint nowrap">' + esc(e.ts || '') + '</td>' +
+                '<td class="mono nowrap">' + esc(e.name || e.user_id || '') +
+                    (e.name && e.user_id ? ' <span class="text-faint">' + esc(e.user_id) + '</span>' : '') + '</td>' +
+                '<td class="mono nowrap">' + esc(e.src_computer || '?') + ' &rarr; ' + esc(e.dst_computer || '?') + '</td>' +
+                '<td class="mono" style="color:' + col + '">' + (isFinite(score) ? score.toFixed(6) : '—') + '</td>' +
+                '<td style="color:' + col + ';font-weight:600">' + esc(dec.toUpperCase()) + '</td>' +
+                '<td class="text-faint">' + esc(e.reasons || '') + '</td>' +
+                '</tr>';
+        }).join('');
+    };
+
     window._setReplayPlayLabel = function(running) {
         _replayRunning = running;
         const b = document.getElementById('replay-play');
@@ -1243,6 +1334,17 @@
             window._paintReplayCharts();
             updateNarrative();
             window._setReplayPlayLabel(!!(r.progress && r.progress.running));
+        } catch (err) { /* ignore */ }
+    };
+
+    /* Live-scored employee sign-ins. The server deque holds these until a
+       restart; the client copy is empty after every page load, so rebuild it
+       the same way the replay panel is rebuilt. */
+    window._loadLiveEvents = async function() {
+        try {
+            const evts = await API.liveEvents();
+            _liveEvents = Array.isArray(evts) ? evts.slice() : [];
+            window._renderLiveTable();
         } catch (err) { /* ignore */ }
     };
 
@@ -1356,11 +1458,13 @@
                 _liveEvents.push(event);
                 if (_liveEvents.length > 300) _liveEvents = _liveEvents.slice(-200);
 
-                // The retired simulation no longer drives the KPI tiles or the
-                // charts, so there is nothing to repaint here. This branch only
-                // fires for non-replay events, which the Simulation Lab shows.
+                // Employee sign-ins are scored live in-process and shown in the
+                // Live Detections panel. Repaint on the shared throttle rather
+                // than per event: a repaint-per-event rebuilds the table dozens
+                // of times a second and the browser drops the overflow.
                 const page = getPage();
                 if (page === 'dashboard') {
+                    if (window._scheduleLivePaint) window._scheduleLivePaint();
                     updateNarrative();
                     updateGreeting();
                 }
