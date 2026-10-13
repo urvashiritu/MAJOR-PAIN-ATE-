@@ -14,8 +14,12 @@
         <!-- Sidebar -->
         <nav class="sidebar">
             <div class="sidebar-logo">LANL UEBA<br><span class="sidebar-logo-sub">BEHAVIOR ANALYTICS</span></div>
+            <a href="#/live" class="sidebar-item" data-page="live" id="nav-live">
+                <span>&#9889;</span> Live Monitoring
+                <span class="nav-badge" id="nav-live-count"></span>
+            </a>
             <a href="/analyst" class="sidebar-item" data-page="dashboard" onclick="location.hash='#/dashboard';return false">
-                <span>&#9673;</span> Live Monitoring
+                <span>&#9673;</span> Replay Feed
             </a>
             <a href="#/behavior" class="sidebar-item" data-page="behavior">
                 <span>&#9733;</span> Behavior Insights
@@ -28,7 +32,7 @@
             </a>
             <div class="sidebar-divider"></div>
             <a href="#/alerts" class="sidebar-item" data-page="alerts">
-                <span>&#9889;</span> Alerts
+                <span>&#9888;</span> Alerts
             </a>
             <a href="#/users" class="sidebar-item" data-page="users">
                 <span>&#9673;</span> Users

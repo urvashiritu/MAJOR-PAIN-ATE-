@@ -147,6 +147,28 @@ a { color: inherit; text-decoration: none; }
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* Live-detection count on the Live Monitoring nav item. Without it the live
+   page is undiscoverable: nothing else on screen says it exists. */
+.nav-badge {
+  margin-left: auto;
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(110, 168, 232, 0.16);
+  color: var(--info);
+  border: 1px solid rgba(110, 168, 232, 0.35);
+}
+.nav-badge:empty { display: none; }
+/* One-line clamp for the live "Why" column. Unclamped it wrapped to seven lines
+   a row, so only two of twenty events were ever visible. */
+.why-cell {
+  max-width: 340px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-dim);
+}
 .sidebar-spacer { flex: 1; }
 .sidebar-divider {
   border-top: 1px solid var(--hairline-soft);

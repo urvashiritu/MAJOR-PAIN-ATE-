@@ -34,6 +34,7 @@
     let _replaySpeed = 40;
     let _searchOverlay = null;
     let _livePaintQueued = false;
+    window._liveFilter = 'all';
 
     const _displayNames = { ace: 'Ace', luffy: 'Luffy', igris: 'Igris', ashborn: 'Ashborn' };
     function _fmtUser(name, userId) {
@@ -303,7 +304,92 @@
         location.hash = '#/' + page;
     }
 
-    /* ── Dashboard (live) ───────────────────────────────────────── */
+    /* ── Live Monitoring ────────────────────────────────────────────
+       Only events the model scored in this process (the employee sign-in
+       path). The pre-scored parquet window lives on the Replay Feed page:
+       streaming stored scores is not "live" and labelling it as such was
+       the reason this page was renamed. */
+    async function renderLiveMonitoring() {
+        destroyCharts();
+        setActiveNav('live');
+
+        content.innerHTML = `
+            <div class="dash-greeting mb-3">
+                <h2>Live Monitoring</h2>
+                <p>Authentication events scored in this process, as they arrive.
+                   These carry no ground-truth label.</p>
+            </div>
+
+            <div class="grid-4 gap-4 mb-4" id="live-kpi-grid">
+                ${LIVE_KPI_DEFS.map(k => kpiCard(
+                    { key: k.key,
+                      label: k.key === 'replayed' ? 'Scored live'
+                          : k.key === 'attacksCaught' ? 'Blocked'
+                          : k.key === 'attacksMissed' ? 'Flagged' : 'Allowed',
+                      icon: k.key === 'replayed' ? '&#9889;'
+                          : k.key === 'attacksCaught' ? '&#10005;'
+                          : k.key === 'attacksMissed' ? '&#9888;' : '&#10003;',
+                      color: k.key === 'attacksCaught' ? 'critical'
+                          : k.key === 'attacksMissed' ? 'medium'
+                          : k.key === 'falsePositives' ? 'low' : 'info' },
+                    0, 'live-spark-' + k.key)).join('')}
+            </div>
+
+            <div class="panel overflow-hidden">
+                <div class="flex-between px-4 py-3 hairline">
+                    <div class="flex-center gap-2">
+                        <span class="section-title">Live-scored events</span>
+                        <div class="table-controls">
+                            <button class="filter-btn active" id="live-filter-all" onclick="window._liveFilter='all';window._renderLiveTable()">All</button>
+                            <button class="filter-btn" id="live-filter-block" onclick="window._liveFilter='block';window._renderLiveTable()">Blocked</button>
+                            <button class="filter-btn" id="live-filter-flag" onclick="window._liveFilter='flag';window._renderLiveTable()">Flagged</button>
+                        </div>
+                    </div>
+                    <span class="text-9 px-2 py-1" style="border:1px solid var(--info);color:var(--info);border-radius:3px;letter-spacing:.06em">SCORED NOW</span>
+                </div>
+                <div class="overflow-auto" style="max-height:520px">
+                    <table class="table-glass">
+                        <thead><tr>
+                            <th>Time</th><th>User</th><th>Source &rarr; Destination</th>
+                            <th>Score</th><th>Decision</th><th>Why</th>
+                        </tr></thead>
+                        <tbody id="live-tbody">
+                            <tr><td colspan="6" class="text-center text-faint py-8">
+                                No live sign-ins scored yet.
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+
+        window._renderLiveTable();
+        await window._loadLiveEvents();
+        _paintLiveKpis();
+    }
+
+    /* KPI tiles on the live page are counted from _liveEvents, not from the
+       replay window. Counting replay events here would put this page back in
+       the state it was split out of. */
+    function _paintLiveKpis() {
+        const evts = _liveEvents || [];
+        const vals = {
+            replayed: evts.length,
+            attacksCaught: evts.filter(e => e.decision === 'block').length,
+            attacksMissed: evts.filter(e => e.decision === 'flag').length,
+            falsePositives: evts.filter(e => e.decision === 'allow').length,
+        };
+        LIVE_KPI_DEFS.forEach(k => {
+            // The live tiles use a live-spark- prefix so this selector cannot
+            // collide with the replay tiles, which are painted from _replayEvents.
+            const card = document.querySelector(`[id="live-spark-${k.key}"]`)?.closest('.panel');
+            const numEl = card?.querySelector('.tape-num');
+            if (numEl) numEl.textContent = fmt(vals[k.key] || 0);
+        });
+        const badge = document.getElementById('nav-live-count');
+        if (badge) badge.textContent = evts.length ? String(evts.length) : '';
+    }
+
+    /* ── Replay Feed (pre-scored parquet window) ───────────────── */
     async function renderDashboard() {
         destroyCharts();
         setActiveNav('dashboard');
@@ -358,6 +444,7 @@
                         <div class="flex-between px-4 py-3 hairline">
                             <div class="flex-center gap-2">
                                 <span class="section-title">Real LANL Authentication Events</span>
+                                <span class="text-10 text-faint">pre-scored from the parquet &middot; replayed, not live</span>
                                 <div class="table-controls">
                                     <button class="filter-btn active" id="evt-filter-all" onclick="window._evtFilter='all';window._renderReplayTable()">All</button>
                                     <button class="filter-btn" id="evt-filter-block" onclick="window._evtFilter='block';window._renderReplayTable()">Block</button>
@@ -392,32 +479,6 @@
                                     <tr><td colspan="7" class="text-center text-faint py-8">
                                         <span class="live-dot"></span>
                                         <span class="ml-2">Press Play to replay real scored LANL events.</span>
-                                    </td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-12">
-                    <div class="panel p-4">
-                        <div class="section-title mb-2">Live Detections</div>
-                        <div class="text-11 text-faint mb-3">
-                            Authentication events the model scored <strong>right now</strong>, in this process,
-                            from the employee sign-in path. These are computed live and are not part of the
-                            replay window above.
-                        </div>
-                        <div class="flex-center gap-2 mb-3" style="flex-wrap:wrap">
-                            <span class="text-9 px-2 py-1" style="border:1px solid var(--info);color:var(--info);border-radius:3px;letter-spacing:.06em">SCORED NOW</span>
-                            <span class="text-10 text-faint">No ground-truth label &mdash; a login is not a labelled event.</span>
-                        </div>
-                        <div class="overflow-auto" style="max-height: 300px">
-                            <table class="table-glass">
-                                <thead><tr>
-                                    <th>Time</th><th>User</th><th>Source &rarr; Destination</th><th>Score</th><th>Decision</th><th>Why</th>
-                                </tr></thead>
-                                <tbody id="live-tbody">
-                                    <tr><td colspan="6" class="text-center text-faint py-8">
-                                        No live sign-ins scored yet.
                                     </td></tr>
                                 </tbody>
                             </table>
@@ -595,11 +656,9 @@
             window._renderReplayTable();
             window._loadReplayMeta();
 
-            // Live detections. Restored from the server for the same reason the
-            // replay panel is: a page load empties the client buffer, and these
-            // events are scored in-process, so they exist only until restart.
-            window._renderLiveTable();
-            window._loadLiveEvents();
+            // Live detections have their own page (Live Monitoring) and their own
+            // loader. Keeping them out of this one is the whole point of the
+            // split: this page is the pre-scored replay window, not live data.
 
             // Alerts
             const alertsTbody = document.getElementById('dash-alerts-tbody');
@@ -1076,6 +1135,9 @@
         setTimeout(() => {
             _livePaintQueued = false;
             window._renderLiveTable();
+            // The nav badge must track live events from any page, otherwise
+            // it silently freezes while the analyst sits on the replay feed.
+            _paintLiveKpis();
         }, 250);
     };
 
@@ -1259,27 +1321,40 @@
     window._renderLiveTable = function() {
         const tbody = document.getElementById('live-tbody');
         if (!tbody) return;
-        const evts = _liveEvents.slice().reverse();
+        let evts = _liveEvents.slice().reverse();
+        const f = window._liveFilter || 'all';
+        if (f !== 'all') evts = evts.filter(e => String(e.decision || '').toLowerCase() === f);
         if (!evts.length) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center text-faint py-8">' +
-                'No live sign-ins scored yet.</td></tr>';
-            return;
+                (_liveEvents.length
+                    ? 'No live events match this filter.'
+                    : 'No live sign-ins scored yet. Sign in as an employee to trigger real-time scoring.') +
+                '</td></tr>';
+        } else {
+            tbody.innerHTML = evts.slice(0, 40).map(e => {
+                const dec = String(e.decision || '').toLowerCase();
+                const col = dec === 'block' ? 'var(--critical)'
+                    : dec === 'flag' ? 'var(--ochre)' : 'var(--low)';
+                const score = Number(e.combined_score != null ? e.combined_score : e.anomaly_score);
+                const why = e.reasons || '';
+                return '<tr>' +
+                    '<td class="mono text-faint nowrap">' + esc(e.ts || '') + '</td>' +
+                    '<td class="mono nowrap">' + esc(e.name || e.user_id || '') +
+                        (e.name && e.user_id ? ' <span class="text-faint">' + esc(e.user_id) + '</span>' : '') + '</td>' +
+                    '<td class="mono nowrap">' + esc(e.src_computer || '?') + ' &rarr; ' + esc(e.dst_computer || '?') + '</td>' +
+                    '<td class="mono" style="color:' + col + '">' + (isFinite(score) ? score.toFixed(6) : '—') + '</td>' +
+                    '<td style="color:' + col + ';font-weight:600">' + esc(dec.toUpperCase()) + '</td>' +
+                    // One line with the full text on hover. Unclamped this wrapped
+                    // to seven lines and pushed everything else off the screen.
+                    '<td class="why-cell" title="' + esc(why) + '">' + esc(why) + '</td>' +
+                    '</tr>';
+            }).join('');
         }
-        tbody.innerHTML = evts.slice(0, 20).map(e => {
-            const dec = String(e.decision || '').toLowerCase();
-            const col = dec === 'block' ? 'var(--critical)'
-                : dec === 'flag' ? 'var(--ochre)' : 'var(--low)';
-            const score = Number(e.combined_score != null ? e.combined_score : e.anomaly_score);
-            return '<tr>' +
-                '<td class="mono text-faint nowrap">' + esc(e.ts || '') + '</td>' +
-                '<td class="mono nowrap">' + esc(e.name || e.user_id || '') +
-                    (e.name && e.user_id ? ' <span class="text-faint">' + esc(e.user_id) + '</span>' : '') + '</td>' +
-                '<td class="mono nowrap">' + esc(e.src_computer || '?') + ' &rarr; ' + esc(e.dst_computer || '?') + '</td>' +
-                '<td class="mono" style="color:' + col + '">' + (isFinite(score) ? score.toFixed(6) : '—') + '</td>' +
-                '<td style="color:' + col + ';font-weight:600">' + esc(dec.toUpperCase()) + '</td>' +
-                '<td class="text-faint">' + esc(e.reasons || '') + '</td>' +
-                '</tr>';
-        }).join('');
+        ['all', 'block', 'flag'].forEach(f2 => {
+            const btn = document.getElementById('live-filter-' + f2);
+            if (btn) btn.classList.toggle('active', f === f2);
+        });
+        _paintLiveKpis();
     };
 
     window._setReplayPlayLabel = function(running) {
@@ -1481,13 +1556,15 @@
                 _liveEvents.push(event);
                 if (_liveEvents.length > 300) _liveEvents = _liveEvents.slice(-200);
 
-                // Employee sign-ins are scored live in-process and shown in the
-                // Live Detections panel. Repaint on the shared throttle rather
+                // Employee sign-ins are scored live in-process and shown on the
+                // Live Monitoring page. Repaint on the shared throttle rather
                 // than per event: a repaint-per-event rebuilds the table dozens
                 // of times a second and the browser drops the overflow.
+                // The nav badge has to update from any page, so the paint is
+                // scheduled unconditionally; only the narrative is page-gated.
+                if (window._scheduleLivePaint) window._scheduleLivePaint();
                 const page = getPage();
                 if (page === 'dashboard') {
-                    if (window._scheduleLivePaint) window._scheduleLivePaint();
                     updateNarrative();
                     updateGreeting();
                 }
@@ -1714,6 +1791,7 @@
         const page = getPage();
         switch (page) {
             case 'dashboard': renderDashboard(); break;
+            case 'live': renderLiveMonitoring(); break;
             case 'simulation': renderSimulationLab(); break;
             case 'alerts': renderAlerts(); break;
             case 'users': renderUsers(); break;
