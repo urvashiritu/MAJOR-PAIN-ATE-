@@ -4,11 +4,13 @@
     'use strict';
 
     const content = document.getElementById('main-content');
+    // Labels carry their scope: these count the replay window, not the held-out
+    // split named in the headline directly above them (UI-REVIEW.md:101-104).
     const LIVE_KPI_DEFS = [
-        { key: 'replayed', label: 'Events Replayed', icon: '⚡', color: 'info' },
-        { key: 'attacksCaught', label: 'Attacks Caught', icon: '🛡', color: 'critical' },
-        { key: 'attacksMissed', label: 'Attacks Missed', icon: '⚠', color: 'medium' },
-        { key: 'falsePositives', label: 'False Positives', icon: '👥', color: 'low' },
+        { key: 'replayed', label: 'Events Replayed (replay)', icon: '⚡', color: 'info' },
+        { key: 'attacksCaught', label: 'Attacks Caught (replay)', icon: '🛡', color: 'critical' },
+        { key: 'attacksMissed', label: 'Attacks Missed (replay)', icon: '⚠', color: 'medium' },
+        { key: 'falsePositives', label: 'False Positives (replay)', icon: '👥', color: 'low' },
     ];
     const GREETINGS = ['Good morning', 'Good afternoon', 'Good evening'];
 
@@ -43,6 +45,15 @@
     const display = _displayNames[name] || name || 'unknown';
         const id = (userId || '').split('@')[0];
         return id ? display + ' (' + id + ')' : display;
+    }
+
+    /* Replay events carry `offset` = seconds into the window (0..~2000), so
+       'T+1588s' made a viewer do arithmetic in their head. mm:ss reads as a
+       clock off the start of the replay. */
+    function fmtOffset(sec) {
+        const t = Math.max(0, Math.floor(Number(sec) || 0));
+        const mm = Math.floor(t / 60), ss = t % 60;
+        return 'T+' + mm + ':' + (ss < 10 ? '0' : '') + ss;
     }
 
     /* ── Theme ──────────────────────────────────────────────────── */
@@ -171,10 +182,10 @@
                 grid: { left: 50, right: 16, top: 30, bottom: 30 },
                 legend: { data: ['Normal', 'Attack'], textStyle: { color: C.inkDim, fontSize: 10, fontFamily: 'JetBrains Mono' }, top: 0, right: 16 },
                 xAxis: { type: 'category', data: [], axisLabel: { color: C.inkFaint, fontSize: 9, rotate: 30 }, axisLine: { lineStyle: { color: C.gridLine } } },
-                yAxis: { type: 'value', axisLabel: { color: C.inkFaint, fontSize: 9 }, splitLine: { lineStyle: { color: C.gridLine } } },
+                yAxis: { type: 'log', min: 1, axisLabel: { color: C.inkFaint, fontSize: 9 }, splitLine: { lineStyle: { color: C.gridLine } } },
                 series: [
-                    { name: 'Normal', type: 'bar', stack: 's', data: [], itemStyle: { color: 'rgba(139,147,165,0.4)' }, barWidth: '80%' },
-                    { name: 'Attack', type: 'bar', stack: 's', data: [], itemStyle: { color: C.critical }, barWidth: '80%' }
+                    { name: 'Normal', type: 'bar', data: [], itemStyle: { color: 'rgba(139,147,165,0.4)' }, barWidth: '60%' },
+                    { name: 'Attack', type: 'bar', data: [], itemStyle: { color: C.critical }, barWidth: '60%' }
                 ]
             });
         }
@@ -194,9 +205,11 @@
         if (_liveAuthDonut) {
             _liveAuthDonut.setOption({
                 tooltip: { trigger: 'item', backgroundColor: C.tooltipBg, textStyle: { color: C.ink, fontFamily: 'JetBrains Mono', fontSize: 11 } },
-                legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { color: C.inkDim, fontSize: 11, fontFamily: 'JetBrains Mono' } },
+                // Legend goes BELOW the pie. The panel is only ~238px wide, so a
+                // side legend overlapped the donut ring and its labels were cut.
+                legend: { orient: 'horizontal', bottom: 0, left: 'center', itemWidth: 12, itemHeight: 10, itemGap: 12, textStyle: { color: C.inkDim, fontSize: 11, fontFamily: 'JetBrains Mono' } },
                 series: [{
-                    type: 'pie', radius: ['45%', '70%'], center: ['35%', '50%'],
+                    type: 'pie', radius: ['40%', '62%'], center: ['50%', '44%'],
                     label: { show: false },
                     data: []
                 }]
@@ -210,17 +223,20 @@
         if (!_replayEvents.length) return;
 
         if (_liveTimelineChart) {
+            // Replay events carry `offset` (seconds into the window), not `ts`.
+            // Bucketing on a field that does not exist put every event into one
+            // bucket, so the chart drew a single solid column.
+            const BUCKET = 100; // seconds per bar
             const buckets = {};
             _replayEvents.forEach(e => {
-                const t = e.ts || '';
-                const key = t.length > 8 ? t.slice(0, 8) : t.slice(0, 5);
+                const key = Math.floor((Number(e.offset) || 0) / BUCKET) * BUCKET;
                 if (!buckets[key]) buckets[key] = { total: 0, anomalies: 0 };
                 buckets[key].total++;
                 if (e.decision === 'flag' || e.decision === 'block') buckets[key].anomalies++;
             });
-            const keys = Object.keys(buckets).slice(-30);
+            const keys = Object.keys(buckets).map(Number).sort((a, b) => a - b).slice(-30);
             _liveTimelineChart.setOption({
-                xAxis: { data: keys },
+                xAxis: { data: keys.map(k => fmtOffset(k)) },
                 series: [
                     { name: 'Total', data: keys.map(k => buckets[k].total) },
                     { name: 'Anomalies', data: keys.map(k => buckets[k].anomalies) }
@@ -229,25 +245,27 @@
         }
 
         if (_liveScoresChart) {
-            const bins = 15;
-            const scores = _replayEvents.map(e => e.anomaly_score || 0);
-            const maxS = Math.max(...scores, 0.001);
-            const binSize = maxS / bins;
-            const normal = new Array(bins).fill(0);
-            const attack = new Array(bins).fill(0);
+            // Scores span ~1e-8 to ~1. A linear histogram puts 99.5% of events
+            // in the first bin and hides every attack, so bin by order of
+            // magnitude (log10) instead.
+            const decades = [];
+            for (let d = -8; d <= 0; d++) decades.push(d);
+            const normal = {}, attack = {};
+            decades.forEach(d => { normal[d] = 0; attack[d] = 0; });
             // Split by ground truth so the chart shows real attacks, not just
             // whatever the model happened to flag.
             _replayEvents.forEach(e => {
-                const bin = Math.min(Math.floor((e.anomaly_score || 0) / binSize), bins - 1);
-                if (e.is_red) attack[bin]++;
-                else normal[bin]++;
+                const s = Number(e.anomaly_score) || 0;
+                let d = s > 0 ? Math.floor(Math.log10(s)) : -8;
+                d = Math.max(-8, Math.min(0, d));
+                if (e.is_red) attack[d]++;
+                else normal[d]++;
             });
-            const labels = Array.from({ length: bins }, (_, i) => (i * binSize).toFixed(3));
             _liveScoresChart.setOption({
-                xAxis: { data: labels },
+                xAxis: { data: decades.map(d => d === 0 ? '1' : '1e' + d) },
                 series: [
-                    { name: 'Normal', data: normal },
-                    { name: 'Attack', data: attack }
+                    { name: 'Normal', data: decades.map(d => normal[d]) },
+                    { name: 'Attack', data: decades.map(d => attack[d]) }
                 ]
             });
         }
@@ -274,16 +292,27 @@
         if (_liveAuthDonut) {
             const authCounts = {};
             _replayEvents.forEach(e => {
-                const t = e.auth_type || 'Unknown';
+                // '?' is a literal value in the LANL auth_type column, not a
+                // missing field, so map it to something readable.
+                const raw = e.auth_type;
+                const t = (!raw || raw === '?') ? 'Unknown' : raw;
                 authCounts[t] = (authCounts[t] || 0) + 1;
             });
             const C = getThemeColors();
-            const colors = { 'NTLM': C.info, 'Kerberos': C.ochre };
+            const colors = { 'NTLM': C.info, 'Kerberos': C.ochre, 'Unknown': C.inkDim };
             const authData = Object.entries(authCounts).map(([name, value]) => ({
                 name, value,
                 itemStyle: { color: colors[name] || C.inkDim }
             }));
-            _liveAuthDonut.setOption({ series: [{ data: authData }] });
+            const authTotal = authData.reduce((s, d) => s + d.value, 0) || 1;
+            _liveAuthDonut.setOption({
+                // Slices carry no labels, so the legend states the share.
+                legend: { formatter: (name) => {
+                    const d = authData.find(x => x.name === name);
+                    return name + '  ' + (d ? Math.round(100 * d.value / authTotal) : 0) + '%';
+                } },
+                series: [{ data: authData }]
+            });
         }
     }
 
@@ -355,7 +384,7 @@
                         </tr></thead>
                         <tbody id="live-tbody">
                             <tr><td colspan="6" class="text-center text-faint py-8">
-                                No live sign-ins scored yet.
+                                No live sign-ins scored yet. <a class="view-all" href="/login">Sign in as an employee</a> to trigger real-time scoring.
                             </td></tr>
                         </tbody>
                     </table>
@@ -395,6 +424,16 @@
         setActiveNav('dashboard');
 
         content.innerHTML = `
+            <div class="dash-greeting mb-3">
+                <h2>Replay Feed</h2>
+                <p>Replaying real recorded logins from a 33-minute LANL window. Ground truth is shown
+                   next to every event, so you can see exactly which attacks the model caught, which
+                   it missed, and what it wrongly flagged.</p>
+                <p class="text-11 text-faint">The four numbers directly below are the model's real
+                   quality, measured on users it never trained on (held-out). Everything after them
+                   describes this replay session only.</p>
+            </div>
+
             <div class="headline-bar mb-2" id="headline-bar">
                 <div class="headline-stat"><span class="headline-num" id="hl-events">&mdash;</span><span class="headline-label">Events scored</span></div>
                 <div class="headline-stat"><span class="headline-num" id="hl-caught">&mdash;</span><span class="headline-label" id="hl-caught-label">Attacks caught</span></div>
@@ -403,6 +442,7 @@
             </div>
             <div class="text-11 text-faint mb-4" id="hl-population"></div>
 
+            <div class="text-11 text-faint mb-2">Replay window &mdash; this session only (not the held-out figures above)</div>
             <div class="grid-4 gap-4 mb-4" id="kpi-grid">
                 ${LIVE_KPI_DEFS.map((k, i) => kpiCard(k, null, 'spark-' + k.key)).join('')}
             </div>
@@ -415,15 +455,18 @@
             <div class="grid-12 gap-4 mb-4">
                 <div class="col-5">
                     <div class="panel p-4">
-                        <div class="section-title mb-3">Replay Progress</div>
+                        <div class="section-title mb-1">Replay Progress</div>
+                        <div class="text-10 text-faint mb-2">Events per 100 seconds of the replay. Red = flagged or blocked by the model.</div>
                         <div id="live-chart-timeline" style="width:100%;height:240px"></div>
                     </div>
                 </div>
                 <div class="col-3">
                     <div class="panel p-4">
-                        <div class="section-title mb-3">Attack Catch Rate</div>
+                        <div class="section-title mb-1">Attack Catch Rate</div>
+                        <div class="text-10 text-faint mb-2">Share of <b>this window's</b> attacks the model caught &mdash; not its overall score.</div>
                         <div id="gauge-container" class="text-center"></div>
-                        <div class="section-title mb-2 mt-3">Decision Split</div>
+                        <div class="section-title mb-1 mt-3">Decision Split</div>
+                        <div class="text-10 text-faint mb-2">What the model did with every replayed event.</div>
                         <div id="risk-dist-legend" class="text-12 text-dim" style="margin-top:8px"></div>
                     </div>
                 </div>
@@ -487,7 +530,8 @@
                 </div>
                 <div class="col-12">
                     <div class="panel p-4">
-                        <div class="section-title mb-3">Anomaly Score Distribution</div>
+                        <div class="section-title mb-1">Anomaly Score Distribution</div>
+                        <div class="text-10 text-faint mb-2">How the model scored every event (log scale &mdash; each gridline is 10&times;). Normal logins cluster near 1e-7; attacks score near 1e-1.</div>
                         <div id="live-chart-scores" style="width:100%;height:340px"></div>
                     </div>
                 </div>
@@ -506,7 +550,7 @@
                         <div class="overflow-auto" style="max-height: 280px">
                             <table class="table-glass">
                                 <thead><tr>
-                                    <th>Time</th><th>User</th><th>Reason</th><th>Score</th><th>Severity</th>
+                                    <th>Time</th><th>User</th><th>Reason</th><th>Score</th><th>Outcome</th>
                                 </tr></thead>
                                 <tbody id="dash-alerts-tbody">
                                             <tr><td colspan="5" class="py-4"><div class="skeleton-row"></div></td></tr>
@@ -519,7 +563,8 @@
                 </div>
                 <div class="col-5">
                     <div class="panel p-4">
-                        <div class="section-title mb-3">Authentication Methods</div>
+                        <div class="section-title mb-1">Authentication Methods</div>
+                        <div class="text-10 text-faint mb-2">Login protocol mix in this window. &ldquo;Unknown&rdquo; is the LANL dataset's own missing value.</div>
                         <div id="live-chart-auth" style="width:100%;height:240px"></div>
                     </div>
                 </div>
@@ -684,8 +729,7 @@
             <div class="flex-between mb-4" style="flex-wrap:wrap;gap:8px">
                 <div class="flex gap-2" id="severity-filters">
                     <button class="filter-btn active" data-sev="all">All</button>
-                    <button class="filter-btn" data-sev="critical">Critical</button>
-                    <button class="filter-btn" data-sev="high">High</button>
+                    <button class="filter-btn" data-sev="critical">Caught</button>
                     <button class="filter-btn" data-sev="medium">False Positive</button>
                 </div>
                 <span class="text-10 text-faint uppercase tracking-widest" id="alerts-total">0 alerts</span>
@@ -695,11 +739,13 @@
                 <span id="alerts-accuracy" class="text-12">Loading...</span>
             </div>
 
+            <div class="text-11 text-faint mb-2"><b>Outcome</b> is what the detection <b>did</b>, not the score: <b>Caught</b> = a confirmed attack the model caught, <b>False Positive</b> = normal traffic it flagged. A caught attack can still show a low score, so do not read the badge as a confidence level.</div>
+
             <div class="panel overflow-hidden">
                 <div class="overflow-auto" style="max-height: calc(100vh - 200px)">
                     <table class="table-glass">
                         <thead><tr>
-                            <th>Time</th><th>User</th><th>Reason</th><th>Score</th><th>Severity</th><th>Actions</th>
+                            <th>Time</th><th>User</th><th>Reason</th><th>Score</th><th>Outcome</th><th>Actions</th>
                         </tr></thead>
                         <tbody id="alerts-page-tbody">
                             <tr><td colspan="6" class="py-4"><div class="skeleton-row"></div></td></tr>
@@ -1183,10 +1229,11 @@
         el.innerHTML = '<table class="table-glass" style="font-size:11px"><tbody>' + rows.map(r => {
             const col = r.caught ? 'var(--critical)' : 'var(--ochre)';
             const tag = r.caught ? 'CAUGHT' : 'MISSED';
-            return '<tr><td class="mono">' + esc(r.uid) + '</td>' +
-                '<td class="mono" style="color:' + col + ';font-weight:600">' + r.max.toFixed(6) + '</td>' +
-                '<td style="text-align:right"><span style="color:' + col + ';font-size:9px;font-weight:800">' +
-                tag + '</span> <span class="text-faint" style="font-size:10px">×' + r.n + '</span></td></tr>';
+            return '<tr><td class="mono" title="' + esc(r.uid) + '">' + esc(humanizeUser(r.uid)) + '</td>' +
+                '<td class="mono" style="text-align:right">' +
+                '<span style="color:' + col + ';font-weight:600">' + r.max.toFixed(6) + '</span><br>' +
+                '<span style="color:' + col + ';font-size:9px;font-weight:800">' + tag + '</span> ' +
+                '<span class="text-faint" style="font-size:10px">×' + r.n + '</span></td></tr>';
         }).join('') + '</tbody></table>';
     };
 
@@ -1286,10 +1333,10 @@
             // investigate flow is unreachable from the main dashboard.
             return '<tr class="clickable" data-event-id="' + e.id + '"' +
                 (e.is_red ? ' style="background:rgba(229,72,77,.08)"' : '') + '>' +
-                '<td class="mono text-faint nowrap">T+' + e.offset + 's</td>' +
-                '<td class="mono nowrap">' + esc(e.user_id) + '</td>' +
+                '<td class="mono text-faint nowrap">' + fmtOffset(e.offset) + '</td>' +
+                '<td class="mono nowrap" title="' + esc(e.user_id) + '">' + esc(humanizeUser(e.user_id)) + '</td>' +
                 '<td class="mono nowrap">' + esc(e.src_computer) + ' &rarr; ' + esc(e.dst_computer) + '</td>' +
-                '<td class="text-faint nowrap">' + esc(e.auth_type) + '</td>' +
+                '<td class="text-faint nowrap">' + esc((!e.auth_type || e.auth_type === '?') ? 'Unknown' : e.auth_type) + '</td>' +
                 '<td class="mono" style="color:' + col + '">' + Number(e.anomaly_score).toFixed(6) + '</td>' +
                 '<td style="color:' + col + ';font-weight:600">' + esc(String(e.decision).toUpperCase()) + '</td>' +
                 '<td>' + truth + '</td></tr>';
@@ -1328,7 +1375,7 @@
             tbody.innerHTML = '<tr><td colspan="6" class="text-center text-faint py-8">' +
                 (_liveEvents.length
                     ? 'No live events match this filter.'
-                    : 'No live sign-ins scored yet. Sign in as an employee to trigger real-time scoring.') +
+                    : 'No live sign-ins scored yet. <a class="view-all" href="/login">Sign in as an employee</a> to trigger real-time scoring.') +
                 '</td></tr>';
         } else {
             tbody.innerHTML = evts.slice(0, 40).map(e => {
@@ -1594,7 +1641,7 @@
                 'U293@DOM1': { name: 'Ace', role: 'attacker', badge: 'ATTACKER', badgeColor: 'var(--critical)', narrative: 'Known attacker \u2014 31 red-team events in 6 months of training data' },
                 'U2097@DOM1': { name: 'Igris', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Clean insider \u2014 highest event volume, zero anomalous activity' },
                 'U2899@DOM1': { name: 'Luffy', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Standard employee \u2014 normal login patterns' },
-                'U66@DOM1': { name: 'Ashborn', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Standard employee \u2014 normal login patterns' },
+                'U66@DOM1': { name: 'Ashborn', role: 'attacker', badge: 'ATTACKER', badgeColor: 'var(--critical)', narrative: 'Known attacker \u2014 red-team account in the LANL dataset' },
             };
             let html = '<div class="dash-greeting"><h2>Behavior Insights</h2><p>Per-user behavioral baselines derived from 6 months of LANL training data.</p></div>' +
                 '<div class="insight-box mb-4">' +
@@ -1684,7 +1731,7 @@
         const bars = fi.slice().sort((a,b) => b.v - a.v).map(f =>
             '<div class="feature-bar-row"><div class="feature-bar-label">' + esc(f.n) + '</div>' +
             '<div class="feature-bar-track"><div class="feature-bar-fill" style="width:' + ((f.v/mx)*100) + '%"></div></div>' +
-            '<div class="feature-bar-val">' + f.v.toLocaleString() + '</div></div>'
+            '<div class="feature-bar-val">' + Math.round((f.v/mx)*100) + '%</div></div>'
         ).join('');
         content.innerHTML = '<div class="dash-greeting"><h2>Model Performance</h2><p>LGB-21 ensemble \u2014 LightGBM + LSTM Autoencoder.</p></div>' +
             '<div class="grid-4 gap-4 mb-4">'+
@@ -1706,7 +1753,8 @@
             '<div class="insight-card"><h4>Architecture</h4>'+
             '<div class="text-12 text-dim" style="margin-top:8px">LightGBM (21 features) + LSTM-AE recon error<br>GroupShuffleSplit, spw=3<br>Held-out test: '+split.test_rows.toLocaleString()+' rows, '+split.test_reds+' red events</div></div></div>'+
             '<div class="grid-2 gap-4 mb-4">'+
-            '<div class="insight-card"><h4>Feature Importance</h4>' + bars + '</div>'+
+            '<div class="insight-card"><h4>Feature Importance</h4>'+
+            '<div class="text-10 text-faint" style="margin:4px 0 2px">Bar length and % are relative to the model\u2019s top feature (100%). It is an internal importance weight, not a probability.</div>' + bars + '</div>'+
             '<div class="insight-card"><h4>Run Comparison</h4>'+
             '<div class="text-10 text-faint" style="margin:4px 0 2px">Runs 7, 8, 10, 11 are historical values from reports/experiment_log.md. Run 9 is read from the model bundle.</div>'+
             '<table class="table-glass" style="margin-top:8px"><thead><tr><th>Run</th><th>Config</th><th>F1</th><th>TP</th><th>FP</th></tr></thead><tbody>'+

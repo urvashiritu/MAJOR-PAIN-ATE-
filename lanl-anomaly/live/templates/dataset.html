@@ -5,10 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LANL - Dataset Analysis</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="/static/vendor/jetbrains-mono.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+    <script src="/static/vendor/echarts.min.js"></script>
     <style>
         .chart-box{width:100%;height:320px}
         .chart-box-sm{width:100%;height:280px}
@@ -56,7 +55,7 @@
                         <div class="tape-num text-critical" id="kpi-detections"><span class="skeleton"></span></div>
                     </div>
                     <div class="panel panel-hover p-3">
-                        <div class="kpi-label mb-1">False Positives</div>
+                        <div class="kpi-label mb-1" id="kpi-fp-label">False Positives</div>
                         <div class="tape-num text-medium" id="kpi-fp"><span class="skeleton"></span></div>
                     </div>
                     <div class="panel panel-hover p-3">
@@ -138,7 +137,7 @@
                         <table class="table-glass">
                             <thead>
                                 <tr>
-                                    <th>Time</th>
+                                    <th>Time (rel.)</th>
                                     <th>Source</th>
                                     <th>Destination</th>
                                     <th>Score</th>
@@ -223,6 +222,7 @@
 
                 var lbl=function(id,t){var e2=el(id);if(e2)e2.textContent=t;};
                 lbl('kpi-detections-label', hasHeld?'Attacks Caught (held-out)':'Threats Detected');
+                lbl('kpi-fp-label', hasHeld?'False Positives (held-out)':'False Positives');
                 lbl('kpi-rate-label', hasHeld?'Recall (held-out)':'Detection Rate');
                 lbl('kpi-population', hasHeld
                     ? 'Held-out split: '+h.test_reds+' attacks among '+fmt(h.test_rows)+
@@ -281,7 +281,13 @@
                 }
 
                 var avgScore=alerts.length?alerts.reduce(function(s,a){return s+a.anomaly_score;},0)/alerts.length:0;
-                el('insight-overview').innerHTML='<div class="insight-title">Dataset Overview</div>Scanned <b>'+fmt(k.total_events)+'</b> authentication events across 6 months. Model flagged <b style="color:'+C.critical+'">'+fmt(k.detections)+'</b> threats with <b style="color:'+C.low+'">'+k.detection_rate+'%</b> detection rate. Top '+alerts.length+' alerts average score: <b style="color:'+C.ochre+'">'+avgScore.toFixed(3)+'</b>: model is highly confident.';
+                // The KPI cards above report held-out figures. This box used to
+                // quote the in-sample numbers (591 / 84.2%) directly beneath them,
+                // which read as the page contradicting itself. Quote the same
+                // held-out population as the cards.
+                var ovCaught = hasHeld ? (fmt(h.tp)+' of '+fmt(h.test_reds)) : (fmt(k.detections)+' of '+fmt(k.red_events));
+                var ovRecall = hasHeld ? (Math.round(h.recall*1000)/10) : k.detection_rate;
+                el('insight-overview').innerHTML='<div class="insight-title">Dataset Overview</div>Scanned <b>'+fmt(k.total_events)+'</b> authentication events across 6 months. On the held-out test split the model caught <b style="color:'+C.critical+'">'+ovCaught+'</b> attacks (<b style="color:'+C.low+'">'+ovRecall+'%</b> recall) &mdash; measured only on users it never trained on. Top '+alerts.length+' alerts average score: <b style="color:'+C.ochre+'">'+avgScore.toFixed(3)+'</b>.';
 
                 if(dash.timeline&&dash.timeline.length){
                     var tl=dash.timeline;
@@ -290,7 +296,7 @@
                         tooltip:{trigger:'axis',backgroundColor:C.tooltipBg,borderColor:'rgba(255,255,255,0.08)',textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11}},
                         legend:{data:['Max Score','Mean Score'],textStyle:{color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'},top:2,right:20},
                         grid:{left:60,right:20,top:30,bottom:60},
-                        xAxis:{type:'category',data:tl.map(function(_,i){return i;}),axisLabel:{color:C.inkFaint,fontSize:10},axisLine:{lineStyle:{color:C.gridLine}}},
+                        xAxis:{type:'category',data:tl.map(function(d){return d.hour_bucket;}),axisLabel:{color:C.inkFaint,fontSize:10},axisLine:{lineStyle:{color:C.gridLine}}},
                         yAxis:{type:'value',axisLabel:{color:C.inkFaint,fontSize:10,formatter:function(v){return v.toFixed(4);}},splitLine:{lineStyle:{color:C.gridLine}}},
                         dataZoom:[{type:'slider',start:0,end:100,height:24,bottom:8,borderColor:'transparent',backgroundColor:'rgba(255,255,255,0.03)',fillerColor:'rgba(232,163,61,0.15)',handleStyle:{color:C.ochre},textStyle:{color:C.inkFaint,fontSize:10}}],
                         series:[
@@ -302,9 +308,12 @@
                     var peakHours={};
                     tl.forEach(function(d){if(d.max_score>0.01)peakHours[d.hour_bucket]=d.max_score;});
                     var sorted=Object.entries(peakHours).sort(function(a,b){return b[1]-a[1];});
-                    var peakStr=sorted.slice(0,3).map(function(e){return 'bucket '+e[0];}).join(', ');
+                    // hour_bucket is the hour index since the dataset start, so
+                    // quote it as a plain hour number the x-axis also shows.
+                    var peakStr=sorted.slice(0,3).map(function(e){return e[0];}).join(', ');
+                    var firstB=tl[0].hour_bucket, lastB=tl[tl.length-1].hour_bucket;
                     el('insight-temporal').style.display='';
-                    el('insight-temporal-text').innerHTML='Timeline shows <b>'+tl.length+'</b> hourly buckets. Anomaly spikes detected at <b style="color:'+C.critical+'">'+peakStr+'</b>. Most buckets have near-zero mean score: attacks are rare, concentrated events.';
+                    el('insight-temporal-text').innerHTML='Timeline shows the last <b>'+tl.length+'</b> hourly buckets (hour <b>'+firstB+'</b> to <b>'+lastB+'</b> since the dataset start). Anomaly spikes concentrate at hours <b style="color:'+C.critical+'">'+peakStr+'</b>. Most hours have near-zero mean score: attacks are rare, concentrated events.';
 
                     var hm=dash.heatmap||[];
                     if(hm.length){
@@ -316,7 +325,7 @@
                             userHours[h.user].hours.push(h.hour);
                         });
                         var topUser=Object.entries(userHours).sort(function(a,b){return b[1].max-a[1].max;})[0];
-                        el('insight-temporal').innerHTML+='<br>User <b style="color:'+C.ochre+'">'+topUser[0]+'</b> peaks at hours <b>'+topUser[1].hours.join(', ')+':00</b> with max score '+topUser[1].max.toFixed(4)+'.';
+                        el('insight-temporal').innerHTML+='<br>User <b style="color:'+C.ochre+'">'+topUser[0]+'</b> peaks at hour-of-day <b>'+topUser[1].hours.join(', ')+'</b> with max score '+topUser[1].max.toFixed(4)+'.';
                     }
                 }
 
@@ -453,8 +462,14 @@
                 var tbody=el('alerts-tbody');
                 if(tbody&&alerts&&alerts.length){
                     tbody.innerHTML=alerts.map(function(a){
-                        var date=new Date(a.time*1000);
-                        var timeStr=date.toISOString().slice(0,19).replace('T',' ');
+                        // `time` is seconds since the dataset start, NOT a Unix
+                        // epoch, so new Date() labelled every row 1970. Render the
+                        // offset as Day/HH:MM instead.
+                        var tSec=Math.floor(a.time);
+                        var tDay=Math.floor(tSec/86400);
+                        var tHh=String(Math.floor((tSec%86400)/3600)).padStart(2,'0');
+                        var tMm=String(Math.floor((tSec%3600)/60)).padStart(2,'0');
+                        var timeStr='Day '+tDay+' '+tHh+':'+tMm;
                         var decCls='stamp stamp-'+(a.decision==='BLOCK'?'critical':a.decision==='FLAG'?'medium':'low');
                         return '<tr><td>'+timeStr+'</td><td>'+a.src_computer+'</td><td>'+a.dst_computer+'</td><td>'+a.anomaly_score.toFixed(6)+'</td><td><span class="'+decCls+'">'+a.decision+'</span></td></tr>';
                     }).join('');

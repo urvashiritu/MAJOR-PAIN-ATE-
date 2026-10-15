@@ -7,9 +7,27 @@ function _fmtUser(name, userId) {
     return id ? display + ' (' + id + ')' : display;
 }
 
+/* Raw LANL ids for the four demo personas. Same names and same "Name (ShortId)"
+   format as the _dn map on Dataset Analysis, so a viewer can cross-reference
+   the two pages. Unknown ids fall back to the short id. */
+const _personaNames = {
+    'U293@DOM1': 'Ace (U293)',
+    'U2097@DOM1': 'Igris (U2097)',
+    'U2899@DOM1': 'Luffy (U2899)',
+    'U66@DOM1': 'Ashborn (U66)',
+};
+function humanizeUser(id) {
+    if (!id) return id;
+    return _personaNames[id] || String(id).split('@')[0];
+}
+
+/* `level` here encodes the detection OUTCOME, not the score: a caught attack is
+   'critical' and a false positive is 'medium'. Printing the raw level name made
+   a low score look scarier than a high one, so show the outcome word instead. */
 function severityBadge(level) {
+    const outcome = { critical: 'CAUGHT', medium: 'FALSE POS', high: 'HIGH' };
     const cls = 'stamp stamp-' + (level || 'info');
-    const label = level ? level.toUpperCase() : 'INFO';
+    const label = outcome[level] || (level ? String(level).toUpperCase() : 'INFO');
     return `<span class="${cls}">${label}</span>`;
 }
 
@@ -70,13 +88,13 @@ function alertRow(a, onInvestigate, onAck) {
     return `
         <tr>
             <td class="nowrap">${esc(a.timestamp)}</td>
-            <td class="font-semibold">${esc(a.name)}</td>
+            <td class="font-semibold" title="${esc(a.name)}">${esc(humanizeUser(a.name))}</td>
             <td>${esc(a.reasons)}</td>
             <td class="mono text-11">${a.combined_score.toFixed(4)}</td>
             <td>${severityBadge(sev)}</td>
             <td>
                 <div class="flex gap-1">
-                    <button class="btn-ochre" onclick="event.stopPropagation();(${onInvestigate || 'function(){}'})(${a.eventId})">investigate</button>
+                    <button class="btn-ochre" onclick="event.stopPropagation();(${onInvestigate || 'function(){}'})(${a.id})">investigate</button>
                     ${a.status !== 'acknowledged'
                         ? `<button class="btn-muted" onclick="event.stopPropagation();(${onAck || 'function(){}'})(${a.id})">ack</button>`
                         : `<span class="text-10 text-faint uppercase">acked</span>`}
@@ -182,7 +200,7 @@ function investigationDrawer(data, onClose) {
             <div class="panel-inset p-3">
                 <div class="drawer-section-title">Baseline</div>
                 <div class="text-11 text-dim">
-                    Total events: ${data.baseline.totalEvents} · Failure rate: ${data.baseline.failureRate} · Avg events/hr: ${data.baseline.avgEventsPerHour}
+                    Total events: ${data.baseline.totalEvents} · Machines used: ${data.baseline.knownSrcComputers} source / ${data.baseline.knownDstComputers} destination
                 </div>
             </div>
 

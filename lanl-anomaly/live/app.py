@@ -26,6 +26,12 @@ app = Flask(__name__,
             static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 app.secret_key = secrets.token_hex(32)
 
+# Jinja caches rendered templates from first use, and this app runs with
+# debug=False, so template edits on disk stay invisible until the process is
+# restarted. Reloading them on change costs a stat() per render and saves a
+# full restart (which re-reads the whole scores parquet).
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+
 # ── Live session state ──────────────────────────────────────────
 _live_events = deque(maxlen=500)
 _live_alerts = deque(maxlen=200)
@@ -597,7 +603,7 @@ def _replay_alerts():
             'combined_score': e['anomaly_score'],
             'decision': e['decision'],
             'reasons': reasons,
-            'timestamp': 'T+%ds' % e['offset'],
+            'timestamp': 'T+%d:%02d' % (e['offset'] // 60, e['offset'] % 60),
             'is_red': e['is_red'],
             'correct': correct,
             'src_computer': e['src_computer'],

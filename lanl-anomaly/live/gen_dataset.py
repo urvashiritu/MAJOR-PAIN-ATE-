@@ -10,10 +10,9 @@ HTML = r'''<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LANL - Dataset Analysis</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="/static/vendor/jetbrains-mono.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+    <script src="/static/vendor/echarts.min.js"></script>
     <style>
         .chart-box{width:100%;height:320px}
         .chart-box-sm{width:100%;height:280px}

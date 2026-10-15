@@ -20,14 +20,15 @@ if [[ -z "$SID" || "$SID" == "latest" ]]; then
 fi
 [[ -n "$SID" ]] || { echo "error: no sessions found" >&2; exit 1; }
 
-opencode export "$SID" >"$TMP"
+opencode session export "$SID" >"$TMP"
 
 TITLE=$(jq -r '.info.title // "untitled"' "$TMP")
 MODEL=$(jq -r '.info.model.id // "?"' "$TMP")
 PROVIDER=$(jq -r '.info.model.providerID // "?"' "$TMP")
 VARIANT=$(jq -r '.info.model.variant // "-"' "$TMP")
 AGENT=$(jq -r '.info.agent // "-"' "$TMP")
-VERSION=$(jq -r '.info.version // "?"' "$TMP")
+VERSION="$(opencode --version | awk '{print $2}' | sed 's/^v//')" || VERSION="?"
+VERSION="${VERSION:-?}"
 COST=$(jq -r '.info.cost // 0' "$TMP")
 TIN=$(jq -r '.info.tokens.input // 0' "$TMP")
 TOUT=$(jq -r '.info.tokens.output // 0' "$TMP")
@@ -78,19 +79,18 @@ EOF
   jq -r '
     def hhmm: ((.time.created // 0) / 1000 | floor | localtime | strftime("%H:%M"));
     .messages[]
-    | (.info.role // "?") as $role
+    | (.type // "?") as $role
     | select($role == "user" or $role == "assistant")
-    | (.info | hhmm) as $t
+    | (. | hhmm) as $t
     | "\n## [\($t)] \(if $role == "user" then "USER" else "ASSISTANT" end)\n",
-      ([.parts[]?
-        | if .type == "text" then .text
-          elif .type == "tool" then "> ⚙ tool: \(.tool // "?") (\(.state.status // "?"))"
-          elif .type == "reasoning" then empty
-          elif .type == "file" then "> 📎 file attachment"
-          elif .type == "snapshot" then empty
-          else empty
-          end
-      ] | join("\n\n"))
+      (if $role == "user" then (.text // "")
+       else ([.content[]?
+          | if .type == "text" then .text
+            elif .type == "tool" then "> ⚙ tool: \(.name // "?") (\(.state.status // "?"))"
+            else empty
+            end
+        ] | join("\n\n"))
+       end)
   ' "$TMP"
 } >"$OUT"
 

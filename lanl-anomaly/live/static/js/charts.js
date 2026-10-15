@@ -112,12 +112,12 @@ function renderGauge(container, value) {
                     stroke-dashoffset="${offset}"/>
                 <text class="gauge-center" x="${cx}" y="${cy - 5}" text-anchor="middle">${(pct * 100).toFixed(0)}%</text>
             </svg>
-            <span class="gauge-label">threat level</span>
+            <span class="gauge-label">catch rate &middot; this replay window</span>
         </div>`;
     const fill = container.querySelector('.gauge-fill');
     if (fill) {
         fill.style.cursor = 'pointer';
-        fill.addEventListener('mouseenter', (e) => _showTooltip(e, 'Threat Level: ' + (pct * 100).toFixed(0) + '%'));
+        fill.addEventListener('mouseenter', (e) => _showTooltip(e, 'Catch rate (this replay window): ' + (pct * 100).toFixed(0) + '%'));
         fill.addEventListener('mousemove', _moveTooltip);
         fill.addEventListener('mouseleave', _hideTooltip);
     }
