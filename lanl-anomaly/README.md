@@ -102,10 +102,18 @@ No user appears in both the training set and the test set.
 
 | Metric | Value |
 |--------|-------|
+| PR-AUC | 0.3682 |
 | ROC-AUC | 0.9999 |
 | F1 | 0.4866 |
 | True positives | 136 of 240 |
 | False positives | 183 of 5,399,886 |
+
+PR-AUC is the figure to read. Attacks are 240 in 5,399,886, so a random
+ranker scores 0.000044 and this model scores 0.3682, which is about
+8,285 times the random baseline. ROC-AUC is 0.9999, but at this class
+ratio it is near-saturated by construction and does not separate a useful
+model from an unhelpful one. The dashboard leads with PR-AUC for that
+reason.
 
 Over the complete dataset the system found 591 of 702 attacks. This is 84.2%.
 

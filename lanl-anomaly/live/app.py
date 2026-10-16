@@ -243,6 +243,13 @@ def index():
     if 'user' in session:
         role = session.get('role', 'employee')
         return redirect(url_for('analyst_dashboard' if role == 'analyst' else 'employee_view'))
+    # Auto-login to the analyst view is a demo convenience and is gated on
+    # LANL_DEV for the same reason /dev/login is: without it, visiting '/'
+    # granted analyst access to anyone who asked for the root URL. The
+    # documented demo start command sets LANL_DEV=1, so the convenience
+    # is unchanged where it is wanted.
+    if not os.environ.get('LANL_DEV'):
+        return redirect(url_for('login'))
     session['user'] = 'soc_admin'
     session['role'] = 'analyst'
     session['display_name'] = 'SOC Analyst'

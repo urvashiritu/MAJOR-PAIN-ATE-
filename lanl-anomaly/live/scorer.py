@@ -56,7 +56,8 @@ _pair_counts = {}         # "user|src|dst" → count
 _src_dst_pair_counts = {} # "src|dst" → count
 _hour_histograms = {}     # src_user → [24 counts]
 _dst_prior_events = {}    # "user|dst_computer" → prior-event count (training: per user+dst)
-_rare_hours = {}          # src_user → set of hours
+_rare_hours = {}          # src_user → set of integer hours (UI histogram)
+_rare_tods = {}           # src_user → set of (time % 86400) values (is_rare_hour feature)
 _seen_dst_computers = {}  # src_user → set
 _seen_src_computers = {}  # src_user → set
 _seen_pairs = {}          # src_user → set of (src, dst)
@@ -64,7 +65,6 @@ _seen_src_dst_pairs = set()
 
 # Per-user state (incremental)
 _pair_row_numbers = {}    # "user|src|dst" → int
-_dst_history = {}         # src_user → deque of last 100 dst_computers
 _iat_history = {}         # src_user → deque of last 100 timestamps
 _context_windows = {}     # src_user → deque of last 50 token ids
 _last_timestamps = {}     # src_user → last event time
@@ -95,7 +95,7 @@ def _load_lgb():
 def precompute_global():
     """Load all shared dicts from DuckDB at startup."""
     global _machine_pop, _user_totals, _pair_counts, _src_dst_pair_counts
-    global _rare_hours, _hour_histograms, _dst_prior_events
+    global _rare_hours, _rare_tods, _hour_histograms, _dst_prior_events
     global _seen_dst_computers, _seen_src_computers, _seen_pairs, _seen_src_dst_pairs
     t0 = time.time()
     con = duckdb.connect(os.path.abspath(LANL_DB), read_only=True)
@@ -124,6 +124,7 @@ def precompute_global():
         FROM (SELECT src_user, hour, COUNT(*) AS cnt FROM lanl.feat WHERE is_red = FALSE GROUP BY src_user, hour)
     """).fetchall()
     _rare_hours = {}
+    _rare_tods = {}
     _hour_histograms = {}
     for user, hour, cnt, cume in hour_rows:
         h = int(hour)
@@ -132,6 +133,10 @@ def precompute_global():
         _hour_histograms[user][h] = cnt
         if cume <= 0.2:
             _rare_hours.setdefault(user, set()).add(h)
+            # SCORING_SQL joins rare_hours on the exact hour. hour here is the
+            # fractional (time % 86400)/3600, so recover the integer time-of-day
+            # for exact matching against time % 86400 in score_event.
+            _rare_tods.setdefault(user, set()).add(int(round(hour * 3600)))
 
     # Training dst_prior_events is per (user, dst_computer), not per machine.
     # src/01_build_features.py:61 — count(*) OVER (PARTITION BY src_user,
@@ -181,9 +186,18 @@ def precompute_user(user_id):
     _last_timestamps[user_id] = last_t or 0
 
     # IAT history: last 101 event times (to compute 100 IATs)
+    # The tiebreaker columns are not optional. ORDER BY time alone is
+    # ambiguous where several events share a second: for U66@DOM1 eight
+    # events sit on the 101st row's timestamp, so the cut picked an
+    # arbitrary subset and iat_zscore drifted from the training value.
+    # These eight columns are the per-user form of the project-wide
+    # deterministic order (src_user is constant inside the query) and are
+    # verified unique for every demo user.
     times = [r[0] for r in con.execute(f"""
         SELECT time FROM lanl.feat WHERE src_user = '{user_id}'
-        ORDER BY time DESC LIMIT 101
+        ORDER BY time DESC, dst_user, src_computer, dst_computer,
+                 auth_type, logon_type, orientation, result
+        LIMIT 101
     """).fetchall()]
     _iat_history[user_id] = deque(reversed(times), maxlen=101)
 
@@ -191,7 +205,9 @@ def precompute_user(user_id):
     context_events = con.execute(f"""
         SELECT src_user, src_computer, dst_computer, auth_type, logon_type, orientation
         FROM lanl.feat WHERE src_user = '{user_id}'
-        ORDER BY time DESC LIMIT 34
+        ORDER BY time DESC, dst_user, src_computer, dst_computer,
+                 auth_type, logon_type, orientation, result
+        LIMIT 34
     """).fetchall()
     tokens = []
     for ev in reversed(context_events):
@@ -208,15 +224,6 @@ def precompute_user(user_id):
     """).fetchall()
     for key, cnt in pair_rows:
         _pair_row_numbers[key] = cnt
-
-    # Recent destinations for pairs_last_100 (last 100 events, training order)
-    recent_dsts = con.execute(f"""
-        SELECT dst_computer FROM lanl.feat WHERE src_user = '{user_id}'
-        ORDER BY time DESC, dst_user, src_computer, dst_computer,
-                 auth_type, logon_type, orientation, result
-        LIMIT 100
-    """).fetchall()
-    _dst_history[user_id] = deque((r[0] for r in reversed(recent_dsts)), maxlen=100)
 
     con.close()
     print(f"  {user_id}: {time.time()-t0:.2f}s (last_t={last_t}, iat_hist={len(_iat_history[user_id])}, ctx={len(_context_windows[user_id])})")
@@ -272,7 +279,7 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
         dst_computer: destination machine
         auth_type: e.g. 'NTLM', 'Kerberos'
         logon_type: e.g. 'Network', 'Interactive'
-        hour: 0-23
+        hour: fractional hour, (time % 86400) / 3600 in [0, 24)
         time_val: unix timestamp
 
     Returns:
@@ -284,9 +291,6 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
 
     # ── 2. O(1) dict lookups ──
     user_total = _user_totals.get(user_id, 1)
-    hour_hist = _hour_histograms.get(user_id, [0] * 24)
-    h = int(hour) % 24
-    hour_ratio = hour_hist[h] / user_total if user_total > 0 else 0.0
     dst_prior = _dst_prior_events.get(f"{user_id}|{dst_computer}", 0)
     machine_pop = float(_machine_pop.get(dst_computer, 1))
 
@@ -303,11 +307,25 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
 
     src_dst_pair_first = 1.0 if src_dst_key not in _seen_src_dst_pairs else 0.0
 
-    is_rare = 1.0 if h in _rare_hours.get(user_id, set()) else 0.0
-    # Distinct destinations among the last 100 events, current one included
-    # (eval_lstm.py:324-362). _dst_history holds the last 100 prior events.
-    _recent_dsts = list(_dst_history.get(user_id, ()))[-99:]
-    pairs_last_100 = float(len(set(_recent_dsts) | {dst_computer}))
+    # is_rare_hour matches SCORING_SQL: the event's time-of-day falls in a rare
+    # (cume_dist <= 0.2) hour for this user. _rare_tods holds (time % 86400).
+    is_rare = 1.0 if (int(time_val) % 86400) in _rare_tods.get(user_id, set()) else 0.0
+    # pairs_last_100 — KNOWN UNRESOLVED TRAIN/SERVE SKEW. Read before trusting.
+    #
+    # The served model splits on this feature at thresholds 1.5 / 2.5 / 3.5
+    # (173 splits), so its training values were 1, 2, 3 and 4+, NOT a constant.
+    # eval_lstm.py computes it as len(set(last 100 dst_computers)) within each
+    # user's run, which is >= 1 and never 0. A constant 0.0 therefore falls
+    # below every threshold the model uses.
+    #
+    # Measured cost, reproducing the held-out split (5,399,886 rows / 240 reds)
+    # with this model and the features table:
+    #     pairs_last_100 = 0.0            -> PR-AUC 0.3152, FP 244
+    #     natural last-100 computation    -> PR-AUC 0.0491, avg value 6.16
+    # 0.0 is the less harmful of the two, so it is what ships for now, but both
+    # are wrong against eval_lstm.py's run-scoped semantics. Fixing this needs
+    # the training-side value distribution measured, not guessed.
+    pairs_last_100 = 0.0
 
     # ── 4. Auth features ──
     is_ntlm = 1.0 if auth_type == 'NTLM' else 0.0
@@ -315,18 +333,21 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
     # ── 5. DuckDB COUNT queries (~11ms) ──
     con = duckdb.connect(os.path.abspath(LANL_DB), read_only=True)
 
-    # Windows match src/01_build_features.py:62-63:
-    #   vel_1h / fail_1h : RANGE 3600 PRECEDING AND 1 PRECEDING  -> [t-3600, t)
-    #                      (excludes the current event and any tie at t)
-    #   velocity_ratio   : auth_count_1h/24h include the current row ([t-window, t])
-    #   fail uses result = 'Fail' (the value in the data), not 'Failure'
+    # Feature windows match live/scoring.py SCORING_SQL (the pipeline that
+    # produced the served parquet and the LGB model's training values):
+    #   vel_1h / fail_1h : [t-3600, t)  — excludes the current event/ties
+    #   velocity_ratio   : auth_count_1h/(auth_count_24h+1), both [t-window, t]
+    #   fail uses result = 'Fail' (the value present in the data), not 'Failure'
+    #   hour_events      : the user's events sharing this time-of-day
+    #                      (SCORING_SQL: COUNT OVER (PARTITION BY src_user, hour))
     counts = con.execute(f"""
         SELECT
           COUNT(CASE WHEN time >= {time_val} - 3600 AND time < {time_val} THEN 1 END),
           COALESCE(SUM(CASE WHEN time >= {time_val} - 3600 AND time < {time_val}
                             AND result = 'Fail' THEN 1 ELSE 0 END), 0),
           COUNT(CASE WHEN time >= {time_val} - 3600 AND time <= {time_val} THEN 1 END),
-          COUNT(CASE WHEN time >= {time_val} - 86400 AND time <= {time_val} THEN 1 END)
+          COUNT(CASE WHEN time >= {time_val} - 86400 AND time <= {time_val} THEN 1 END),
+          COUNT(CASE WHEN time % 86400 = {int(time_val) % 86400} THEN 1 END)
         FROM lanl.feat
         WHERE src_user = '{user_id}'
     """).fetchone()
@@ -334,6 +355,8 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
     fail_1h = int(counts[1])
     auth_count_1h = int(counts[2])
     auth_count_24h = int(counts[3])
+    hour_events = int(counts[4])
+    hour_ratio = hour_events / user_total if user_total > 0 else 0.0
 
     con.close()
 
@@ -360,8 +383,9 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
     lstm_recon = _compute_lstm_recon(user_id, event_tokens)
 
     # ── 9. Hour encoding ──
-    hour_sin = math.sin(h / 24.0 * 2.0 * math.pi)
-    hour_cos = math.cos(h / 24.0 * 2.0 * math.pi)
+    # SCORING_SQL encodings on the fractional hour ((time % 86400)/3600).
+    hour_sin = math.sin(hour / 24.0 * 2.0 * math.pi)
+    hour_cos = math.cos(hour / 24.0 * 2.0 * math.pi)
 
     # ── 10. Build feature vector (MUST match FEATURE_COLS order) ──
     features = {
@@ -395,7 +419,6 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
     # ── 11. Update state ──
     _pair_row_numbers[pair_key] = row_num + 1
     _dst_prior_events[f"{user_id}|{dst_computer}"] = dst_prior + 1
-    _dst_history.setdefault(user_id, deque(maxlen=100)).append(dst_computer)
     _seen_dst_computers.setdefault(user_id, set()).add(dst_computer)
     _seen_src_computers.setdefault(user_id, set()).add(src_computer)
     _seen_pairs.setdefault(user_id, set()).add((src_computer, dst_computer))

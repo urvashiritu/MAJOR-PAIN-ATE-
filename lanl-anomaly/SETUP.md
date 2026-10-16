@@ -168,10 +168,16 @@ The model metrics for a held-out set are as follows.
 
 | Metric | Value |
 |--------|-------|
+| PR-AUC | 0.3682 |
 | ROC-AUC | 0.9999 |
 | F1 | 0.4866 |
 | True positives | 136 of 240 |
 | False positives | 183 of 5,399,886 |
+
+PR-AUC is the figure to read. A random ranker scores 0.000044 at this
+class ratio and this model scores 0.3682, about 8,285 times the baseline.
+ROC-AUC is near-saturated here and does not separate a useful model from
+an unhelpful one.
 
 The test set has 5,399,886 events. Of these, 240 are attacks.
 
