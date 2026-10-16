@@ -5,9 +5,11 @@ instead of synthesising them. Every event carries its real model score and its
 real ground-truth label, so the dashboard can be checked against reality.
 
 The demo window (WINDOW_START..WINDOW_END) was picked because it contains a
-genuine lateral-movement burst: source machine C17693 authenticating as many
-different users against many unseen destinations. RUN 14 scored the full
-dataset at 590/702 attacks caught for 349 false positives.
+genuine lateral-movement burst: source machine C17693 opening 34 sign-ins as 7
+different user accounts against 31 distinct destinations, 20 of which are
+confirmed red-team events -- every red event in the window traces to C17693.
+RUN 14 scored the full dataset at 590/702 attacks caught for 386 false
+positives; the shipped parquet scores 598/702 for 269.
 """
 import os
 import threading
