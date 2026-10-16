@@ -55,7 +55,7 @@ _user_totals = {}         # src_user → total events
 _pair_counts = {}         # "user|src|dst" → count
 _src_dst_pair_counts = {} # "src|dst" → count
 _hour_histograms = {}     # src_user → [24 counts]
-_dst_prior_events = {}    # dst_computer → count
+_dst_prior_events = {}    # "user|dst_computer" → prior-event count (training: per user+dst)
 _rare_hours = {}          # src_user → set of hours
 _seen_dst_computers = {}  # src_user → set
 _seen_src_computers = {}  # src_user → set
@@ -64,6 +64,7 @@ _seen_src_dst_pairs = set()
 
 # Per-user state (incremental)
 _pair_row_numbers = {}    # "user|src|dst" → int
+_dst_history = {}         # src_user → deque of last 100 dst_computers
 _iat_history = {}         # src_user → deque of last 100 timestamps
 _context_windows = {}     # src_user → deque of last 50 token ids
 _last_timestamps = {}     # src_user → last event time
@@ -132,8 +133,12 @@ def precompute_global():
         if cume <= 0.2:
             _rare_hours.setdefault(user, set()).add(h)
 
+    # Training dst_prior_events is per (user, dst_computer), not per machine.
+    # src/01_build_features.py:61 — count(*) OVER (PARTITION BY src_user,
+    # dst_computer ORDER BY time RANGE UNBOUNDED PRECEDING AND 1 PRECEDING).
     _dst_prior_events = dict(con.execute(
-        "SELECT dst_computer, COUNT(*) FROM lanl.feat GROUP BY dst_computer"
+        "SELECT src_user || '|' || dst_computer, COUNT(*) "
+        "FROM lanl.feat GROUP BY src_user, dst_computer"
     ).fetchall())
 
     # Seen sets
@@ -204,6 +209,15 @@ def precompute_user(user_id):
     for key, cnt in pair_rows:
         _pair_row_numbers[key] = cnt
 
+    # Recent destinations for pairs_last_100 (last 100 events, training order)
+    recent_dsts = con.execute(f"""
+        SELECT dst_computer FROM lanl.feat WHERE src_user = '{user_id}'
+        ORDER BY time DESC, dst_user, src_computer, dst_computer,
+                 auth_type, logon_type, orientation, result
+        LIMIT 100
+    """).fetchall()
+    _dst_history[user_id] = deque((r[0] for r in reversed(recent_dsts)), maxlen=100)
+
     con.close()
     print(f"  {user_id}: {time.time()-t0:.2f}s (last_t={last_t}, iat_hist={len(_iat_history[user_id])}, ctx={len(_context_windows[user_id])})")
 
@@ -273,7 +287,7 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
     hour_hist = _hour_histograms.get(user_id, [0] * 24)
     h = int(hour) % 24
     hour_ratio = hour_hist[h] / user_total if user_total > 0 else 0.0
-    dst_prior = _dst_prior_events.get(dst_computer, 0)
+    dst_prior = _dst_prior_events.get(f"{user_id}|{dst_computer}", 0)
     machine_pop = float(_machine_pop.get(dst_computer, 1))
 
     # ── 3. Pair features ──
@@ -285,12 +299,15 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
 
     row_num = _pair_row_numbers.get(pair_key, 0)
     pair_first = 1.0 if row_num == 0 else 0.0
-    log_pair_rank = math.log(row_num + 1)
+    log_pair_rank = math.log(row_num + 2)  # training: log1p(ROW_NUMBER) = log(prior+2)
 
     src_dst_pair_first = 1.0 if src_dst_key not in _seen_src_dst_pairs else 0.0
 
     is_rare = 1.0 if h in _rare_hours.get(user_id, set()) else 0.0
-    pairs_last_100 = 0.0  # always 0 in training
+    # Distinct destinations among the last 100 events, current one included
+    # (eval_lstm.py:324-362). _dst_history holds the last 100 prior events.
+    _recent_dsts = list(_dst_history.get(user_id, ()))[-99:]
+    pairs_last_100 = float(len(set(_recent_dsts) | {dst_computer}))
 
     # ── 4. Auth features ──
     is_ntlm = 1.0 if auth_type == 'NTLM' else 0.0
@@ -298,28 +315,32 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
     # ── 5. DuckDB COUNT queries (~11ms) ──
     con = duckdb.connect(os.path.abspath(LANL_DB), read_only=True)
 
-    vel_fail = con.execute(f"""
-        SELECT COUNT(*),
-               COUNT(CASE WHEN result = 'Failure' THEN 1 END)
+    # Windows match src/01_build_features.py:62-63:
+    #   vel_1h / fail_1h : RANGE 3600 PRECEDING AND 1 PRECEDING  -> [t-3600, t)
+    #                      (excludes the current event and any tie at t)
+    #   velocity_ratio   : auth_count_1h/24h include the current row ([t-window, t])
+    #   fail uses result = 'Fail' (the value in the data), not 'Failure'
+    counts = con.execute(f"""
+        SELECT
+          COUNT(CASE WHEN time >= {time_val} - 3600 AND time < {time_val} THEN 1 END),
+          COALESCE(SUM(CASE WHEN time >= {time_val} - 3600 AND time < {time_val}
+                            AND result = 'Fail' THEN 1 ELSE 0 END), 0),
+          COUNT(CASE WHEN time >= {time_val} - 3600 AND time <= {time_val} THEN 1 END),
+          COUNT(CASE WHEN time >= {time_val} - 86400 AND time <= {time_val} THEN 1 END)
         FROM lanl.feat
         WHERE src_user = '{user_id}'
-        AND time > {time_val} - 3600 AND time <= {time_val}
     """).fetchone()
-    vel_1h = vel_fail[0]
-    fail_1h = vel_fail[1]
-
-    vel_24h = con.execute(f"""
-        SELECT COUNT(*) FROM lanl.feat
-        WHERE src_user = '{user_id}'
-        AND time > {time_val} - 86400 AND time <= {time_val}
-    """).fetchone()[0]
+    vel_1h = int(counts[0])
+    fail_1h = int(counts[1])
+    auth_count_1h = int(counts[2])
+    auth_count_24h = int(counts[3])
 
     con.close()
 
     # ── 6. Derived features ──
     fail_rate = fail_1h / (vel_1h + 1.0)
     dst_first_x_ntlm = dst_first * is_ntlm
-    velocity_ratio = vel_1h / (vel_24h + 1.0)
+    velocity_ratio = auth_count_1h / (auth_count_24h + 1.0)
 
     # ── 7. IAT z-score (~3ms for query + compute) ──
     iat_hist = _iat_history.get(user_id, deque())
@@ -327,7 +348,8 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
         iats = [iat_hist[i] - iat_hist[i-1] for i in range(1, len(iat_hist))]
         iat_arr = np.array(iats, dtype=float)
         iat_mean = float(np.mean(iat_arr))
-        iat_std = float(np.std(iat_arr)) + 1e-6
+        # Training used STDDEV_SAMP (n-1); np.std defaults to population (n).
+        iat_std = (float(np.std(iat_arr, ddof=1)) if len(iat_arr) > 1 else 0.0) + 1e-6
         new_iat = time_val - (iat_hist[-1] if iat_hist else time_val)
         iat_zscore = (new_iat - iat_mean) / iat_std
     else:
@@ -372,6 +394,8 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
 
     # ── 11. Update state ──
     _pair_row_numbers[pair_key] = row_num + 1
+    _dst_prior_events[f"{user_id}|{dst_computer}"] = dst_prior + 1
+    _dst_history.setdefault(user_id, deque(maxlen=100)).append(dst_computer)
     _seen_dst_computers.setdefault(user_id, set()).add(dst_computer)
     _seen_src_computers.setdefault(user_id, set()).add(src_computer)
     _seen_pairs.setdefault(user_id, set()).add((src_computer, dst_computer))
