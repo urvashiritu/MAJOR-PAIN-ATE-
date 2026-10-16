@@ -1,4 +1,5 @@
 """Flask backend for LANL anomaly detection — live dashboard + dataset analysis."""
+import functools
 import json
 import os
 import queue
@@ -81,6 +82,37 @@ def _init_scorer():
         _scorer_ready = True
 
 
+# ── Role gate ───────────────────────────────────────────────────
+# Only the SOC analyst may reach the dashboard, its APIs, or the live event
+# stream. The employee accounts exist to generate sign-in events, not to read
+# the analyst views: previously /analyst checked only "is somebody logged in",
+# so an employee session could load the whole dashboard by typing the URL.
+#
+# LANL_DEV=1 marks the machine as trusted (the documented demo command sets
+# it), so the gate elevates the session to the analyst role rather than
+# bouncing. That keeps the demo to one keystroke: after showing an employee
+# login, typing /analyst returns to the dashboard. Without LANL_DEV the rule
+# is strict -- employees go to their own page, anonymous visitors to the login
+# form, and API calls get JSON instead of an HTML redirect.
+def analyst_required(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if session.get('role') != 'analyst':
+            if os.environ.get('LANL_DEV'):
+                session['user'] = 'soc_admin'
+                session['role'] = 'analyst'
+                session['display_name'] = 'SOC Analyst'
+                session['user_id'] = None
+            elif request.path.startswith('/api/') or request.path == '/events/stream':
+                return jsonify({'error': 'analyst role required'}), (
+                    403 if 'user' in session else 401)
+            else:
+                return redirect(url_for('employee_view' if 'user' in session
+                                        else 'login'))
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 # ── SSE ─────────────────────────────────────────────────────────
 def _sse_push(event_data):
     """Push event to all SSE subscribers.
@@ -106,6 +138,7 @@ def _sse_push(event_data):
 
 
 @app.route('/events/stream')
+@analyst_required
 def events_stream():
     """SSE: one `score` message per scored event."""
     q = queue.Queue(maxsize=2000)
@@ -167,6 +200,7 @@ def _replay_loop():
 
 
 @app.route('/api/replay/status')
+@analyst_required
 def api_replay_status():
     """Progress + summary for the real replay window.
 
@@ -183,6 +217,7 @@ def api_replay_status():
 
 
 @app.route('/api/replay/start', methods=['POST'])
+@analyst_required
 def api_replay_start():
     """Start streaming real events."""
     global _replay_running, _replay_thread, _replay_speed, _replay_events, _replay_index
@@ -203,6 +238,7 @@ def api_replay_start():
 
 
 @app.route('/api/replay/stop', methods=['POST'])
+@analyst_required
 def api_replay_stop():
     """Pause the stream. The index is kept so playback resumes where it stopped."""
     global _replay_running
@@ -212,6 +248,7 @@ def api_replay_stop():
 
 
 @app.route('/api/replay/reset', methods=['POST'])
+@analyst_required
 def api_replay_reset():
     """Rewind to the first event and drop acknowledgements."""
     global _replay_index, _replay_running
@@ -223,6 +260,7 @@ def api_replay_reset():
 
 
 @app.route('/api/replay/jump_attack', methods=['POST'])
+@analyst_required
 def api_replay_jump_attack():
     """Skip ahead to the next confirmed attack and emit it immediately."""
     global _replay_events, _replay_index
@@ -324,6 +362,7 @@ def employee_view():
 
 # ── Page routes ─────────────────────────────────────────────────
 @app.route('/analyst')
+@analyst_required
 def analyst_dashboard():
     if 'user' not in session:
         return redirect(url_for('login'))
@@ -335,6 +374,7 @@ def analyst_dashboard():
 
 
 @app.route('/analyst/dataset')
+@analyst_required
 def dataset_analysis():
     if 'user' not in session:
         return redirect(url_for('login'))
@@ -546,6 +586,7 @@ def simulate_login_burst(user_id, username):
 
 # ── Live JSON API ───────────────────────────────────────────────
 @app.route('/api/dashboard')
+@analyst_required
 def api_dashboard():
     """Analyst dashboard — reads the real replay window, never the simulation."""
     global _replay_events
@@ -676,18 +717,21 @@ def _replay_user_stats():
 
 
 @app.route('/api/alerts')
+@analyst_required
 def api_alerts():
     """Alerts from the real replay window (source of truth, not simulation)."""
     return jsonify(_replay_alerts())
 
 
 @app.route('/api/users')
+@analyst_required
 def api_users():
     """User stats from the real replay window (source of truth, not simulation)."""
     return jsonify(_replay_user_stats())
 
 
 @app.route('/api/known_users')
+@analyst_required
 def api_known_users():
     """All users from training data (for behavior insights)."""
     _init_scorer()
@@ -705,6 +749,7 @@ def api_known_users():
 
 
 @app.route('/api/live_events')
+@analyst_required
 def api_live_events():
     """Live-scored employee logins, oldest first.
 
@@ -722,6 +767,7 @@ def api_live_events():
 
 
 @app.route('/api/stats')
+@analyst_required
 def api_stats():
     """Counts for both data sources, clearly separated."""
     global _replay_events
@@ -739,6 +785,7 @@ def api_stats():
 
 
 @app.route('/api/search')
+@analyst_required
 def api_search():
     """Global search across the real replay window, its users and its alerts."""
     q = request.args.get('q', '').strip().lower()
@@ -780,6 +827,7 @@ def api_search():
 
 
 @app.route('/api/investigation/<int:event_id>')
+@analyst_required
 def api_investigation(event_id):
     """Investigation detail for a real replay event."""
     global _replay_events
@@ -893,6 +941,7 @@ def api_investigation(event_id):
 
 
 @app.route('/api/alerts/<int:alert_id>/ack', methods=['POST'])
+@analyst_required
 def api_ack_alert(alert_id):
     """Acknowledge an alert from the real replay window."""
     with _replay_lock:
@@ -919,6 +968,7 @@ def _bundle_int(bundle, key):
 
 
 @app.route('/api/model/metrics')
+@analyst_required
 def api_model_metrics():
     """Feature importances read from the trained model, not hardcoded.
 
@@ -968,6 +1018,7 @@ def api_model_metrics():
 
 
 @app.route('/api/simulation')
+@analyst_required
 def api_simulation():
     """Simulated events produced by the employee login path.
 
@@ -990,6 +1041,7 @@ def api_simulation():
 
 
 @app.route('/api/reset', methods=['POST'])
+@analyst_required
 def api_reset():
     """Clear simulated events and alerts (real replay state is untouched)."""
     global _event_id_counter, _alert_id_counter
@@ -1215,6 +1267,7 @@ def _precompute_dashboard():
 
 
 @app.route('/api/dataset/dashboard')
+@analyst_required
 def api_dataset_dashboard():
     """Dataset analysis — precomputed parquet data."""
     if _cached_dashboard is None:
@@ -1223,6 +1276,7 @@ def api_dataset_dashboard():
 
 
 @app.route('/api/dataset/alerts')
+@analyst_required
 def api_dataset_alerts():
     if _cached_alerts is None:
         _precompute_dashboard()
@@ -1249,6 +1303,7 @@ def dev_login():
 
 # ── User profile (baseline + live session) ──────────────────────
 @app.route('/api/user_profile/<user_id>')
+@analyst_required
 def api_user_profile(user_id):
     """Combined training baseline + live session data for a user."""
     _init_scorer()
