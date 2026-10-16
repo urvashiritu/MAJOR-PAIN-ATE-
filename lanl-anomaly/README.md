@@ -84,7 +84,7 @@ The file `lanl.duckdb` contains these tables.
 | `auth_slice` | 29,905,488 | Raw authentication events |
 | `redteam` | 749 | 104 red team attackers, one row per event |
 
-The `feat` table has 702 rows where `is_red` is true. The system found 591 of
+The `feat` table has 702 rows where `is_red` is true. The system found 598 of
 these rows.
 
 The system scores the events as follows.
@@ -115,7 +115,7 @@ ratio it is near-saturated by construction and does not separate a useful
 model from an unhelpful one. The dashboard leads with PR-AUC for that
 reason.
 
-Over the complete dataset the system found 591 of 702 attacks. This is 84.2%.
+Over the complete dataset the system found 598 of 702 attacks. This is 85.2%.
 
 ## Retraining
 

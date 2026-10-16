@@ -81,8 +81,8 @@ real events. Of these, 20 are red team attacks.
 The team chose the window for one reason. Source machine `C17693` authenticates
 as many users against many new destinations. This activity is lateral movement.
 
-Run 14 scored the complete dataset. The run found 591 of 702 attacks. The run
-also gave 349 false positives.
+The system scored the complete dataset and found 598 of 702 attacks, with 269
+false positives.
 
 ## Running
 
@@ -91,62 +91,82 @@ cd lanl-anomaly
 LANL_DEV=1 venv/bin/python -m live.app
 ```
 
-Startup runs these steps.
+Startup runs these steps. The times are measured from a real boot.
 
 1. Load 29.9M scored rows from the parquet. This takes 2 seconds.
-2. Aggregate the dashboard data. This takes 3 seconds.
-3. Load the models. This takes 2 seconds.
-4. Build the global context from 604 users. This takes 13 seconds.
-5. Start the replay.
-6. Serve on `http://localhost:5000`.
+2. Aggregate the dashboard data. This takes 15 to 17 seconds. This is the
+   longest step.
+3. Load the models. This is immediate.
+4. Build the global context from 8085 machines and 604 users. This takes about
+   11 seconds.
+5. Prepare the four per-user contexts and the real login samples. This takes
+   about 2 seconds.
+6. Start the replay.
+7. Serve on `http://localhost:5000`.
 
-The total time is about 20 seconds.
+The total time is about 32 seconds.
 
 ### Settings
 
 | Name | Default | Meaning |
 |------|---------|---------|
-| `LANL_DEV` | unset | Show the passwords and the TOTP codes on the login page |
+| `LANL_DEV` | unset | Show the passwords and the TOTP codes on the login page. Also signs the session in as the demo analyst on `/` and `/analyst` |
 | `LANL_AUTOPLAY` | `1` | Start the replay on boot |
 | `LANL_REPLAY_SPEED` | `20` | Events each second. The range is 1 to 500 |
 
-**Warning:** `LANL_DEV` shows live credentials. Do not use it on a server that
-the public internet can reach.
+**Warning:** `LANL_DEV` shows live credentials and opens the analyst pages to
+anyone who can reach the port. Do not use it on a server that the public
+internet can reach.
 
 ## Pages
 
-| Route | Page |
-|-------|------|
-| `/` | Redirect to `/analyst`. Signs in as the demo analyst |
-| `/login` | TOTP and password |
-| `/analyst` | Live Monitoring |
-| `/analyst/dataset` | Dataset Analysis |
-| `/#/behavior` | Behavior Insights |
-| `/#/model` | Model Performance |
-| `/#/alerts` | Alerts |
-| `/#/users` | Users |
-| `/#/settings` | Settings |
+The analyst pages need the SOC analyst role. An employee account that opens
+`/analyst` is sent back to `/employee`. The employee accounts exist to generate
+sign-in events, not to read the analyst views.
+
+| Route | Page | Who |
+|-------|------|-----|
+| `/` | Redirect to `/analyst`. Signs in as the demo analyst when `LANL_DEV=1` | anyone |
+| `/login` | TOTP and password | anyone |
+| `/employee` | One scored login for the signed-in employee | employee (an analyst is redirected to `/analyst`) |
+| `/analyst` | Live Monitoring | analyst |
+| `/analyst/dataset` | Dataset Analysis | analyst |
+| `/#/behavior` | Behavior Insights | analyst |
+| `/#/model` | Model Performance | analyst |
+| `/#/alerts` | Alerts | analyst |
+| `/#/users` | Users | analyst |
+| `/#/settings` | Settings | analyst |
+
+Without `LANL_DEV`, an employee that opens `/analyst` is redirected to
+`/employee` and an anonymous visitor is redirected to `/login`. With
+`LANL_DEV=1` the route signs the session in as the demo analyst instead, so a
+presenter can return to the dashboard with one keystroke after showing an
+employee login.
 
 ## API
 
 | Endpoint | Method | Auth | Use |
 |----------|--------|------|-----|
 | `/api/health` | GET | no | Server status |
-| `/api/dashboard` | GET | no | KPIs, recent events, alerts |
-| `/api/alerts` | GET | no | Alerts above the threshold |
-| `/api/users` | GET | no | Users in the replay window |
-| `/api/user_profile/<id>` | GET | no | Behavioral baseline for one user |
-| `/api/investigation/<id>` | GET | no | All features for one event |
-| `/api/model/metrics` | GET | no | Held-out metrics, importances |
-| `/api/dataset/dashboard` | GET | no | KPIs for all 29.9M events |
-| `/api/search?q=` | GET | no | Search users, events, alerts |
-| `/api/alerts/<id>/ack` | POST | no | Acknowledge an alert |
-| `/api/replay/status` | GET | no | Replay position |
-| `/api/replay/start` | POST | no | Start the replay |
-| `/api/replay/stop` | POST | no | Stop the replay |
-| `/api/replay/reset` | POST | no | Go to the first event |
-| `/api/replay/jump_attack` | POST | no | Go to the next real attack |
-| `/events/stream` | GET | no | SSE. One message for each event |
+| `/api/dashboard` | GET | analyst | KPIs, recent events, alerts |
+| `/api/alerts` | GET | analyst | Alerts above the threshold |
+| `/api/users` | GET | analyst | Users in the replay window |
+| `/api/user_profile/<id>` | GET | analyst | Behavioral baseline for one user |
+| `/api/investigation/<id>` | GET | analyst | All features for one event |
+| `/api/model/metrics` | GET | analyst | Held-out metrics, importances |
+| `/api/dataset/dashboard` | GET | analyst | KPIs for all 29.9M events |
+| `/api/search?q=` | GET | analyst | Search users, events, alerts |
+| `/api/alerts/<id>/ack` | POST | analyst | Acknowledge an alert |
+| `/api/simulation` | GET | analyst | Logins generated by the employee page |
+| `/api/replay/status` | GET | analyst | Replay position |
+| `/api/replay/start` | POST | analyst | Start the replay |
+| `/api/replay/stop` | POST | analyst | Stop the replay |
+| `/api/replay/reset` | POST | analyst | Go to the first event |
+| `/api/replay/jump_attack` | POST | analyst | Go to the next real attack |
+| `/events/stream` | GET | analyst | SSE. One message for each event |
+
+An endpoint marked `analyst` answers `401` to a visitor with no session and
+`403` to an employee session. `/api/health` stays open so a monitor can poll it.
 
 ## Demo users
 
@@ -155,10 +175,21 @@ The values in this table are test data. They are not real accounts.
 | Name | User ID | Password | Role | Result |
 |------|---------|----------|------|--------|
 | `luffy` | U2899@DOM1 | mugiwara | employee | ALLOW |
-| `ace` | U293@DOM1 | salvatore | employee | BLOCK |
+| `ace` | U293@DOM1 | salvatore | employee | ALLOW |
 | `igris` | U2097@DOM1 | shadow01 | employee | ALLOW |
 | `ashborn` | U66@DOM1 | monarch99 | employee | ALLOW |
 | `soc_admin` | none | defender | analyst | Dashboard |
+
+Every employee login shows ALLOW. The page scores one real successful sign-in
+taken from that user's own history, so the verdict is stable. Measured in a
+browser: one login per account, all four scored 0.0 and returned ALLOW.
+
+The attacks appear on the analyst side instead. The replay window holds 20
+confirmed red-team events, and Dataset Analysis covers all 702. `ace` is the
+account with the clearest red-team activity in the data: 31 of his 241,473
+events are red, and the model scores every one of them a BLOCK. The employee
+page draws only successful sign-ins that are not red events, so none of those
+31 can appear there.
 
 The script stores the secrets in `live/.totp_secrets.json`. The script creates
 the file on the first run. Git does not track the file.
