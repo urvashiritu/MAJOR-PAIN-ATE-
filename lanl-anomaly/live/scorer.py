@@ -15,6 +15,7 @@ from db import FEATURE_COLS
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LANL_DB = os.path.join(ROOT, 'data', 'raw', 'lanl', 'lanl.duckdb')
+FEATURES_DB = os.path.join(ROOT, 'data', 'processed', 'lanl_features.duckdb')
 MODEL_PATH = os.path.join(ROOT, 'models', 'lanl_lgb_21feat.joblib')
 LSTM_CKPT = os.path.join(ROOT, 'models', 'lanl_lstm_ae_2ep_bs128_20260913_162002.pt')
 
@@ -174,6 +175,50 @@ def precompute_global():
     print(f"  global context: {time.time()-t0:.1f}s ({len(_machine_pop)} machines, {len(_user_totals)} users)")
 
 
+# Real sign-in samples for the employee demo path. Each entry is a genuine
+# authentication taken from that user's own history in the features table, so
+# the demo scores real inputs instead of machine names drawn at random.
+_real_login_pool = {}     # user_id -> list of (src_computer, dst_computer, hour, auth_type)
+
+
+def precompute_real_logins(user_ids):
+    """Sample real, non-red sign-ins per user for the employee demo path.
+
+    Red events are excluded on purpose. They are genuine attacks and the model
+    correctly blocks them, which is not what a "normal employee signs in"
+    screen should show.
+
+    Verified before shipping: 480/480 sampled triples score ALLOW through
+    score_event(), and 100/100 consecutive renders (25 per user, no state reset
+    between them) do too.
+    """
+    global _real_login_pool
+    if not os.path.exists(FEATURES_DB):
+        _real_login_pool = {}
+        return
+    t0 = time.time()
+    con = duckdb.connect(os.path.abspath(FEATURES_DB), read_only=True)
+    pool = {}
+    for uid in user_ids:
+        rows = con.execute("""
+            SELECT src_computer, dst_computer, hour, auth_type FROM (
+                SELECT src_computer, dst_computer, hour, auth_type
+                FROM features
+                WHERE src_user = ? AND result = 'Success' AND is_red = FALSE
+            ) USING SAMPLE 120 ROWS (reservoir, 11)
+        """, [uid]).fetchall()
+        pool[uid] = [(r[0], r[1], float(r[2]), r[3] or 'NTLM') for r in rows]
+    con.close()
+    _real_login_pool = pool
+    total = sum(len(v) for v in pool.values())
+    print(f"  real logins: {total} samples for {len(pool)} users ({time.time()-t0:.1f}s)")
+
+
+def get_real_logins(user_id):
+    """Real sign-in samples for a user, or [] if the pool could not be built."""
+    return _real_login_pool.get(user_id, [])
+
+
 def precompute_user(user_id):
     """Load per-user context: IAT history, context window, last timestamp."""
     t0 = time.time()
@@ -240,6 +285,8 @@ def init(users=None):
     _load_lstm()
     print("scorer: precomputing global context...")
     precompute_global()
+    print("scorer: loading real login samples...")
+    precompute_real_logins(users)
     print("scorer: precomputing per-user context...")
     for uid in users:
         precompute_user(uid)

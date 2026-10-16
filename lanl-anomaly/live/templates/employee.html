@@ -330,9 +330,11 @@
 
         {% if simulated %}
         <div class="sim-note">
-            <div class="label">Simulated check</div>
-            <div class="reason">This decision was scored against randomly generated login events, not real LANL records.
-            It exercises the scoring path so the demo has something to show. Real scored events are on the analyst dashboard.</div>
+            <div class="label">How this was scored</div>
+            <div class="reason">Real inputs, real models. The machine, hour and authentication type are a genuine
+            sign-in taken from this user's own history, and the score comes from the same LSTM + LightGBM models and
+            live feature lookups the analyst dashboard uses. Only the clock is synthetic: the event is scored as if it
+            happened now.</div>
         </div>
         {% endif %}
 

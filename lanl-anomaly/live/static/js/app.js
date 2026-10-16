@@ -1695,25 +1695,29 @@
         destroyCharts();
         setActiveNav('model');
 
-        let fi = [], held = null, split = null;
+        let fi = [], held = null, split = null, train = null;
         try {
             const m = await API.modelMetrics();
             fi = (m.feature_importance || []).map(x => ({ n: x.feature, v: x.importance }));
             held = m.held_out || null;
             split = m.split || null;
+            train = m.training_run || null;
         } catch (err) {
             content.innerHTML = '<div class="text-12 text-critical py-8">Could not load model metrics</div>';
             return;
         }
-        // Every figure below comes from the model bundle. If a metric is
-        // missing from it, say so rather than falling back to a literal.
+        // held_out is recomputed server-side from the shipped scores
+        // (data/processed/lanl_scores.parquet) over the seed-42 user split rather
+        // than read from the bundle, so the page reports what the shipped pipeline
+        // actually produces. The two now agree. If the metric is missing, say so
+        // rather than falling back to a literal.
         // pr_auc is the gate: ROC-AUC is near-saturated at this class ratio, so
         // the page is only truthful if it can show the metric that discriminates.
         if (!held || held.pr_auc == null) {
             content.innerHTML = '<div class="dash-greeting"><h2>Model Performance</h2></div>' +
                 '<div class="insight-box" style="border-color:var(--critical)">' +
-                '<b>Held-out metrics not recorded.</b> ' + esc('models/lanl_lgb_21feat.joblib') +
-                ' carries no pr_auc key, so this page has nothing truthful to show.</div>';
+                '<b>Held-out metrics unavailable.</b> /api/model/metrics returned no pr_auc ' +
+                'value, so this page has nothing truthful to show.</div>';
             return;
         }
         const num = (v, d) => (v == null ? 'not recorded' : v.toFixed(d));
@@ -1756,7 +1760,15 @@
             '<div class="insight-card"><h4>Feature Importance</h4>'+
             '<div class="text-10 text-faint" style="margin:4px 0 2px">Bar length and % are relative to the model\u2019s top feature (100%). It is an internal importance weight, not a probability.</div>' + bars + '</div>'+
             '<div class="insight-card"><h4>Run Comparison</h4>'+
-            '<div class="text-10 text-faint" style="margin:4px 0 2px">Runs 7, 8, 10, 11 are historical values from reports/experiment_log.md. Run 9 is read from the model bundle.</div>'+
+            '<div class="text-10 text-faint" style="margin:4px 0 2px">Runs 7, 8, 10, 11 are historical values from reports/experiment_log.md. Run 9 is measured on the shipped scores (data/processed/lanl_scores.parquet) over the same seed-42 user split, so it is reproducible from this repo'+
+            (function(){
+                if (!train || train.f1 == null || train.tp == null || train.fp == null) return '.';
+                var rec = 'F1 '+num(train.f1, 4)+' / TP '+train.tp+' / FP '+train.fp;
+                if (train.tp === held.tp && train.fp === held.fp && num(train.f1, 4) === num(held.f1, 4))
+                    return ', and it reproduces the training run\u2019s recorded '+rec+'.';
+                return '. The training run recorded '+rec+'; the shipped pipeline produces F1 '+
+                    num(held.f1, 4)+' / TP '+held.tp+' / FP '+held.fp+'.';
+            })()+'</div>'+
             '<table class="table-glass" style="margin-top:8px"><thead><tr><th>Run</th><th>Config</th><th>F1</th><th>TP</th><th>FP</th></tr></thead><tbody>'+
             '<tr><td>7</td><td>LGB-20feat</td><td>0.4817</td><td>145</td><td>217</td></tr>'+
             '<tr><td>8</td><td>LSTM-AE solo</td><td>0.0095</td><td>118</td><td>24,482</td></tr>'+
@@ -1765,15 +1777,17 @@
             '<tr><td>11</td><td>LGB-23feat v2</td><td>0.4735</td><td>143</td><td>221</td></tr>'+
             '</tbody></table></div></div>';
     }
-    /* ── Simulation Lab (synthetic employee-login events) ────────── */
+    /* ── Simulation Lab (employee sign-ins: real inputs, synthetic clock) ── */
     async function renderSimulationLab() {
         destroyCharts();
         setActiveNav('simulation');
         content.innerHTML = `
             <div class="insight-box mb-4" style="border-color:var(--ochre);background:rgba(232,163,61,.10)">
                 <div style="font-weight:700;color:var(--ochre);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Simulated Data</div>
-                Everything on this page is <b>synthetic</b>. These events are generated when an employee logs in through
-                <span class="mono">/login</span> &mdash; machine names, hours and auth types are drawn at random and match no LANL record.
+                These events are generated when an employee logs in through <span class="mono">/login</span>.
+                The inputs are <b>real</b>: the machine, hour and auth type are a genuine sign-in taken from that
+                user's own LANL history, and scoring is the real LSTM + LightGBM pipeline over the live feature store.
+                Only the clock is synthetic &mdash; the event is scored as if it happened now.
                 Real scored events live on <a href="#/dashboard" style="color:var(--info)">Live Monitoring</a>.
             </div>
 

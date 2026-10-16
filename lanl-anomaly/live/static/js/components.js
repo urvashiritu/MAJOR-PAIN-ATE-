@@ -152,11 +152,20 @@ function investigationDrawer(data, onClose) {
             </div>`;
     }).join('');
 
-    const whatThisMeans = data.severity === 'critical'
-        ? 'This login was blocked because the user\'s behavior deviated significantly from their training baseline. The model detected patterns consistent with potential unauthorized access or a compromised account.'
-        : data.severity === 'high'
-        ? 'This login was flagged because several behavioral indicators don\'t match the user\'s normal pattern. A security analyst should review this event.'
-        : 'This event scored above normal but may be benign. The model flagged it for monitoring purposes.';
+    // "Several behavioral indicators" is only true when there is at least one
+    // to point at. Replay events carry no per-event feature vector, so
+    // devPoints is 0 for them, and the old text asserted a deviation the panel
+    // could not show. Say only what is actually known.
+    const indicatorCount = data.devPoints || 0;
+    const whatThisMeans = indicatorCount > 0
+        ? (data.severity === 'critical'
+            ? `This login was blocked on ${indicatorCount} behavioral indicator${indicatorCount === 1 ? '' : 's'} that deviate from the user's training baseline. The pattern is consistent with unauthorized access or a compromised account.`
+            : `This login was flagged on ${indicatorCount} behavioral indicator${indicatorCount === 1 ? '' : 's'} that do not match the user's normal pattern. A security analyst should review this event.`)
+        : data.isRed
+        ? 'This is a confirmed red-team event from the LANL dataset. Every replayed event carries its ground-truth label, so the outcome badge above is the dataset label rather than a model confidence.'
+        : data.severity === 'critical'
+        ? 'The model blocked this login on its overall score. No per-feature breakdown is recorded for replayed events, so use the baseline and timeline to the right to judge it.'
+        : 'This event scored above normal, but no per-feature breakdown is recorded for replayed events. Check the baseline and timeline to the right.';
 
     const overlay = document.createElement('div');
     overlay.className = 'drawer-overlay';

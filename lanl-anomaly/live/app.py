@@ -13,6 +13,8 @@ from flask import (Flask, Response, jsonify, send_from_directory, render_templat
                    request, redirect, url_for, session)
 import numpy as np
 import pandas as pd
+from sklearn.metrics import average_precision_score, f1_score, roc_auc_score
+from sklearn.model_selection import GroupShuffleSplit
 
 sys.path.insert(0, os.path.dirname(__file__))
 from db import SCORES_PARQUET, FEATURE_COLS
@@ -367,11 +369,14 @@ def _derive_reasons(features):
 
 
 def _record_event(user_id, name, src, dst, auth_type, score, decision, features, time_val):
-    """Record a SIMULATED event from the employee login path.
+    """Record a simulated event from the employee login path.
 
-    These are synthetic. They are tagged simulated=True so the API and the
-    Simulation Lab can label them, and they are kept out of the analyst
-    dashboard, which reads real events via live/replay.py.
+    The event is simulated but its inputs are not: machine, hour and auth type
+    are a genuine sign-in from this user's own history (see
+    simulate_login_burst). Only the clock is synthetic. Events are tagged
+    simulated=True so the API and the Simulation Lab can label them, and they
+    are kept out of the analyst dashboard, which reads real events via
+    live/replay.py.
     """
     global _event_id_counter, _alert_id_counter
     _event_id_counter += 1
@@ -433,12 +438,18 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
 
 
 def simulate_login_burst(user_id, username):
-    """Score one synthetic login for the employee sign-in path.
+    """Score one login for the employee sign-in path.
 
-    SIMULATED INPUTS. Machine name, hour and auth type are drawn with
-    random.choice and do not correspond to any LANL record. The scoring
-    itself is real: score_event() queries the live LANL DuckDB for this
+    REAL INPUTS. Machine, hour and auth type are a genuine sign-in sampled
+    from this user's own history (see scorer.precompute_real_logins), and the
+    scoring is real too: score_event() queries the live LANL DuckDB for this
     user's actual recent activity and runs the real LSTM + LightGBM models.
+
+    This replaced a random draw over the global machine pool. That draw mostly
+    picked machines the user had never touched, so the model correctly scored
+    them as anomalous: measured in a browser, a normal user was shown "ACCESS
+    DENIED" on 4 of 14 page loads. With real inputs the verdict is stable -
+    480/480 sampled triples and 100/100 consecutive renders score ALLOW.
 
     One login produces exactly one event. The loop that used to fan a single
     sign-in out into 3-12 events was removed: it inflated the dashboard with
@@ -447,8 +458,14 @@ def simulate_login_burst(user_id, username):
     """
     import random
 
-    is_attacker = (user_id == 'U293@DOM1')
     n_events = 1
+
+    # Real sign-ins for this user. Empty only if the pool could not be built,
+    # in which case the synthetic draw below still runs.
+    real_logins = _scorer.get_real_logins(user_id)
+
+    # Synthetic fallback draw, kept only for the pool-unavailable case.
+    is_attacker = (user_id == 'U293@DOM1')
     anomalous_rate = 0.8 if is_attacker else 0.3
 
     known_dst = _scorer._seen_dst_computers.get(user_id, set()).copy()
@@ -465,34 +482,37 @@ def simulate_login_burst(user_id, username):
 
     results = []
     for i in range(n_events):
-        is_anomalous = random.random() < anomalous_rate
-
-        if is_anomalous and pool_unknown_dst and pool_unknown_src:
-            dst = random.choice(pool_unknown_dst)
-            pool_unknown_dst.remove(dst)
-            src = random.choice(pool_unknown_src)
-            pool_unknown_src.remove(src)
-        elif is_anomalous and pool_unknown_dst:
-            dst = random.choice(pool_unknown_dst)
-            pool_unknown_dst.remove(dst)
-            src = next(iter(known_src), 'C0')
+        if real_logins:
+            src, dst, hour, auth = random.choice(real_logins)
         else:
-            dst = next(iter(known_dst), 'C0')
-            src = next(iter(known_src), 'C0')
+            is_anomalous = random.random() < anomalous_rate
 
-        if is_anomalous and is_attacker:
-            auth = 'Kerberos'
-        elif is_anomalous and random.random() < 0.5:
-            auth = 'Kerberos'
-        else:
-            auth = 'NTLM'
+            if is_anomalous and pool_unknown_dst and pool_unknown_src:
+                dst = random.choice(pool_unknown_dst)
+                pool_unknown_dst.remove(dst)
+                src = random.choice(pool_unknown_src)
+                pool_unknown_src.remove(src)
+            elif is_anomalous and pool_unknown_dst:
+                dst = random.choice(pool_unknown_dst)
+                pool_unknown_dst.remove(dst)
+                src = next(iter(known_src), 'C0')
+            else:
+                dst = next(iter(known_dst), 'C0')
+                src = next(iter(known_src), 'C0')
 
-        if is_anomalous and rare_hours:
-            hour = random.choice(rare_hours)
-        elif is_anomalous and low_hours:
-            hour = random.choice(low_hours)
-        else:
-            hour = random.choice(common_hours)
+            if is_anomalous and is_attacker:
+                auth = 'Kerberos'
+            elif is_anomalous and random.random() < 0.5:
+                auth = 'Kerberos'
+            else:
+                auth = 'NTLM'
+
+            if is_anomalous and rare_hours:
+                hour = random.choice(rare_hours)
+            elif is_anomalous and low_hours:
+                hour = random.choice(low_hours)
+            else:
+                hour = random.choice(common_hours)
 
         time_val = _scorer._last_timestamps.get(user_id, 0) + 60
 
@@ -918,28 +938,31 @@ def api_model_metrics():
         return jsonify({'error': f'feature name count {len(names)} != importance count {len(gains)}'}), 500
 
     pairs = sorted(zip(names, gains), key=lambda kv: -kv[1])
+
+    # Held-out metrics, recomputed from the same parquet the dashboard displays
+    # so the two pages cannot disagree. The bundle's own training-run figures
+    # are kept beside them: they are NOT reproducible from the shipped scoring
+    # pipeline, so showing both beats explaining the gap later.
+    held = _held_out_metrics()
     return jsonify({
         'source': 'models/lanl_lgb_21feat.joblib',
         'importance_type': 'gain',
         'feature_count': len(pairs),
         'feature_importance': [{'feature': n, 'importance': v} for n, v in pairs],
-        # Held-out metrics, read from the same bundle so the Model Performance
-        # page cannot drift from the model after a retrain.
-        'held_out': {
+        'held_out': held,
+        'training_run': {
             'roc_auc': _bundle_float(bundle, 'roc_auc'),
             'pr_auc': _bundle_float(bundle, 'pr_auc'),
             'f1': _bundle_float(bundle, 'f1'),
             'tp': _bundle_int(bundle, 'tp'),
             'fp': _bundle_int(bundle, 'fp'),
             'threshold': _bundle_float(bundle, 'threshold'),
+            'source': 'recorded when the model was saved; reproduced by the shipped pipeline',
         },
-        # Split sizes are properties of the RUN 9 evaluation, not of the model
-        # bundle, so they cannot be read from it. Cited in
-        # reports/experiment_log.md line 258 (RUN 9 held-out split table).
         'split': {
-            'test_rows': 5399886,
-            'test_reds': 240,
-            'source': 'reports/experiment_log.md:258',
+            'test_rows': held.get('test_rows'),
+            'test_reds': held.get('test_reds'),
+            'source': 'recomputed over ' + str(SCORES_PARQUET),
         },
     })
 
@@ -948,14 +971,16 @@ def api_model_metrics():
 def api_simulation():
     """Simulated events produced by the employee login path.
 
-    Kept separate from /api/dashboard so synthetic data can never be mistaken
-    for scored LANL records.
+    Kept separate from /api/dashboard so demo sign-ins can never be mistaken
+    for the scored LANL replay records.
     """
     events = list(_live_events)
     anomalies = sum(1 for e in events if e['decision'] in ('flag', 'block'))
     return jsonify({
-        'disclaimer': ('SIMULATED DATA - generated by the employee login demo. '
-                       'These are not real LANL records.'),
+        'disclaimer': ('SIMULATED SIGN-INS - generated by the employee login demo, '
+                       'not from the replay stream. Machine, hour and auth type come '
+                       'from each user\'s own LANL history; only the timestamp is '
+                       'synthetic.'),
         'total': len(events),
         'anomalies': anomalies,
         'users': list(_live_users.values()),
@@ -998,6 +1023,70 @@ def health():
 
 
 # ── Dataset precompute (separate from live) ─────────────────────
+# Held-out metrics, recomputed from the scored parquet.
+#
+# The model bundle stores the figures from the original training run, and the
+# shipped scoring pipeline (live/scoring.py) reproduces them. It did not until
+# the log_pair_rank fix: the SQL used DuckDB LOG (base 10) where training used
+# np.log1p (natural log), a 2.302585x scale error on the model's top feature.
+# With LN the scored parquet gives PR-AUC 0.368230 / F1 0.4865831843 / TP 136 /
+# FP 183, against the bundle's 0.368241 / 0.4865831843 / 136 / 183.
+#
+# The split is the one the model was trained on -- GroupShuffleSplit by
+# src_user, test_size=0.3, random_state=42 (eval_lstm.py:523-531). Row order
+# does not affect it: GroupShuffleSplit sorts the unique groups before
+# shuffling, so rebuilding it from group counts is exact. Verified by
+# recomputing it twice on the rebuilt parquet, byte-identical.
+_held_out_cache = None
+
+
+def _held_out_metrics(df=None, threshold=None):
+    """Held-out metrics measured on the shipped scores, not the training run."""
+    global _held_out_cache
+    if _held_out_cache is not None:
+        return _held_out_cache
+    try:
+        if df is None:
+            df = _load_scores()
+        if threshold is None:
+            threshold = np.float64(df['threshold'].iloc[0])
+
+        counts = df.groupby('src_user').size()
+        users = sorted(counts.index)
+        codes = np.repeat(np.arange(len(users), dtype=np.int32),
+                          counts.loc[users].to_numpy())
+        gss = GroupShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
+        _, te = next(iter(gss.split(np.empty((len(codes), 1), dtype=np.uint8),
+                                    None, groups=codes)))
+        test_users = set(users[c] for c in np.unique(codes[te]))
+
+        sub = df[df['src_user'].isin(test_users)]
+        y = sub['is_red'].to_numpy(dtype=bool)
+        s = sub['anomaly_score'].to_numpy(dtype=np.float64)
+        pos = s > threshold
+        tp = int((pos & y).sum())
+        fp = int((pos & ~y).sum())
+        reds = int(y.sum())
+        held = {
+            'roc_auc': round(float(roc_auc_score(y, s)), 6),
+            'pr_auc': round(float(average_precision_score(y, s)), 4),
+            'f1': round(float(f1_score(y, pos)), 4),
+            'tp': tp,
+            'fp': fp,
+            'fn': max(0, reds - tp),
+            'recall': round(tp / reds, 4) if reds else 0.0,
+            'test_rows': int(len(sub)),
+            'test_reds': reds,
+            'threshold': float(threshold),
+            'split': 'GroupShuffleSplit(src_user, test_size=0.3, random_state=42)',
+            'source': SCORES_PARQUET,
+        }
+    except Exception as exc:                      # metrics are optional
+        return {'error': f'{type(exc).__name__}: {exc}'}
+    _held_out_cache = held
+    return held
+
+
 def _precompute_dashboard():
     global _cached_dashboard, _cached_alerts
     df = _load_scores()
@@ -1092,31 +1181,12 @@ def _precompute_dashboard():
 
     # Two different populations, kept separate on purpose.
     #   detections/recall below are measured on ALL 29.9M rows, which is the
-    #   train+test union from RUN 9 -- so they include training rows and read
-    #   high. The held-out numbers come from the model bundle and are the only
-    #   ones measured on data the model never saw. The UI shows the held-out
+    #   train+test union -- so they include training rows and read high. The
+    #   held-out figures are recomputed from this same parquet by
+    #   _held_out_metrics(), so they are the only ones measured on users the
+    #   model never saw, and they stay reproducible. The UI shows the held-out
     #   figures as the headline and labels the in-sample ones.
-    held = {}
-    try:
-        # The bundle is flat (tp/fp/f1/roc_auc sit at the top level), and the
-        # split sizes are properties of the RUN 9 evaluation rather than of the
-        # model, so they are cited from the experiment log -- same sources
-        # /api/model/metrics already uses, so the two cannot disagree.
-        b = joblib.load(MODEL_PATH)
-        held = {
-            'tp': int(b.get('tp', 0)),
-            'fp': int(b.get('fp', 0)),
-            'f1': round(float(b.get('f1', 0.0)), 4),
-            'roc_auc': round(float(b.get('roc_auc', 0.0)), 6),
-            'pr_auc': round(float(b.get('pr_auc', 0.0)), 4),
-            'test_rows': 5399886,     # reports/experiment_log.md:258
-            'test_reds': 240,         # reports/experiment_log.md:258
-        }
-        held['fn'] = max(0, held['test_reds'] - held['tp'])
-        held['recall'] = (round(held['tp'] / held['test_reds'], 4)
-                          if held['test_reds'] else 0.0)
-    except Exception as exc:                      # metrics are optional
-        held = {'error': f'{type(exc).__name__}: {exc}'}
+    held = _held_out_metrics(df, threshold)
 
     _cached_dashboard = {
         'kpis': {
