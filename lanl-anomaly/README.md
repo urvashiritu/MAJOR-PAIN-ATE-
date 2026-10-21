@@ -50,7 +50,7 @@ The GPU is not necessary. The models run on the CPU.
 
 ```bash
 # 1. Get the code
-git clone -b feature/lanl-rebuild https://github.com/urvashiritu/MAJOR-PAIN-ATE-.git
+git clone -b exp/live-feature-parity https://github.com/urvashiritu/MAJOR-PAIN-ATE-.git
 cd MAJOR-PAIN-ATE-/lanl-anomaly
 
 # 2. Copy the database into data/raw/lanl/ before you continue.

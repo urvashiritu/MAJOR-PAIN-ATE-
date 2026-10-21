@@ -7,7 +7,7 @@ authentication events from Los Alamos National Laboratory.
 
 ```bash
 # 1. Get the code
-git clone -b feature/lanl-rebuild https://github.com/urvashiritu/MAJOR-PAIN-ATE-.git
+git clone -b exp/live-feature-parity https://github.com/urvashiritu/MAJOR-PAIN-ATE-.git
 cd MAJOR-PAIN-ATE-/lanl-anomaly
 
 # 2. Copy the database into this directory before you continue
@@ -70,6 +70,13 @@ network for the database.
 
 You can also copy `lanl.duckdb` (10,399,002,624 bytes) instead. The script uses
 this file directly and does not decompress it.
+
+## Employee demo data
+
+The employee sign-in page reads `data/processed/lanl_features.duckdb`
+(1,757,949,952 bytes) for real sign-in samples. This file is not in the
+repository. If it is absent, the system still runs, but the page uses a
+synthetic sign-in draw instead of real sign-ins.
 
 ## Checking a machine without changing it
 
