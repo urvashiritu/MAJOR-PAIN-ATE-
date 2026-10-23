@@ -1,0 +1,29 @@
+{# Shared analyst shell: top bar. Expects page_title, display_name, role_label. #}
+<header class="topbar">
+    <div class="topbar-left">
+        <div class="breadcrumb" aria-label="Breadcrumb">
+            <span class="breadcrumb-root">LANL UEBA</span>
+            <span class="breadcrumb-sep" aria-hidden="true">/</span>
+            <span class="breadcrumb-current" id="topbar-crumb">{{ page_title|default('Operations') }}</span>
+        </div>
+    </div>
+    <div class="topbar-right">
+        <div class="topbar-search-wrap">
+            <input class="topbar-search" id="global-search" type="text" placeholder="Search events or users" autocomplete="off" aria-label="Search events, users and alerts">
+            <span class="topbar-search-shortcut" aria-hidden="true">Ctrl K</span>
+        </div>
+        <div class="topbar-status" title="Backend health">
+            <span class="health-dot" id="health-dot"></span>
+            <span id="health-label">Online</span>
+        </div>
+        <span class="topbar-clock mono" id="topbar-datetime"></span>
+        <div class="user-chip">
+            <span class="user-avatar" aria-hidden="true">{{ display_name[0] }}</span>
+            <span class="user-meta">
+                <span class="user-meta-name">{{ display_name }}</span>
+                <span class="user-meta-role">{{ role_label }}</span>
+            </span>
+        </div>
+        <a href="/logout" class="logout-link">Logout</a>
+    </div>
+</header>

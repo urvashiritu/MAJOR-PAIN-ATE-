@@ -6,6 +6,7 @@
     <title>LANL - Dataset Analysis</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link href="/static/vendor/jetbrains-mono.css" rel="stylesheet">
+    <link href="/static/vendor/ibm-plex-sans.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="/static/vendor/echarts.min.js"></script>
     <style>
@@ -19,40 +20,39 @@
     </style>
 </head>
 <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
     <div class="app">
-        <nav class="sidebar">
-            <div class="sidebar-logo">LANL Anomaly</div>
-            <a href="/analyst" class="sidebar-item"><span>&#9673;</span> Live Monitoring</a>
-            <a href="/analyst/dataset" class="sidebar-item active"><span>&#9632;</span> Dataset Analysis</a>
-            <div class="sidebar-divider"></div>
-            <a href="/analyst#/alerts" class="sidebar-item"><span>&#9889;</span> Alerts</a>
-            <a href="/analyst#/users" class="sidebar-item"><span>&#9673;</span> Users</a>
-            <a href="/analyst#/settings" class="sidebar-item"><span>&#9881;</span> Settings</a>
-            <div class="sidebar-spacer"></div>
-            <button class="theme-btn" id="theme-toggle">&#9681;</button>
-        </nav>
+        {% include '_sidebar.html' %}
 
         <div class="main-area">
-            <header class="topbar">
-                <div class="topbar-left"><span class="topbar-title">Dataset Analysis</span></div>
-                <div class="topbar-right">
-                    <div class="flex-center gap-1">
-                        <div class="health-dot" id="health-dot"></div>
-                        <span class="text-10 text-faint uppercase tracking-widest">29.9M events loaded</span>
-                    </div>
-                    <a href="/logout" class="text-10 text-faint uppercase tracking-widest" style="cursor:pointer">Logout</a>
-                </div>
-            </header>
+            {% include '_topbar.html' %}
 
-            <div class="content">
-                <div class="grid-5 gap-4 mb-2">
+            <div class="content" id="main-content" role="main" tabindex="-1">
+                <div class="page-head">
+                    <div class="page-eyebrow">Understand · Full dataset</div>
+                    <h1 class="page-title">Dataset Analysis</h1>
+                    <p class="page-lede">29.9M authentication events across six months, scored end to end. Held-out quality is separated from in-sample counts everywhere on this page.</p>
+                </div>
+
+                <nav class="section-nav" aria-label="Dataset sections">
+                    <a href="#dataset-overview">Overview</a>
+                    <a href="#dataset-timeline">Timeline</a>
+                    <a href="#dataset-scores">Scores</a>
+                    <a href="#dataset-confusion">Confusion</a>
+                    <a href="#dataset-attackers">Attackers</a>
+                    <a href="#dataset-network">Paths</a>
+                    <a href="#dataset-heatmap">Activity</a>
+                    <a href="#dataset-alerts">Alerts</a>
+                </nav>
+
+                <div class="grid-5 gap-4 mb-2 dataset-section" id="dataset-overview">
                     <div class="panel panel-hover p-3">
                         <div class="kpi-label mb-1">Total Events</div>
                         <div class="tape-num text-ink" id="kpi-total"><span class="skeleton"></span></div>
                     </div>
                     <div class="panel panel-hover p-3">
                         <div class="kpi-label mb-1" id="kpi-detections-label">Threats Detected</div>
-                        <div class="tape-num text-critical" id="kpi-detections"><span class="skeleton"></span></div>
+                        <div class="tape-num text-low" id="kpi-detections"><span class="skeleton"></span></div>
                     </div>
                     <div class="panel panel-hover p-3">
                         <div class="kpi-label mb-1" id="kpi-fp-label">False Positives</div>
@@ -73,27 +73,30 @@
 
                 <div class="insight-box" id="insight-overview"><div class="insight-title">Loading...</div></div>
 
-                <div class="panel p-4 mb-4">
-                    <div class="section-title mb-3">Anomaly Score Timeline</div>
+                <div class="panel p-4 mb-4 dataset-section" id="dataset-timeline">
+                    <div class="section-title mb-1">Anomaly Score Timeline</div>
+                    <div class="text-10 text-faint mb-3">Hourly peak and mean score on a log scale, indexed from the dataset start. The dashed line is the block threshold.</div>
                     <div id="chart-timeline" class="chart-box"></div>
                 </div>
 
                 <div class="insight-box" id="insight-temporal" style="display:none"><div class="insight-title">Temporal Pattern</div><div id="insight-temporal-text"></div></div>
 
-                <div class="grid-2e mb-4">
+                <div class="grid-2e mb-4 dataset-section" id="dataset-scores">
                     <div class="panel p-4">
-                        <div class="section-title mb-3">Score Distribution <span class="text-10 text-faint uppercase tracking-widest" style="margin-left:8px">top 200 alerts by score</span></div>
+                        <div class="section-title mb-1">Score Separation</div>
+                        <div class="text-10 text-faint mb-3">All 29.9M events, normalised within each class. Log score; dashed line is the block threshold.</div>
                         <div id="chart-distribution" class="chart-box-sm"></div>
                     </div>
                     <div class="panel p-4">
-                        <div class="section-title mb-3">Top Targeted Destinations <span class="text-10 text-faint uppercase tracking-widest" style="margin-left:8px">most attacked machines</span></div>
+                        <div class="section-title mb-1">Top Targeted Destinations <span class="text-10 text-faint uppercase tracking-widest" style="margin-left:8px">most attacked machines</span></div>
+                        <div class="text-10 text-faint mb-3">Destination frequency in the top 200 alerts.</div>
                         <div id="chart-donut" class="chart-box-sm"></div>
                     </div>
                 </div>
 
                 <div class="insight-box" id="insight-score" style="display:none"><div class="insight-title">Score Analysis</div><div id="insight-score-text"></div></div>
 
-                <div class="panel p-4 mb-4">
+                <div class="panel p-4 mb-4 dataset-section" id="dataset-confusion">
                     <div class="flex-between mb-3">
                         <span class="section-title">Confusion Matrix</span>
                         <span class="text-10 text-faint uppercase tracking-widest">block boundary, full dataset</span>
@@ -111,24 +114,29 @@
                     <div class="text-11 text-faint mt-2" id="cm-alert"></div>
                 </div>
 
-                <div class="panel p-4 mb-4">
-                    <div class="section-title mb-3">Top Attackers</div>
+                <div class="panel p-4 mb-4 dataset-section" id="dataset-attackers">
+                    <div class="section-title mb-1">Top Attackers</div>
+                    <div class="text-10 text-faint mb-3">Sources by alert frequency in the top 200 alerts.</div>
                     <div id="chart-attackers" class="chart-box-sm"></div>
                 </div>
 
                 <div class="insight-box" id="insight-attacker" style="display:none"><div class="insight-title">Attacker Profile</div><div id="insight-attacker-text"></div></div>
 
-                <div class="panel p-4 mb-4">
-                    <div class="section-title mb-3">Attack Network <span class="text-10 text-faint uppercase tracking-widest" style="margin-left:8px">src &#8594; dst connections</span></div>
-                    <div id="chart-network" class="chart-box-lg"></div>
+                <div class="panel p-4 mb-4 dataset-section" id="dataset-network">
+                    <div class="section-title mb-1">Top Attack Paths <span class="text-10 text-faint uppercase tracking-widest" style="margin-left:8px">source &#8594; destination</span></div>
+                    <div class="text-10 text-faint mb-3">The ten most frequent source-to-destination pairs in the top 200 alerts.</div>
+                    <div id="chart-network" class="chart-box"></div>
                 </div>
 
-                <div class="panel p-4 mb-4">
-                    <div class="section-title mb-3">Hourly Heatmap <span class="text-10 text-faint uppercase tracking-widest" style="margin-left:8px">user &#215; hour</span></div>
+                <div class="panel p-4 mb-4 dataset-section" id="dataset-heatmap">
+                    <div class="section-title mb-1">Attacker Activity by Hour <span class="text-10 text-faint uppercase tracking-widest" style="margin-left:8px">top 8 attacker accounts</span></div>
+                    <div class="text-10 text-faint mb-3">Red-team events by hour of day for the eight busiest attacker accounts. Empty cells mean no labelled attack from that account in that hour.</div>
                     <div id="chart-heatmap" class="chart-box"></div>
                 </div>
 
-                <div class="panel overflow-hidden">
+                <div class="insight-box" id="insight-activity" style="display:none"><div class="insight-title">Activity Pattern</div><div id="insight-activity-text"></div></div>
+
+                <div class="panel overflow-hidden dataset-section" id="dataset-alerts">
                     <div class="flex-between px-4 py-3 hairline">
                         <span class="section-title">Recent Alerts</span>
                         <span class="text-10 text-faint uppercase tracking-widest">top 200 above threshold</span>
@@ -149,45 +157,81 @@
                     </div>
                 </div>
             </div>
+            <footer class="dash-footer">
+                <span>LANL UEBA <span class="mono">v1.0.0</span></span>
+                <span>Full dataset · 29.9M scored events</span>
+                <span class="footer-status"><span class="health-dot"></span> Parquet loaded</span>
+            </footer>
         </div>
     </div>
 
+    {% include '_search.html' %}
+
     <script src="/static/js/api.js"></script>
+    <script src="/static/js/search.js"></script>
     <script>
     (function(){
         'use strict';
+
+        function syncThemeUI(){
+            var isDark=document.documentElement.classList.contains('dark');
+            var label=document.getElementById('theme-label');
+            var btn=document.getElementById('theme-toggle');
+            if(label)label.textContent=isDark?'Light mode':'Dark mode';
+            if(btn){
+                btn.setAttribute('aria-pressed',String(isDark));
+                btn.setAttribute('aria-label',isDark?'Switch to light theme':'Switch to dark theme');
+            }
+        }
 
         function initTheme(){
             var saved=localStorage.getItem('theme');
             var prefersDark=window.matchMedia('(prefers-color-scheme:dark)').matches;
             if(saved==='dark'||(!saved&&prefersDark))document.documentElement.classList.add('dark');
+            syncThemeUI();
             var btn=document.getElementById('theme-toggle');
             if(btn)btn.addEventListener('click',function(){
                 document.documentElement.classList.toggle('dark');
                 localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light');
+                // Dataset charts are built once from fetched data, so reload keeps
+                // every axis, label and series token in sync with the new theme.
+                location.reload();
             });
+        }
+
+        function updateDateTime(){
+            var el=document.getElementById('topbar-datetime');
+            if(!el)return;
+            var now=new Date();
+            el.textContent=now.toLocaleTimeString('en-US',{hour12:false})+'  '+
+                now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
         }
 
         function fmt(n){if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return n.toLocaleString();}
 
         async function init(){
             initTheme();
+            updateDateTime();
+            setInterval(updateDateTime,1000);
+            if (window.initGlobalSearch) window.initGlobalSearch();
+            var healthDot=document.getElementById('health-dot');
             try{
                 var dash,alerts;
                 [dash,alerts]=await Promise.all([API.datasetDashboard(),API.datasetAlerts()]);
 
                 var isDark=document.documentElement.classList.contains('dark');
-                var theme=isDark?'dark':'default';
+                var theme='default';
                 var C={
                     critical:isDark?'#e5484d':'#d13438',
                     ochre:'#e8a33d',
                     low:isDark?'#57b06c':'#2e7d51',
                     info:isDark?'#6ea8e8':'#3a6cb5',
                     ink:isDark?'#e8ecf4':'#232a38',
-                    inkDim:isDark?'#8b93a5':'#59617a',
-                    inkFaint:isDark?'#5a6274':'#939aad',
-                    gridLine:isDark?'rgba(255,255,255,0.04)':'rgba(35,42,56,0.06)',
-                    tooltipBg:isDark?'#1e2736':'#fffdf6'
+                    inkDim:isDark?'#9aa3b5':'#4c5568',
+                    inkFaint:isDark?'#7d8699':'#5f687a',
+                    gridLine:isDark?'rgba(255,255,255,0.06)':'rgba(35,42,56,0.08)',
+                    tooltipBg:isDark?'#1e2736':'#fffdf6',
+                    bg:isDark?'#0b0e14':'#f2efe7'
                 };
 
                 var charts=[];
@@ -245,18 +289,28 @@
                 // Confusion matrix, computed server-side from the same parquet
                 if(dash.confusion){
                     var cf=dash.confusion, m=cf[cf.primary]||cf.block_only;
-                    var cell=function(v,color,bg,label){
-                        return '<div style="padding:14px 10px;text-align:center;border:1px solid '+
-                            (color||'var(--hairline)')+';border-radius:6px;background:'+bg+'">'+
-                            '<div class="mono" style="font-size:22px;font-weight:700;color:'+
-                            (color||'var(--ink)')+'">'+v.toLocaleString('en-US')+'</div>'+
-                            '<div class="text-10 text-faint uppercase" style="margin-top:3px">'+label+'</div></div>';
+                    var attacksTotal=m.tp+m.fn, normalTotal=m.fp+m.tn;
+                    var pctOf=function(v,total){return total?((v/total)*100).toFixed(1)+'%':'0%';};
+                    var cell=function(v,color,bg,label,sub){
+                        return '<div style="padding:12px 8px;text-align:center;border:1px solid '+color+
+                            ';border-radius:6px;background:'+bg+'">'+
+                            '<div class="mono" style="font-size:22px;font-weight:700;color:'+color+'">'+
+                            v.toLocaleString('en-US')+'</div>'+
+                            '<div class="text-10 uppercase" style="margin-top:3px;color:'+color+'">'+label+'</div>'+
+                            '<div class="text-10 text-faint" style="margin-top:2px">'+sub+'</div></div>';
                     };
-                    if(el('cm-grid'))el('cm-grid').innerHTML=
-                        cell(m.tp,C.critical,'rgba(229,72,77,0.08)','TP attack caught')+
-                        cell(m.fn,C.ochre,'rgba(232,163,61,0.08)','FN attack missed')+
-                        cell(m.fp,C.ochre,'rgba(232,163,61,0.08)','FP normal flagged')+
-                        cell(m.tn,C.low,'rgba(87,176,108,0.08)','TN normal allowed');
+                    var head=function(t){return '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:'+C.inkFaint+';display:flex;align-items:center;justify-content:center;padding:2px 0">'+t+'</div>';};
+                    if(el('cm-grid')){
+                        el('cm-grid').style.gridTemplateColumns='64px 1fr 1fr';
+                        el('cm-grid').innerHTML=
+                            '<div></div>'+head('Model alerts')+head('Model allows')+
+                            '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:'+C.inkFaint+';display:flex;align-items:center">Actual attack</div>'+
+                            cell(m.tp,C.low,'rgba(87,176,108,0.10)','TP &middot; caught',pctOf(m.tp,attacksTotal)+' of attacks')+
+                            cell(m.fn,C.critical,'rgba(229,72,77,0.10)','FN &middot; missed',pctOf(m.fn,attacksTotal)+' of attacks')+
+                            '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:'+C.inkFaint+';display:flex;align-items:center">Actual normal</div>'+
+                            cell(m.fp,C.ochre,'rgba(232,163,61,0.10)','FP &middot; false alarm',pctOf(m.fp,normalTotal)+' of normal')+
+                            cell(m.tn,C.inkDim,'rgba(139,147,165,0.10)','TN &middot; allowed',pctOf(m.tn,normalTotal)+' of normal');
+                    }
                     if(el('cm-metrics'))el('cm-metrics').innerHTML=
                         '<div class="grid-4 gap-2">'+
                         '<div><div class="text-10 text-faint uppercase">Precision</div><div class="text-lg mono" style="white-space:nowrap">'+m.precision.toFixed(4)+'</div></div>'+
@@ -291,41 +345,69 @@
 
                 if(dash.timeline&&dash.timeline.length){
                     var tl=dash.timeline;
+                    var aboveCount=tl.filter(function(d){return d.max_score>=k.threshold;}).length;
                     var tc=initChart('chart-timeline');
                     if(tc)tc.setOption({
-                        tooltip:{trigger:'axis',backgroundColor:C.tooltipBg,borderColor:'rgba(255,255,255,0.08)',textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11}},
-                        legend:{data:['Max Score','Mean Score'],textStyle:{color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'},top:2,right:20},
-                        grid:{left:60,right:20,top:30,bottom:60},
-                        xAxis:{type:'category',data:tl.map(function(d){return d.hour_bucket;}),axisLabel:{color:C.inkFaint,fontSize:10},axisLine:{lineStyle:{color:C.gridLine}}},
-                        yAxis:{type:'value',axisLabel:{color:C.inkFaint,fontSize:10,formatter:function(v){return v.toFixed(4);}},splitLine:{lineStyle:{color:C.gridLine}}},
+                        tooltip:{trigger:'axis',backgroundColor:C.tooltipBg,borderColor:'rgba(255,255,255,0.08)',textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11},
+                            formatter:function(params){
+                                var d=tl[params[0].dataIndex];
+                                return '<b>Hour '+d.hour_bucket+'</b><br>Peak score: '+d.max_score.toFixed(6)+
+                                    '<br>Mean score: '+d.mean_score.toExponential(2)+
+                                    '<br>Events: '+d.count.toLocaleString('en-US')+
+                                    '<br>Red-team events: '+d.red_count;
+                            }},
+                        legend:{data:['Peak Score','Mean Score'],textStyle:{color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'},top:2,right:20},
+                        grid:{left:64,right:20,top:30,bottom:60},
+                        xAxis:{type:'category',data:tl.map(function(d){return d.hour_bucket;}),axisLabel:{color:C.inkFaint,fontSize:10,interval:Math.max(0,Math.floor(tl.length/8))},axisLine:{lineStyle:{color:C.gridLine}}},
+                        yAxis:{type:'log',min:1e-8,max:1,axisLabel:{color:C.inkFaint,fontSize:10,formatter:function(v){return Number(v).toExponential(0);}},splitLine:{lineStyle:{color:C.gridLine}}},
                         dataZoom:[{type:'slider',start:0,end:100,height:24,bottom:8,borderColor:'transparent',backgroundColor:'rgba(255,255,255,0.03)',fillerColor:'rgba(232,163,61,0.15)',handleStyle:{color:C.ochre},textStyle:{color:C.inkFaint,fontSize:10}}],
                         series:[
-                            {name:'Max Score',type:'line',data:tl.map(function(d){return d.max_score;}),smooth:true,lineStyle:{width:1.5,color:C.critical},areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(229,72,77,0.15)'},{offset:1,color:'rgba(229,72,77,0)'}]}},symbol:'none'},
-                            {name:'Mean Score',type:'line',data:tl.map(function(d){return d.mean_score;}),smooth:true,lineStyle:{width:1.5,color:C.ochre},areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(232,163,61,0.12)'},{offset:1,color:'rgba(232,163,61,0)'}]}},symbol:'none'}
+                            {name:'Peak Score',type:'line',data:tl.map(function(d){return d.max_score;}),smooth:false,lineStyle:{width:1.5,color:C.critical},areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(229,72,77,0.15)'},{offset:1,color:'rgba(229,72,77,0)'}]}},symbol:'none',
+                                markLine:{silent:true,symbol:'none',label:{formatter:'threshold '+k.threshold.toFixed(3),color:C.ochre,fontSize:10,position:'insideEndTop'},lineStyle:{color:C.ochre,type:'dashed',width:1},data:[{yAxis:k.threshold}]}},
+                            {name:'Mean Score',type:'line',data:tl.map(function(d){return d.mean_score;}),smooth:false,lineStyle:{width:1.2,color:C.ochre,type:'dashed'},symbol:'none'}
                         ]
                     });
 
-                    var peakHours={};
-                    tl.forEach(function(d){if(d.max_score>0.01)peakHours[d.hour_bucket]=d.max_score;});
-                    var sorted=Object.entries(peakHours).sort(function(a,b){return b[1]-a[1];});
-                    // hour_bucket is the hour index since the dataset start, so
-                    // quote it as a plain hour number the x-axis also shows.
-                    var peakStr=sorted.slice(0,3).map(function(e){return e[0];}).join(', ');
+                    var peakRows=tl.filter(function(d){return d.max_score>=k.threshold;})
+                        .sort(function(a,b){return b.max_score-a.max_score;});
+                    var peakStr=peakRows.slice(0,3).map(function(d){return d.hour_bucket;}).join(', ');
                     var firstB=tl[0].hour_bucket, lastB=tl[tl.length-1].hour_bucket;
                     el('insight-temporal').style.display='';
-                    el('insight-temporal-text').innerHTML='Timeline shows the last <b>'+tl.length+'</b> hourly buckets (hour <b>'+firstB+'</b> to <b>'+lastB+'</b> since the dataset start). Anomaly spikes concentrate at hours <b style="color:'+C.critical+'">'+peakStr+'</b>. Most hours have near-zero mean score: attacks are rare, concentrated events.';
+                    el('insight-temporal-text').innerHTML='The chart covers the last <b>'+tl.length+'</b> hourly buckets (hour <b>'+firstB+'</b> to <b>'+lastB+'</b> since the dataset start). Only <b style="color:'+C.ochre+'">'+aboveCount+' of '+tl.length+'</b> hours have a peak at or above the block threshold ('+k.threshold.toFixed(3)+'). '+
+                        (aboveCount?'The strongest peaks are at hours <b style="color:'+C.critical+'">'+peakStr+'</b>. ':'No hourly peak crosses the threshold in this window. ')+
+                        'The mean score stays many orders of magnitude lower: attacks are rare, concentrated events, not a constant elevated signal.';
+                }
 
-                    var hm=dash.heatmap||[];
-                    if(hm.length){
-                        var userHours={};
-                        hm.forEach(function(h){
-                            if(!userHours[h.user])userHours[h.user]={total:0,max:0,hours:[]};
-                            userHours[h.user].total+=h.score;
-                            userHours[h.user].max=Math.max(userHours[h.user].max,h.score);
-                            userHours[h.user].hours.push(h.hour);
-                        });
-                        var topUser=Object.entries(userHours).sort(function(a,b){return b[1].max-a[1].max;})[0];
-                        el('insight-temporal').innerHTML+='<br>User <b style="color:'+C.ochre+'">'+topUser[0]+'</b> peaks at hour-of-day <b>'+topUser[1].hours.join(', ')+'</b> with max score '+topUser[1].max.toFixed(4)+'.';
+                var hm=dash.heatmap||[];
+                if(hm.length){
+                    var hmUsers=[], seen={};
+                    hm.forEach(function(d){if(!seen[d.user]){seen[d.user]=true;hmUsers.push(d.user);}});
+                    var hmHours=Array.from({length:24},function(_,i){return i;});
+                    var heatData=hm.map(function(d){return[d.hour,hmUsers.indexOf(d.user),d.count];});
+                    var maxHS=Math.max.apply(null,hm.map(function(d){return d.count;}).concat([1]));
+                    var hourTotals={};
+                    hm.forEach(function(d){hourTotals[d.hour]=(hourTotals[d.hour]||0)+d.count;});
+                    var topHour=Object.entries(hourTotals).sort(function(a,b){return b[1]-a[1];})[0];
+                    var totalRed=hm.reduce(function(s,d){return s+d.count;},0);
+
+                    var hc=initChart('chart-heatmap');
+                    if(hc)hc.setOption({
+                        tooltip:{backgroundColor:C.tooltipBg,textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11},formatter:function(p){return _fmtUser(hmUsers[p.value[1]])+'<br/>Hour '+p.value[0]+':00<br/>'+p.value[2]+' red-team event'+(p.value[2]===1?'':'s');}},
+                        grid:{left:130,right:50,top:10,bottom:55},
+                        xAxis:{type:'category',data:hmHours.map(function(h){return h+':00';}),axisLabel:{color:C.inkDim,fontSize:10,interval:2},splitArea:{show:true}},
+                        yAxis:{type:'category',data:hmUsers.map(_fmtUser),axisLabel:{color:C.inkDim,fontSize:10,width:120,overflow:'truncate'},splitArea:{show:true}},
+                        visualMap:{min:0,max:maxHS,calculable:true,orient:'vertical',right:0,top:'center',inRange:{color:[isDark?'#10151d':'#faf8f2','#e8a33d','#e5484d']},textStyle:{color:C.inkFaint,fontSize:10},text:['more','none']},
+                        series:[{name:'Red-team events',type:'heatmap',data:heatData,itemStyle:{borderColor:C.bg,borderWidth:1},emphasis:{itemStyle:{shadowBlur:10,shadowColor:'rgba(0,0,0,0.5)'}}}]
+                    });
+
+                    if(el('insight-activity')){
+                        var allHours=dash.attack_hours||[];
+                        var allRed=allHours.reduce(function(s,d){return s+d.count;},0);
+                        var allTop=allHours.slice().sort(function(a,b){return b.count-a.count;})[0]||{hour:topHour[0],count:topHour[1]};
+                        var allActive=allHours.filter(function(d){return d.count>0;}).length;
+                        var coverage=allRed?Math.round(totalRed/allRed*100):0;
+                        el('insight-activity').style.display='';
+                        el('insight-activity-text').innerHTML='The eight busiest attacker accounts produced <b>'+totalRed+'</b> of <b>'+allRed+'</b> red-team events ('+coverage+'%). Across all red-team events, activity appears in <b>'+allActive+' of 24</b> hours; the busiest hour is <b style="color:'+C.ochre+'">'+allTop.hour+':00</b> with <b>'+allTop.count+'</b> events. Blank cells are real zeros for those eight accounts, not missing data.';
                     }
                 }
 
@@ -333,28 +415,37 @@
                     var scores=alerts.map(function(a){return a.anomaly_score;});
                     var maxS=Math.max.apply(null,scores);
                     var scoreMin=Math.min.apply(null,scores);
-                    var bins=10;
-                    var binSize=(maxS-scoreMin)/bins;
-                    var normalBins=new Array(bins).fill(0);
-                    var redBins=new Array(bins).fill(0);
-                    alerts.forEach(function(a,i){
-                        var bin=Math.min(Math.floor((scores[i]-scoreMin)/binSize),bins-1);
-                        if(a.is_red)redBins[bin]++;else normalBins[bin]++;
-                    });
-                    var labels=Array.from({length:bins},function(_,i){return(scoreMin+i*binSize).toFixed(4);});
-
-                    var dc=initChart('chart-distribution');
-                    if(dc)dc.setOption({
-                        tooltip:{trigger:'axis',backgroundColor:C.tooltipBg,textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11}},
-                        legend:{data:['Normal','Attack'],textStyle:{color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'},top:2,right:12},
-                        grid:{left:50,right:12,top:30,bottom:40},
-                        xAxis:{type:'category',data:labels,axisLabel:{color:C.inkFaint,fontSize:10,rotate:30},axisLine:{lineStyle:{color:C.gridLine}}},
-                        yAxis:{type:'value',axisLabel:{color:C.inkFaint,fontSize:10},splitLine:{lineStyle:{color:C.gridLine}}},
-                        series:[
-                            {name:'Normal',type:'bar',stack:'total',data:normalBins,itemStyle:{color:'rgba(139,147,165,0.4)'},barWidth:'90%'},
-                            {name:'Attack',type:'bar',stack:'total',data:redBins,itemStyle:{color:C.critical},barWidth:'90%'}
-                        ]
-                    });
+                    var hist=dash.score_histogram;
+                    if(hist&&hist.bin_edges&&hist.bin_edges.length>1){
+                        var nTotal=hist.normal_total||1, aTotal=hist.attack_total||1;
+                        var distLabels=hist.bin_edges.slice(0,-1).map(function(e){return Math.pow(10,e).toExponential(1);});
+                        var normalPct=hist.normal_counts.map(function(c){return 100*c/nTotal;});
+                        var attackPct=hist.attack_counts.map(function(c){return 100*c/aTotal;});
+                        var thresholdIdx=0;
+                        for(var ti=0;ti<hist.bin_edges.length-1;ti++){
+                            if(hist.threshold_log10>=hist.bin_edges[ti])thresholdIdx=ti;
+                        }
+                        var dc=initChart('chart-distribution');
+                        if(dc)dc.setOption({
+                            tooltip:{trigger:'axis',backgroundColor:C.tooltipBg,textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11},
+                                formatter:function(params){
+                                    var i=params[0].dataIndex;
+                                    var lo=Math.pow(10,hist.bin_edges[i]), hi=Math.pow(10,hist.bin_edges[i+1]);
+                                    return '<b>Score '+lo.toExponential(1)+' – '+hi.toExponential(1)+'</b><br>'+
+                                        'Normal: '+hist.normal_counts[i].toLocaleString('en-US')+' ('+normalPct[i].toFixed(2)+'% of normal)<br>'+
+                                        'Attack: '+hist.attack_counts[i].toLocaleString('en-US')+' ('+attackPct[i].toFixed(2)+'% of attacks)';
+                                }},
+                            legend:{data:['Normal','Attack'],textStyle:{color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'},top:2,right:12},
+                            grid:{left:44,right:12,top:30,bottom:40},
+                            xAxis:{type:'category',data:distLabels,axisLabel:{color:C.inkFaint,fontSize:10,interval:4},axisLine:{lineStyle:{color:C.gridLine}}},
+                            yAxis:{type:'value',name:'% of class',nameTextStyle:{color:C.inkFaint,fontSize:10},axisLabel:{color:C.inkFaint,fontSize:10,formatter:function(v){return v+'%';}},splitLine:{lineStyle:{color:C.gridLine}}},
+                            series:[
+                                {name:'Normal',type:'bar',data:normalPct,itemStyle:{color:'rgba(139,147,165,0.45)'},barWidth:'72%',
+                                    markLine:{silent:true,symbol:'none',label:{formatter:'threshold '+k.threshold.toFixed(3),color:C.ochre,fontSize:10},lineStyle:{color:C.ochre,type:'dashed',width:1},data:[{xAxis:distLabels[thresholdIdx]}]}},
+                                {name:'Attack',type:'bar',data:attackPct,itemStyle:{color:C.critical},barWidth:'72%'}
+                            ]
+                        });
+                    }
 
                     var dstCounts={};
                     alerts.forEach(function(a){dstCounts[a.dst_computer]=(dstCounts[a.dst_computer]||0)+1;});
@@ -369,8 +460,10 @@
                         series:[{type:'bar',data:topDst.map(function(d){return{value:d[1],itemStyle:{color:C.ochre}};}),barWidth:'60%',label:{show:true,position:'right',color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'}}]
                     });
 
+                    var topRed=alerts.filter(function(a){return a.is_red;}).length;
+                    var topNormal=alerts.length-topRed;
                     el('insight-score').style.display='';
-                    el('insight-score-text').innerHTML='Score distribution ranges from <b>'+scoreMin.toFixed(4)+'</b> to <b>'+maxS.toFixed(4)+'</b>. All <b>'+alerts.length+'</b> alerts above threshold. The model shows strong separation: attacks cluster near 1.0, most clean events score near 0. Top targeted: <b style="color:'+C.ochre+'">'+topDst[topDst.length-1][0]+'</b> ('+topDst[topDst.length-1][1]+' alerts).';
+                    el('insight-score-text').innerHTML='The full-data chart above normalises each class separately, so the attack shape is visible next to 29.9M normal events. The separate top-200 alert tail spans <b>'+scoreMin.toFixed(4)+'</b> to <b>'+maxS.toFixed(4)+'</b> and contains <b>'+topRed+'</b> attacks plus <b>'+topNormal+'</b> normal events &mdash; it is not a model-wide score distribution. Top targeted: <b style="color:'+C.ochre+'">'+topDst[topDst.length-1][0]+'</b> ('+topDst[topDst.length-1][1]+' alerts).';
 
                     var userCounts={};
                     alerts.forEach(function(a){userCounts[a.src_user]=(userCounts[a.src_user]||0)+1;});
@@ -382,7 +475,7 @@
                         grid:{left:130,right:30,top:10,bottom:10},
                         xAxis:{type:'value',axisLabel:{color:C.inkFaint,fontSize:10},splitLine:{lineStyle:{color:C.gridLine}}},
                         yAxis:{type:'category',data:sortedUsers.map(function(s){return _fmtUser(s[0]);}),axisLabel:{color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'}},
-                        series:[{type:'bar',data:sortedUsers.map(function(s){return{value:s[1],itemStyle:{color:s[1]>20?C.critical:s[1]>10?C.ochre:C.info}};}),barWidth:'60%',label:{show:true,position:'right',color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'}}]
+                        series:[{type:'bar',data:sortedUsers.map(function(s){return{value:s[1],itemStyle:{color:C.ochre}};}),barWidth:'60%',label:{show:true,position:'right',color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'}}]
                     });
 
                     var topAlertUser=Object.entries(userCounts).sort(function(a,b){return b[1]-a[1];})[0];
@@ -390,72 +483,20 @@
                     el('insight-attacker').style.display='';
                     el('insight-attacker-text').innerHTML='<b style="color:'+C.critical+'">'+(topAlertUser?_fmtUser(topAlertUser[0]):'N/A')+'</b> dominates with <b>'+pct+'%</b> of all blocked alerts ('+topAlertUser[1]+'/'+alerts.length+'). '+Object.keys(userCounts).length+' unique attackers detected across '+alerts.length+' events.';
 
-                    var netNodes={};
-                    var netLinks=[];
+                    var pairCounts={};
                     alerts.forEach(function(a){
-                        var src=_fmtUser(a.src_user);
-                        var dst=a.dst_computer;
-                        if(!netNodes[src])netNodes[src]={name:src,category:0,symbolSize:0,value:0};
-                        if(!netNodes[dst])netNodes[dst]={name:dst,category:1,symbolSize:0,value:0};
-                        netNodes[src].value+=a.anomaly_score;
-                        netNodes[dst].value+=a.anomaly_score;
-                        var existing=netLinks.find(function(l){return l.source===src&&l.target===dst;});
-                        if(existing){existing.value+=a.anomaly_score;}else{netLinks.push({source:src,target:dst,value:a.anomaly_score});}
+                        var key=_fmtUser(a.src_user)+' → '+a.dst_computer;
+                        pairCounts[key]=(pairCounts[key]||0)+1;
                     });
-                    var sortedNodes=Object.values(netNodes).sort(function(a,b){return b.value-a.value;}).slice(0,30);
-                    var topNames={};
-                    sortedNodes.forEach(function(n){topNames[n.name]=true;});
-                    var filteredLinks=netLinks.filter(function(l){return topNames[l.source]&&topNames[l.target];});
-                    var maxNV=Math.max.apply(null,sortedNodes.map(function(n){return n.value;}));
-                    var users=[],dests=[];
-                    sortedNodes.forEach(function(n){if(n.category===0)users.push(n);else dests.push(n);});
-                    var chH=480,chW=1100,pad=50;
-                    users.forEach(function(n,i){
-                        n.symbolSize=16+(n.value/maxNV)*50;
-                        n.x=pad+(i/(Math.max(users.length-1,1)))*320;
-                        n.y=pad+(i/(Math.max(users.length-1,1)))*(chH-2*pad);
-                        n.label={show:true,position:'right',fontSize:13,fontWeight:'bold',fontFamily:'JetBrains Mono',color:'#ffffff',distance:14,textBorderColor:'#0b0e14',textBorderWidth:3};
-                    });
-                    dests.forEach(function(n,i){
-                        n.symbolSize=16+(n.value/maxNV)*50;
-                        n.x=chW-320+(i/(Math.max(dests.length-1,1)))*280;
-                        n.y=pad+(i/(Math.max(dests.length-1,1)))*(chH-2*pad);
-                        n.label={show:true,position:'bottom',fontSize:13,fontWeight:'bold',fontFamily:'JetBrains Mono',color:'#ffffff',distance:14,textBorderColor:'#0b0e14',textBorderWidth:3};
-                    });
+                    var topPairs=Object.entries(pairCounts).sort(function(a,b){return b[1]-a[1];}).slice(0,10).reverse();
 
                     var nc=initChart('chart-network');
                     if(nc)nc.setOption({
-                        tooltip:{backgroundColor:C.tooltipBg,textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11}},
-                        legend:{data:['Source User','Destination'],textStyle:{color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'},top:2},
-                        labelLayout:false,
-                        series:[{
-                            type:'graph',layout:'none',
-                            categories:[{name:'Source User',itemStyle:{color:C.critical}},{name:'Destination',itemStyle:{color:C.info}}],
-                            data:sortedNodes,links:filteredLinks,
-                            roam:true,draggable:true,
-                            lineStyle:{color:'source',curveness:0.2,opacity:0.5,width:1.5},
-                            emphasis:{focus:'adjacency',lineStyle:{width:3}}
-                        }]
-                    });
-                }
-
-                if(dash.heatmap&&dash.heatmap.length){
-                    var hmData=dash.heatmap;
-                    var hmUsers=[];
-                    var seen={};
-                    hmData.forEach(function(d){if(!seen[d.user]){seen[d.user]=true;hmUsers.push(d.user);}});
-                    var hmHours=Array.from({length:24},function(_,i){return i;});
-                    var heatData=hmData.map(function(d){return[d.hour,hmUsers.indexOf(d.user),d.score];});
-                    var maxHS=Math.max.apply(null,hmData.map(function(d){return d.score;}));
-
-                    var hc=initChart('chart-heatmap');
-                    if(hc)hc.setOption({
-                        tooltip:{backgroundColor:C.tooltipBg,textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11},formatter:function(p){return hmUsers[p.value[1]]+'<br/>Hour '+p.value[0]+':00<br/>Score: '+p.value[2].toFixed(6);}},
-                        grid:{left:130,right:40,top:10,bottom:55},
-                        xAxis:{type:'category',data:hmHours.map(function(h){return h+':00';}),axisLabel:{color:C.inkDim,fontSize:10,rotate:30},splitArea:{show:true}},
-                        yAxis:{type:'category',data:hmUsers,axisLabel:{color:C.inkDim,fontSize:10,width:120,overflow:'truncate'},splitArea:{show:true}},
-                        visualMap:{min:0,max:maxHS,calculable:true,orient:'vertical',right:0,top:'center',inRange:{color:[isDark?'#10151d':'#faf8f2','#e8a33d','#e5484d']},textStyle:{color:C.inkFaint,fontSize:10}},
-                        series:[{type:'heatmap',data:heatData,emphasis:{itemStyle:{shadowBlur:10,shadowColor:'rgba(0,0,0,0.5)'}}}]
+                        tooltip:{trigger:'axis',axisPointer:{type:'shadow'},backgroundColor:C.tooltipBg,textStyle:{color:C.ink,fontFamily:'JetBrains Mono',fontSize:11},formatter:function(p){return p[0].name+'<br><b>'+p[0].value+'</b> alerts';}},
+                        grid:{left:210,right:40,top:10,bottom:10},
+                        xAxis:{type:'value',minInterval:1,axisLabel:{color:C.inkFaint,fontSize:10},splitLine:{lineStyle:{color:C.gridLine}}},
+                        yAxis:{type:'category',data:topPairs.map(function(p){return p[0];}),axisLabel:{color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono',width:195,overflow:'truncate'}},
+                        series:[{type:'bar',data:topPairs.map(function(p){return{value:p[1],itemStyle:{color:C.ochre}};}),barWidth:'60%',label:{show:true,position:'right',color:C.inkDim,fontSize:10,fontFamily:'JetBrains Mono'}}]
                     });
                 }
 
@@ -475,7 +516,11 @@
                     }).join('');
                 }
 
-            }catch(err){console.error('dataset load failed:',err);}
+                if(healthDot)healthDot.classList.remove('err');
+            }catch(err){
+                if(healthDot)healthDot.classList.add('err');
+                console.error('dataset load failed:',err);
+            }
         }
 
         if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();

@@ -208,8 +208,11 @@ def api_replay_status():
     user visits Dataset Analysis, which wipes browser-side state, so the client
     rebuilds its table from here instead of trusting anything it held in memory.
     """
-    limit = request.args.get('limit', type=int) or 2000
-    limit = max(0, min(limit, 5000))
+    # The fixed replay window is 9,954 events. Returning only the last 2,000
+    # made a completed replay look like a 2,000-event sample after a page load,
+    # so the outcome scorecard and charts silently undercounted the window.
+    limit = request.args.get('limit', type=int) or 12000
+    limit = max(0, min(limit, 12000))
     with _replay_lock:
         sent = list(_replay_events[:_replay_index])[-limit:] if _replay_events else []
     return jsonify({'progress': _replay_progress(), 'meta': _replay.get_meta(),
@@ -370,7 +373,9 @@ def analyst_dashboard():
     return render_template('index.html',
                            display_name=session.get('display_name', 'Analyst'),
                            username=session.get('user', 'analyst'),
-                           role_label='Analyst' if role == 'analyst' else 'Employee')
+                           role_label='Analyst' if role == 'analyst' else 'Employee',
+                           page_title='Replay Feed',
+                           active_page='dashboard')
 
 
 @app.route('/analyst/dataset')
@@ -378,7 +383,11 @@ def analyst_dashboard():
 def dataset_analysis():
     if 'user' not in session:
         return redirect(url_for('login'))
-    return render_template('dataset.html')
+    return render_template('dataset.html',
+                           display_name=session.get('display_name', 'Analyst'),
+                           role_label='Analyst' if session.get('role') == 'analyst' else 'Employee',
+                           page_title='Dataset Analysis',
+                           active_page='dataset')
 
 
 # ── Live event recording ────────────────────────────────────────
@@ -672,13 +681,16 @@ def _replay_alerts():
             'decision': e['decision'],
             'reasons': reasons,
             'timestamp': 'T+%d:%02d' % (e['offset'] // 60, e['offset'] % 60),
+            'offset': e['offset'],
             'is_red': e['is_red'],
             'correct': correct,
             'src_computer': e['src_computer'],
             'dst_computer': e['dst_computer'],
             'status': 'acknowledged' if e['id'] in _replay_acked else 'new',
         })
-    out.sort(key=lambda a: -a['combined_score'])
+    # Chronological, not score-ranked. The table shows T+ times, so ordering by
+    # score made the timestamps jump around and read as if they were wrong.
+    out.sort(key=lambda a: a['offset'])
     return out
 
 
@@ -1222,14 +1234,52 @@ def _precompute_dashboard():
                  .nlargest(10, 'max_score')
                  .reset_index())
 
-    heatmap_users = top_users['src_user'].head(8).tolist()
-    heatmap_df = df[df['src_user'].isin(heatmap_users)].copy()
-    heatmap_df['hour'] = heatmap_df['hour'].astype(int)
-    heatmap = (heatmap_df.groupby(['src_user', 'hour'])
-               .agg(mean_score=('anomaly_score', 'mean'))
-               .reset_index())
-    heatmap_data = [{'user': r['src_user'], 'hour': int(r['hour']), 'score': float(r['mean_score'])}
-                    for _, r in heatmap.iterrows()]
+    # Attacker activity by hour of day. The old heatmap averaged anomaly
+    # scores over all events, which produced 15 sparse cells and told a reader
+    # almost nothing. Count actual red-team events for the top attacker
+    # accounts instead, and zero-fill all 24 hours so the grid is complete.
+    all_red_hours = (df.loc[red_mask, ['src_user', 'hour']]
+                     .assign(hour=lambda x: x['hour'].astype(int)))
+    # Rank by volume, not by peak score. The highest-scoring accounts each
+    # have only a handful of events, which produced a nearly empty grid; the
+    # busiest accounts cover enough of the 702 red-team events to show a real
+    # activity pattern.
+    heatmap_users = (all_red_hours.groupby('src_user').size()
+                     .nlargest(8).index.tolist())
+    red_hours = all_red_hours[all_red_hours['src_user'].isin(heatmap_users)]
+    hour_counts = red_hours.groupby(['src_user', 'hour']).size()
+    heatmap_data = [
+        {'user': user, 'hour': hour, 'count': int(hour_counts.get((user, hour), 0))}
+        for user in heatmap_users
+        for hour in range(24)
+    ]
+    all_hour_counts = all_red_hours.groupby('hour').size()
+    attack_hours = [
+        {'hour': hour, 'count': int(all_hour_counts.get(hour, 0))}
+        for hour in range(24)
+    ]
+
+    # Full-dataset score separation. The top-200 alert chart can only show the
+    # tail; this histogram covers every scored row and is normalised within
+    # each class on the client, so 702 attacks are still visible next to
+    # 29.9M normal events. Bins are log10(score), not raw score.
+    # Extend down to 1e-10: roughly 292K normal events score below 1e-8, and
+    # excluding them made the normal bars add up to less than the stated total.
+    hist_edges = np.linspace(-10.0, 0.0, 41)
+    score_values = df['anomaly_score'].to_numpy(dtype=np.float32)
+    red_array = df['is_red'].to_numpy(dtype=bool)
+    normal_hist, _ = np.histogram(
+        np.log10(np.clip(score_values[~red_array], 1e-10, 1.0)), bins=hist_edges)
+    attack_hist, _ = np.histogram(
+        np.log10(np.clip(score_values[red_array], 1e-10, 1.0)), bins=hist_edges)
+    score_histogram = {
+        'bin_edges': [round(float(x), 4) for x in hist_edges],
+        'normal_counts': [int(x) for x in normal_hist],
+        'attack_counts': [int(x) for x in attack_hist],
+        'normal_total': int(len(score_values) - red_array.sum()),
+        'attack_total': int(red_array.sum()),
+        'threshold_log10': round(float(np.log10(float(threshold))), 4),
+    }
 
     # Two different populations, kept separate on purpose.
     #   detections/recall below are measured on ALL 29.9M rows, which is the
@@ -1255,7 +1305,9 @@ def _precompute_dashboard():
         'timeline': hourly.to_dict('records'),
         'top_users': top_users.to_dict('records'),
         'confusion': confusion,
-        'heatmap': heatmap_data
+        'heatmap': heatmap_data,
+        'attack_hours': attack_hours,
+        'score_histogram': score_histogram
     }
 
     _cached_alerts = (df[df['anomaly_score'] > threshold]

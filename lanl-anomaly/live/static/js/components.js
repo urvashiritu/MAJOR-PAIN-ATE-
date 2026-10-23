@@ -21,13 +21,17 @@ function humanizeUser(id) {
     return _personaNames[id] || String(id).split('@')[0];
 }
 
-/* `level` here encodes the detection OUTCOME, not the score: a caught attack is
-   'critical' and a false positive is 'medium'. Printing the raw level name made
-   a low score look scarier than a high one, so show the outcome word instead. */
+/* `level` here encodes the detection OUTCOME, not the score. Colour follows the
+   dashboard KPI semantics: caught = green, false positive = amber, high = red. */
 function severityBadge(level) {
-    const outcome = { critical: 'CAUGHT', medium: 'FALSE POS', high: 'HIGH' };
-    const cls = 'stamp stamp-' + (level || 'info');
-    const label = outcome[level] || (level ? String(level).toUpperCase() : 'INFO');
+    const outcome = {
+        critical: { label: 'CAUGHT', cls: 'low' },
+        medium: { label: 'FALSE POS', cls: 'medium' },
+        high: { label: 'HIGH', cls: 'critical' }
+    };
+    const hit = outcome[level];
+    const cls = 'stamp stamp-' + (hit ? hit.cls : (level || 'info'));
+    const label = hit ? hit.label : (level ? String(level).toUpperCase() : 'INFO');
     return `<span class="${cls}">${label}</span>`;
 }
 
@@ -45,9 +49,9 @@ function kpiCard(cfg, value, sparkId, delta) {
         deltaHtml = `<span class="kpi-delta flat">0%</span>`;
     }
     return `
-        <div class="panel panel-hover p-3">
+        <div class="panel panel-hover p-3" data-kpi="${cfg.key}">
             <div class="kpi-card">
-                <div style="width:36px;height:36px;border-radius:6px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${cfg.icon}</div>
+                <div class="kpi-icon" style="width:36px;height:36px;border-radius:6px;background:${bg};color:${c};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${cfg.icon}</div>
                 <div class="kpi-card-body">
                     <div class="kpi-label mb-1">${cfg.label}</div>
                     <div style="display:flex;align-items:baseline;gap:6px">
@@ -55,7 +59,7 @@ function kpiCard(cfg, value, sparkId, delta) {
                         ${deltaHtml}
                     </div>
                 </div>
-                <div class="kpi-card-spark" id="${sparkId || ''}"></div>
+                ${sparkId ? `<div class="kpi-card-spark" id="${sparkId}"></div>` : ''}
             </div>
         </div>`;
 }
@@ -110,10 +114,11 @@ function userRow(u, onClick) {
     const personaLabel = u.persona === 'attacker_missed' ? 'ATTACKER (MISSED)'
         : (u.persona === 'flagged' ? 'FLAGGED' : u.persona);
     const uid = esc(u.user_id);
+    const display = humanizeUser(u.user_id);
     const missed = (u.attacks || 0) - (u.attacks_caught || 0);
     return `
         <tr class="clickable" data-uid="${uid}">
-            <td class="font-semibold mono">${esc(u.name)}</td>
+            <td class="font-semibold mono" title="${uid}">${esc(display)}</td>
             <td><span class="stamp ${personaCls}">${esc(personaLabel)}</span></td>
             <td class="mono">${u.live_events}</td>
             <td class="mono" style="color:${u.attacks ? 'var(--critical)' : 'inherit'}">${u.attacks || 0}</td>
@@ -169,6 +174,9 @@ function investigationDrawer(data, onClose) {
 
     const overlay = document.createElement('div');
     overlay.className = 'drawer-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Event investigation details');
     overlay.innerHTML = `
         <div class="drawer">
             <div class="drawer-header">
@@ -176,7 +184,7 @@ function investigationDrawer(data, onClose) {
                     <div class="font-bold text-lg">${esc(data.displayName)}</div>
                     <div class="text-11 text-faint mt-05">${esc(data.rawId)} · ${esc(data.src_computer)} → ${esc(data.dst_computer)}</div>
                 </div>
-                <button class="drawer-close" id="drawer-close-btn">&times;</button>
+                <button class="drawer-close" id="drawer-close-btn" type="button" aria-label="Close investigation details">&times;</button>
             </div>
 
             <div class="flex gap-4">
@@ -220,21 +228,29 @@ function investigationDrawer(data, onClose) {
                 </div>` : ''}
         </div>`;
 
-    overlay.querySelector('#drawer-close-btn').addEventListener('click', () => {
+    const lastFocused = document.activeElement;
+    function closeDrawer() {
         overlay.classList.remove('open');
+        document.removeEventListener('keydown', onKey);
         setTimeout(() => overlay.remove(), 250);
+        if (lastFocused && lastFocused.focus) lastFocused.focus();
         if (onClose) onClose();
-    });
+    }
+    function onKey(event) {
+        if (event.key === 'Escape') closeDrawer();
+    }
+
+    overlay.querySelector('#drawer-close-btn').addEventListener('click', closeDrawer);
     overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) {
-            overlay.classList.remove('open');
-            setTimeout(() => overlay.remove(), 250);
-            if (onClose) onClose();
-        }
+        if (e.target === overlay) closeDrawer();
     });
+    document.addEventListener('keydown', onKey);
 
     document.body.appendChild(overlay);
-    requestAnimationFrame(() => overlay.classList.add('open'));
+    requestAnimationFrame(() => {
+        overlay.classList.add('open');
+        overlay.querySelector('#drawer-close-btn').focus();
+    });
 }
 
 function holdButton(label, duration, onDone) {

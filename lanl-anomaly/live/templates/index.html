@@ -3,103 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LANL Anomaly Detection</title>
+    <title>LANL UEBA — Analyst Console</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link href="/static/vendor/jetbrains-mono.css" rel="stylesheet">
+    <link href="/static/vendor/ibm-plex-sans.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
     <div class="app">
-        <!-- Sidebar -->
-        <nav class="sidebar">
-            <div class="sidebar-logo">LANL UEBA<br><span class="sidebar-logo-sub">BEHAVIOR ANALYTICS</span></div>
-            <a href="#/live" class="sidebar-item" data-page="live" id="nav-live">
-                <span>&#9889;</span> Live Monitoring
-                <span class="nav-badge" id="nav-live-count"></span>
-            </a>
-            <a href="/analyst" class="sidebar-item" data-page="dashboard" onclick="location.hash='#/dashboard';return false">
-                <span>&#9673;</span> Replay Feed
-            </a>
-            <a href="#/behavior" class="sidebar-item" data-page="behavior">
-                <span>&#9733;</span> Behavior Insights
-            </a>
-            <a href="#/model" class="sidebar-item" data-page="model">
-                <span>&#9670;</span> Model Performance
-            </a>
-            <a href="/analyst/dataset" class="sidebar-item">
-                <span>&#9632;</span> Dataset Analysis
-            </a>
-            <div class="sidebar-divider"></div>
-            <a href="#/alerts" class="sidebar-item" data-page="alerts">
-                <span>&#9888;</span> Alerts
-            </a>
-            <a href="#/users" class="sidebar-item" data-page="users">
-                <span>&#9673;</span> Users
-            </a>
-            <a href="#/settings" class="sidebar-item" data-page="settings">
-                <span>&#9881;</span> Settings
-            </a>
-            <div class="sidebar-spacer"></div>
-            <div class="sidebar-bottom">
-                <div class="detect">&#9650; DETECT</div>
-                <div class="understand">&#9654; UNDERSTAND</div>
-                <div class="prevent">&#9660; PREVENT</div>
-                <div class="tagline">Turning Data into<br>Safer Workspaces</div>
-            </div>
-            <button class="theme-btn" id="theme-toggle">&#9681;</button>
-        </nav>
+        {% include '_sidebar.html' %}
 
-        <!-- Main -->
         <div class="main-area">
-            <header class="topbar">
-                <div class="topbar-left topbar-left-flex">
-                    <div class="topbar-left-inner">
-                        <div class="topbar-greeting" id="topbar-greeting">Good evening, {{ display_name }}.</div>
-                        <div class="topbar-sub" id="topbar-sub">Replaying real scored LANL authentication events.</div>
-                    </div>
-                    <div class="topbar-search-wrap">
-                        <input class="topbar-search" id="global-search" type="text" placeholder="Search users, computers, events..." autocomplete="off">
-                        <span class="topbar-search-shortcut">Ctrl+K</span>
-                    </div>
-                </div>
-                <div class="topbar-right topbar-right-flex">
-                    <div class="flex-center gap-1">
-                        <div class="health-dot" id="health-dot"></div>
-                        <span class="text-10 text-faint" id="health-label">System Online</span>
-                    </div>
-                    <span class="text-11 text-faint mono" id="topbar-datetime"></span>
-                    <div style="display:flex;align-items:center;gap:8px">
-                    <div class="user-avatar">{{ display_name[0] }}</div>
-                    <div class="user-meta"><div class="user-meta-name">{{ display_name }}</div><div class="user-meta-role" id="topbar-role">{{ role_label }}</div></div>
-                    </div>
-                    <a href="/logout" class="text-10 text-faint uppercase tracking-widest" style="cursor:pointer">Logout</a>
-                </div>
-            </header>
+            {% include '_topbar.html' %}
 
-            <div class="content" id="main-content">
+            <div class="content" id="main-content" role="main" tabindex="-1">
                 <!-- SPA content renders here -->
             </div>
+
             <footer class="dash-footer" id="dash-footer">
                 <span>LANL UEBA <span class="mono">v1.0.0</span></span>
                 <span id="dash-footer-note">Real scored events from the LANL dataset</span>
-                <span><span class="health-dot" style="display:inline-block;width:6px;height:6px;margin-right:4px"></span> Connected to live stream</span>
+                <span class="footer-status"><span class="health-dot"></span> Live stream connected</span>
             </footer>
         </div>
     </div>
 
-    <!-- Search Modal -->
-    <div class="search-overlay" id="search-overlay">
-        <div class="search-modal">
-            <input class="search-modal-input" id="search-modal-input" type="text" placeholder="Search events, users, alerts..." autocomplete="off">
-            <div class="search-results" id="search-results">
-                <div class="search-result-group">Type to search</div>
-            </div>
-        </div>
-    </div>
+    {% include '_search.html' %}
 
     <script src="/static/vendor/chart.umd.min.js"></script>
     <script src="/static/vendor/echarts.min.js"></script>
     <script src="/static/js/api.js"></script>
+    <script src="/static/js/search.js"></script>
     <script src="/static/js/components.js"></script>
     <script src="/static/js/charts.js"></script>
     <script src="/static/js/app.js"></script>

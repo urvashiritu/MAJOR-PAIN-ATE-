@@ -4,18 +4,24 @@
     'use strict';
 
     const content = document.getElementById('main-content');
+    // Inline SVG icons keep the KPI tiles legible without relying on emoji fonts.
+    const KPI_ICONS = {
+        pulse: '<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 10h3.2l2-5 3.1 10 2.1-5H18"/></svg>',
+        shield: '<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 2.5 16 4.5v5c0 4-2.7 6.4-6 8-3.3-1.6-6-4-6-8v-5L10 2.5Z"/><path d="m7.2 9.8 2 2 3.6-3.8"/></svg>',
+        alert: '<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 2.8 18 16H2L10 2.8Z"/><path d="M10 7v4.3"/><circle cx="10" cy="13.7" r=".9" fill="currentColor" stroke="none"/></svg>',
+        flag: '<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 17V3"/><path d="M4 3h10l-1.8 3L14 9H4"/></svg>'
+    };
     // Labels carry their scope: these count the replay window, not the held-out
     // split named in the headline directly above them (UI-REVIEW.md:101-104).
+    // Colour is semantic: caught = green, missed = red, false positive = amber.
     const LIVE_KPI_DEFS = [
-        { key: 'replayed', label: 'Events Replayed (replay)', icon: '⚡', color: 'info' },
-        { key: 'attacksCaught', label: 'Attacks Caught (replay)', icon: '🛡', color: 'critical' },
-        { key: 'attacksMissed', label: 'Attacks Missed (replay)', icon: '⚠', color: 'medium' },
-        { key: 'falsePositives', label: 'False Positives (replay)', icon: '👥', color: 'low' },
+        { key: 'replayed', label: 'Events Replayed (replay)', icon: KPI_ICONS.pulse, color: 'info' },
+        { key: 'attacksCaught', label: 'Attacks Caught (replay)', icon: KPI_ICONS.shield, color: 'low' },
+        { key: 'attacksMissed', label: 'Attacks Missed (replay)', icon: KPI_ICONS.alert, color: 'critical' },
+        { key: 'falsePositives', label: 'False Positives (replay)', icon: KPI_ICONS.flag, color: 'medium' },
     ];
-    const GREETINGS = ['Good morning', 'Good afternoon', 'Good evening'];
 
     let _liveEvents = [];
-    let _liveSparkData = { replayed: [], attacksCaught: [], attacksMissed: [], falsePositives: [] };
     let _replayProgress = null;
     let _activeCharts = [];
     let _sse = null;
@@ -24,12 +30,23 @@
     let _liveTimelineChart = null;
     let _liveScoresChart = null;
     let _liveUsersChart = null;
-    let _liveAuthDonut = null;
     let _liveScoreHist = null;
     let _ssePaused = false;
     let _prevKpis = { replayed: 0, attacksCaught: 0, attacksMissed: 0, falsePositives: 0 };
+    let _resizeTimer = null;
+
+    // ECharts sets a pixel canvas width at init and does not follow its parent
+    // automatically. Without this, shrinking the window leaves a wide canvas
+    // overflowing the layout even though the container has resized.
+    window.addEventListener('resize', () => {
+        clearTimeout(_resizeTimer);
+        _resizeTimer = setTimeout(() => {
+            _echartsInstances.forEach(c => { try { c.resize(); } catch (e) {} });
+        }, 120);
+    });
 
     /* Real replay state — genuine LANL events from the parquet */
+    const REPLAY_BUFFER_LIMIT = 12000; // covers the fixed 9,954-event window
     let _replayEvents = [];
     let _replayMeta = null;
     let _replayRunning = false;
@@ -57,18 +74,32 @@
     }
 
     /* ── Theme ──────────────────────────────────────────────────── */
+    function syncThemeUI() {
+        const isDark = document.documentElement.classList.contains('dark');
+        const label = document.getElementById('theme-label');
+        const btn = document.getElementById('theme-toggle');
+        if (label) label.textContent = isDark ? 'Light mode' : 'Dark mode';
+        if (btn) {
+            btn.setAttribute('aria-pressed', String(isDark));
+            btn.setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
+        }
+    }
+
     function initTheme() {
         const saved = localStorage.getItem('theme');
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         if (saved === 'dark' || (!saved && prefersDark)) {
             document.documentElement.classList.add('dark');
         }
+        syncThemeUI();
         const btn = document.getElementById('theme-toggle');
         if (btn) {
             btn.addEventListener('click', () => {
                 document.documentElement.classList.toggle('dark');
                 localStorage.setItem('theme',
                     document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+                syncThemeUI();
+                refreshChartsForTheme();
             });
         }
     }
@@ -89,7 +120,6 @@
         _liveTimelineChart = null;
         _liveScoresChart = null;
         _liveUsersChart = null;
-        _liveAuthDonut = null;
         _liveScoreHist = null;
     }
 
@@ -101,9 +131,9 @@
             low: isDark ? '#57b06c' : '#2e7d51',
             info: isDark ? '#6ea8e8' : '#3a6cb5',
             ink: isDark ? '#e8ecf4' : '#232a38',
-            inkDim: isDark ? '#8b93a5' : '#59617a',
-            inkFaint: isDark ? '#5a6274' : '#939aad',
-            gridLine: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(35,42,56,0.06)',
+            inkDim: isDark ? '#9aa3b5' : '#4c5568',
+            inkFaint: isDark ? '#7d8699' : '#5f687a',
+            gridLine: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(35,42,56,0.08)',
             tooltipBg: isDark ? '#1e2736' : '#fffdf6'
         };
     }
@@ -111,8 +141,10 @@
     function initEChart(id) {
         const el = document.getElementById(id);
         if (!el) return null;
-        const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'default';
-        const ch = echarts.init(el, theme);
+        // Never use ECharts' built-in dark theme: it hardcodes a purple
+        // background (#100C2A) that survives the CSS theme toggle. Every colour
+        // we care about is supplied explicitly from getThemeColors().
+        const ch = echarts.init(el, 'default');
         _echartsInstances.push(ch);
         return ch;
     }
@@ -138,16 +170,18 @@
         const blocks = _replayEvents.filter(e => e.decision === 'block').length;
         const flags = _replayEvents.filter(e => e.decision === 'flag').length;
 
-        let html = head(C.critical, 'Live Analysis');
+        let html = head(C.critical, 'Replay Analysis');
         html += 'Replayed <b>' + _replayEvents.length + '</b> real events. ';
-        html += 'Ground truth shows <b style="color:' + C.critical + '">' + attacks.length + '</b> confirmed attacks: ';
+        html += 'Ground truth shows <b style="color:' + C.critical + '">' + attacks.length + '</b> confirmed ' +
+            (attacks.length === 1 ? 'attack' : 'attacks') + ': ';
         html += '<b style="color:' + C.low + '">' + caught.length + '</b> caught, ';
         html += '<b style="color:' + (missed ? C.ochre : C.inkDim) + '">' + missed + '</b> missed. ';
         if (attacks.length) {
             const rate = Math.round(100 * caught.length / attacks.length);
             html += 'Catch rate <b>' + rate + '%</b>. ';
         }
-        html += 'The model raised <b>' + blocks + '</b> blocks and <b>' + flags + '</b> flags, of which <b>' +
+        html += 'The model raised <b>' + blocks + '</b> ' + (blocks === 1 ? 'block' : 'blocks') +
+            ' and <b>' + flags + '</b> ' + (flags === 1 ? 'flag' : 'flags') + ', of which <b>' +
             fps + '</b> fell on normal traffic.';
         if (missed) {
             html += ' <span style="color:' + C.ochre + '">Missed attacks are real detection failures, shown rather than hidden.</span>';
@@ -163,14 +197,38 @@
         _liveTimelineChart = initEChart('live-chart-timeline');
         if (_liveTimelineChart) {
             _liveTimelineChart.setOption({
-                tooltip: { trigger: 'axis', backgroundColor: C.tooltipBg, textStyle: { color: C.ink, fontFamily: 'JetBrains Mono', fontSize: 11 } },
-                grid: { left: 50, right: 16, top: 30, bottom: 24 },
-                legend: { data: ['Total', 'Anomalies'], textStyle: { color: C.inkDim, fontSize: 10, fontFamily: 'JetBrains Mono' }, top: 0, right: 16 },
-                xAxis: { type: 'category', data: [], axisLabel: { color: C.inkFaint, fontSize: 9 }, axisLine: { lineStyle: { color: C.gridLine } } },
-                yAxis: { type: 'value', name: 'Events', nameTextStyle: { color: C.inkFaint, fontSize: 9 }, axisLabel: { color: C.inkFaint, fontSize: 9 }, splitLine: { lineStyle: { color: C.gridLine } } },
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'item',
+                    backgroundColor: C.tooltipBg,
+                    textStyle: { color: C.ink, fontFamily: 'JetBrains Mono', fontSize: 11 },
+                    formatter: (p) => {
+                        const d = p.data || {};
+                        if (!d.value) return '';
+                        return '<b>' + (d.user || 'event') + '</b><br>' +
+                            'T+' + fmtOffset(d.value[0]) + ' &middot; score ' + Number(d.value[1]).toFixed(6) + '<br>' +
+                            'Decision: ' + (d.decision || 'allow');
+                    }
+                },
+                legend: { data: ['Normal', 'Caught attack', 'Missed attack', 'False positive'], textStyle: { color: C.inkDim, fontSize: 9, fontFamily: 'JetBrains Mono' }, top: 0, right: 10, itemWidth: 10, itemHeight: 8 },
+                grid: { left: 54, right: 30, top: 34, bottom: 28 },
+                xAxis: {
+                    type: 'value', min: 0, max: 1, name: 'Replay time', nameTextStyle: { color: C.inkFaint, fontSize: 9 },
+                    axisLabel: { color: C.inkFaint, fontSize: 9, formatter: (v) => fmtOffset(v), hideOverlap: true, showMaxLabel: true },
+                    axisLine: { lineStyle: { color: C.gridLine } }, splitLine: { show: false }
+                },
+                yAxis: {
+                    type: 'log', min: 1e-8, max: 1,
+                    axisLabel: { color: C.inkFaint, fontSize: 9, formatter: (v) => Number(v).toExponential(0) },
+                    splitLine: { lineStyle: { color: C.gridLine } }
+                },
                 series: [
-                    { name: 'Total', type: 'bar', data: [], itemStyle: { color: C.info }, barWidth: '60%' },
-                    { name: 'Anomalies', type: 'bar', data: [], itemStyle: { color: C.critical }, barWidth: '60%' }
+                    { name: 'Normal', type: 'scatter', data: [], symbolSize: 3, itemStyle: { color: 'rgba(139,147,165,0.35)' } },
+                    { name: 'Caught attack', type: 'scatter', data: [], symbolSize: 10, symbol: 'diamond', itemStyle: { color: C.low }, z: 5 },
+                    { name: 'Missed attack', type: 'scatter', data: [], symbolSize: 10, symbol: 'diamond', itemStyle: { color: C.critical }, z: 5 },
+                    { name: 'False positive', type: 'scatter', data: [], symbolSize: 9, itemStyle: { color: C.medium }, z: 4 },
+                    { name: 'Threshold', type: 'scatter', data: [], silent: true, symbol: 'none',
+                      markLine: { silent: true, symbol: 'none', label: { formatter: 'threshold 0.187', color: C.ochre, fontSize: 9 }, lineStyle: { color: C.ochre, type: 'dashed', width: 1 }, data: [{ yAxis: 0.1872 }] } }
                 ]
             });
         }
@@ -178,13 +236,15 @@
         _liveScoresChart = initEChart('live-chart-scores');
         if (_liveScoresChart) {
             _liveScoresChart.setOption({
+                backgroundColor: 'transparent',
                 tooltip: { trigger: 'axis', backgroundColor: C.tooltipBg, textStyle: { color: C.ink, fontFamily: 'JetBrains Mono', fontSize: 11 } },
                 grid: { left: 50, right: 16, top: 30, bottom: 30 },
                 legend: { data: ['Normal', 'Attack'], textStyle: { color: C.inkDim, fontSize: 10, fontFamily: 'JetBrains Mono' }, top: 0, right: 16 },
                 xAxis: { type: 'category', data: [], axisLabel: { color: C.inkFaint, fontSize: 9, rotate: 30 }, axisLine: { lineStyle: { color: C.gridLine } } },
                 yAxis: { type: 'log', min: 1, axisLabel: { color: C.inkFaint, fontSize: 9 }, splitLine: { lineStyle: { color: C.gridLine } } },
                 series: [
-                    { name: 'Normal', type: 'bar', data: [], itemStyle: { color: 'rgba(139,147,165,0.4)' }, barWidth: '60%' },
+                    { name: 'Normal', type: 'bar', data: [], itemStyle: { color: 'rgba(139,147,165,0.4)' }, barWidth: '60%',
+                      markLine: { silent: true, symbol: 'none', label: { formatter: 'threshold 0.187', color: C.ochre, fontSize: 9 }, lineStyle: { color: C.ochre, type: 'dashed', width: 1 }, data: [{ xAxis: '1e-1' }] } },
                     { name: 'Attack', type: 'bar', data: [], itemStyle: { color: C.critical }, barWidth: '60%' }
                 ]
             });
@@ -193,6 +253,7 @@
         _liveUsersChart = initEChart('live-chart-users');
         if (_liveUsersChart) {
             _liveUsersChart.setOption({
+                backgroundColor: 'transparent',
                 tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: C.tooltipBg, textStyle: { color: C.ink, fontFamily: 'JetBrains Mono', fontSize: 11 } },
                 grid: { left: 100, right: 40, top: 8, bottom: 8 },
                 xAxis: { type: 'value', axisLabel: { color: C.inkFaint, fontSize: 9 }, splitLine: { lineStyle: { color: C.gridLine } } },
@@ -201,20 +262,6 @@
             });
         }
 
-        _liveAuthDonut = initEChart('live-chart-auth');
-        if (_liveAuthDonut) {
-            _liveAuthDonut.setOption({
-                tooltip: { trigger: 'item', backgroundColor: C.tooltipBg, textStyle: { color: C.ink, fontFamily: 'JetBrains Mono', fontSize: 11 } },
-                // Legend goes BELOW the pie. The panel is only ~238px wide, so a
-                // side legend overlapped the donut ring and its labels were cut.
-                legend: { orient: 'horizontal', bottom: 0, left: 'center', itemWidth: 12, itemHeight: 10, itemGap: 12, textStyle: { color: C.inkDim, fontSize: 11, fontFamily: 'JetBrains Mono' } },
-                series: [{
-                    type: 'pie', radius: ['40%', '62%'], center: ['50%', '44%'],
-                    label: { show: false },
-                    data: []
-                }]
-            });
-        }
     }
 
     function updateLiveCharts() {
@@ -223,23 +270,40 @@
         if (!_replayEvents.length) return;
 
         if (_liveTimelineChart) {
-            // Replay events carry `offset` (seconds into the window), not `ts`.
-            // Bucketing on a field that does not exist put every event into one
-            // bucket, so the chart drew a single solid column.
-            const BUCKET = 100; // seconds per bar
-            const buckets = {};
+            // One point per replay event: score on Y, time on X. The old
+            // totals-vs-anomalies bars hid a handful of attacks inside
+            // thousands of normal logins. This view keeps the denominator
+            // visible and makes the threshold crossing the main signal.
+            const normal = [], caught = [], missed = [], fp = [];
+            let maxOffset = 1;
+            const point = (e) => {
+                const x = Number(e.offset) || 0;
+                maxOffset = Math.max(maxOffset, x);
+                return {
+                    value: [x, Math.max(1e-8, Number(e.anomaly_score) || 1e-8)],
+                    user: humanizeUser(e.user_id),
+                    decision: e.decision,
+                    score: Number(e.anomaly_score) || 0
+                };
+            };
             _replayEvents.forEach(e => {
-                const key = Math.floor((Number(e.offset) || 0) / BUCKET) * BUCKET;
-                if (!buckets[key]) buckets[key] = { total: 0, anomalies: 0 };
-                buckets[key].total++;
-                if (e.decision === 'flag' || e.decision === 'block') buckets[key].anomalies++;
+                if (e.is_red) {
+                    (e.decision === 'allow' ? missed : caught).push(point(e));
+                } else if (e.decision === 'block' || e.decision === 'flag') {
+                    fp.push(point(e));
+                } else {
+                    normal.push(point(e));
+                }
             });
-            const keys = Object.keys(buckets).map(Number).sort((a, b) => a - b).slice(-30);
+            const threshold = Number(_replayEvents[0] && _replayEvents[0].threshold) || 0.1872;
             _liveTimelineChart.setOption({
-                xAxis: { data: keys.map(k => fmtOffset(k)) },
+                xAxis: { max: Math.max(1, Math.ceil(maxOffset)) },
                 series: [
-                    { name: 'Total', data: keys.map(k => buckets[k].total) },
-                    { name: 'Anomalies', data: keys.map(k => buckets[k].anomalies) }
+                    { name: 'Normal', data: normal },
+                    { name: 'Caught attack', data: caught },
+                    { name: 'Missed attack', data: missed },
+                    { name: 'False positive', data: fp },
+                    { name: 'Threshold', data: [], markLine: { data: [{ yAxis: threshold }] } }
                 ]
             });
         }
@@ -289,37 +353,53 @@
             });
         }
 
-        if (_liveAuthDonut) {
-            const authCounts = {};
-            _replayEvents.forEach(e => {
-                // '?' is a literal value in the LANL auth_type column, not a
-                // missing field, so map it to something readable.
-                const raw = e.auth_type;
-                const t = (!raw || raw === '?') ? 'Unknown' : raw;
-                authCounts[t] = (authCounts[t] || 0) + 1;
-            });
-            const C = getThemeColors();
-            const colors = { 'NTLM': C.info, 'Kerberos': C.ochre, 'Unknown': C.inkDim };
-            const authData = Object.entries(authCounts).map(([name, value]) => ({
-                name, value,
-                itemStyle: { color: colors[name] || C.inkDim }
-            }));
-            const authTotal = authData.reduce((s, d) => s + d.value, 0) || 1;
-            _liveAuthDonut.setOption({
-                // Slices carry no labels, so the legend states the share.
-                legend: { formatter: (name) => {
-                    const d = authData.find(x => x.name === name);
-                    return name + '  ' + (d ? Math.round(100 * d.value / authTotal) : 0) + '%';
-                } },
-                series: [{ data: authData }]
-            });
-        }
     }
+
+    /* Rebuild ECharts after a theme flip. Reusing the old instances would keep
+       every axis label, tooltip and gridline in the previous palette. */
+    function refreshChartsForTheme() {
+        if (getPage() !== 'dashboard') return;
+        destroyCharts();
+        initLiveCharts();
+        updateLiveCharts();
+        updateNarrative();
+        requestAnimationFrame(() => {
+            _echartsInstances.forEach(c => { try { c.resize(); } catch (e) {} });
+        });
+    }
+
+    const PAGE_META = {
+        live: { label: 'Live Monitoring' },
+        dashboard: { label: 'Replay Feed' },
+        alerts: { label: 'Alerts' },
+        users: { label: 'Users' },
+        behavior: { label: 'Behavior Insights' },
+        model: { label: 'Model Performance' },
+        settings: { label: 'Settings' },
+        simulation: { label: 'Simulation Lab' }
+    };
 
     function setActiveNav(page) {
         document.querySelectorAll('.sidebar-item[data-page]').forEach(el => {
-            el.classList.toggle('active', el.dataset.page === page);
+            const active = el.dataset.page === page;
+            el.classList.toggle('active', active);
+            if (active) el.setAttribute('aria-current', 'page');
+            else el.removeAttribute('aria-current');
         });
+        const meta = PAGE_META[page];
+        if (!meta) return;
+        const crumb = document.getElementById('topbar-crumb');
+        if (crumb) crumb.textContent = meta.label;
+        document.title = meta.label + ' — LANL UEBA';
+    }
+
+    /* Shared page header. Matches the server-rendered Dataset header. */
+    function pageHead(eyebrow, title, lede) {
+        return '<div class="page-head">' +
+            '<div class="page-eyebrow">' + esc(eyebrow) + '</div>' +
+            '<h1 class="page-title">' + esc(title) + '</h1>' +
+            (lede ? '<p class="page-lede">' + lede + '</p>' : '') +
+            '</div>';
     }
 
     /* ── Hash Router ────────────────────────────────────────────── */
@@ -343,11 +423,8 @@
         setActiveNav('live');
 
         content.innerHTML = `
-            <div class="dash-greeting mb-3">
-                <h2>Live Monitoring</h2>
-                <p>Authentication events scored in this process, as they arrive.
-                   These carry no ground-truth label.</p>
-            </div>
+            ${pageHead('Monitor · Live', 'Live Monitoring',
+                'Authentication events scored in this process, as they arrive. These carry no ground-truth label.')}
 
             <div class="grid-4 gap-4 mb-4" id="live-kpi-grid">
                 ${LIVE_KPI_DEFS.map(k => kpiCard(
@@ -361,7 +438,7 @@
                       color: k.key === 'attacksCaught' ? 'critical'
                           : k.key === 'attacksMissed' ? 'medium'
                           : k.key === 'falsePositives' ? 'low' : 'info' },
-                    0, 'live-spark-' + k.key)).join('')}
+                    0)).join('')}
             </div>
 
             <div class="panel overflow-hidden">
@@ -408,9 +485,9 @@
             falsePositives: evts.filter(e => e.decision === 'allow').length,
         };
         LIVE_KPI_DEFS.forEach(k => {
-            // The live tiles use a live-spark- prefix so this selector cannot
-            // collide with the replay tiles, which are painted from _replayEvents.
-            const card = document.querySelector(`[id="live-spark-${k.key}"]`)?.closest('.panel');
+            // Scope to the live grid so this cannot paint the replay tiles,
+            // which are painted separately from _replayEvents.
+            const card = document.querySelector(`#live-kpi-grid [data-kpi="${k.key}"]`);
             const numEl = card?.querySelector('.tape-num');
             if (numEl) numEl.textContent = fmt(vals[k.key] || 0);
         });
@@ -424,15 +501,13 @@
         setActiveNav('dashboard');
 
         content.innerHTML = `
-            <div class="dash-greeting mb-3">
-                <h2>Replay Feed</h2>
-                <p>Replaying real recorded logins from a 33-minute LANL window. Ground truth is shown
-                   next to every event, so you can see exactly which attacks the model caught, which
-                   it missed, and what it wrongly flagged.</p>
-                <p class="text-11 text-faint">The four numbers directly below are the model's real
-                   quality, measured on users it never trained on (held-out). Everything after them
-                   describes this replay session only.</p>
-            </div>
+            ${pageHead('Monitor · Replay', 'Replay Feed',
+                'Replaying real recorded logins from a 33-minute LANL window. Ground truth is shown ' +
+                'next to every event, so you can see exactly which attacks the model caught, which ' +
+                'it missed, and what it wrongly flagged.' +
+                '<span class="page-lede-sub">The four numbers directly below are the model\'s real ' +
+                'quality, measured on users it never trained on (held-out). Everything after them ' +
+                'describes this replay session only.</span>')}
 
             <div class="headline-bar mb-2" id="headline-bar">
                 <div class="headline-stat"><span class="headline-num" id="hl-events">&mdash;</span><span class="headline-label">Events scored</span></div>
@@ -444,30 +519,27 @@
 
             <div class="text-11 text-faint mb-2">Replay window &mdash; this session only (not the held-out figures above)</div>
             <div class="grid-4 gap-4 mb-4" id="kpi-grid">
-                ${LIVE_KPI_DEFS.map((k, i) => kpiCard(k, null, 'spark-' + k.key)).join('')}
+                ${LIVE_KPI_DEFS.map(k => kpiCard(k, null)).join('')}
             </div>
 
             <div class="insight-box mb-4" id="live-narrative">
-                <div style="font-weight:700;color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Live Analysis</div>
+                <div style="font-weight:700;color:var(--ink-dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Replay Analysis</div>
                 Loading replay window...
             </div>
 
             <div class="grid-12 gap-4 mb-4">
                 <div class="col-5">
                     <div class="panel p-4">
-                        <div class="section-title mb-1">Replay Progress</div>
-                        <div class="text-10 text-faint mb-2">Events per 100 seconds of the replay. Red = flagged or blocked by the model.</div>
+                        <div class="section-title mb-1">Detection Timeline</div>
+                        <div class="text-10 text-faint mb-2">Every dot is one replayed login. The dashed rule is the block threshold; colour shows what happened.</div>
                         <div id="live-chart-timeline" style="width:100%;height:240px"></div>
                     </div>
                 </div>
                 <div class="col-3">
                     <div class="panel p-4">
-                        <div class="section-title mb-1">Attack Catch Rate</div>
-                        <div class="text-10 text-faint mb-2">Share of <b>this window's</b> attacks the model caught &mdash; not its overall score.</div>
-                        <div id="gauge-container" class="text-center"></div>
-                        <div class="section-title mb-1 mt-3">Decision Split</div>
-                        <div class="text-10 text-faint mb-2">What the model did with every replayed event.</div>
-                        <div id="risk-dist-legend" class="text-12 text-dim" style="margin-top:8px"></div>
+                        <div class="section-title mb-1">Session Outcome</div>
+                        <div class="text-10 text-faint mb-2">Events replayed so far. Denominators are shown so a small sample cannot read as a perfect model.</div>
+                        <div id="replay-outcome"></div>
                     </div>
                 </div>
                 <div class="col-4">
@@ -531,14 +603,14 @@
                 <div class="col-12">
                     <div class="panel p-4">
                         <div class="section-title mb-1">Anomaly Score Distribution</div>
-                        <div class="text-10 text-faint mb-2">How the model scored every event (log scale &mdash; each gridline is 10&times;). Normal logins cluster near 1e-7; attacks score near 1e-1.</div>
+                        <div class="text-10 text-faint mb-2">How the model scored every event (log scale &mdash; each gridline is 10&times;). Most normal logins score below 1e-7 and sit in the 1e-8 bin; attacks score near 1e-1.</div>
                         <div id="live-chart-scores" style="width:100%;height:340px"></div>
                     </div>
                 </div>
             </div>
 
             <div class="grid-12 gap-4 mb-4">
-                <div class="col-7">
+                <div class="col-12">
                     <div class="panel overflow-hidden">
                         <div class="flex-between px-4 py-3 hairline">
                             <span class="section-title">Recent Alerts</span>
@@ -547,6 +619,7 @@
                                 <a class="view-all" href="#/alerts" style="margin-left:12px">View All &#8594;</a>
                             </div>
                         </div>
+                        <div class="text-10 text-faint" style="padding:0 16px 8px">Latest 20 alerts at page load; this list does not advance with playback. View All shows the complete current list.</div>
                         <div class="overflow-auto" style="max-height: 280px">
                             <table class="table-glass">
                                 <thead><tr>
@@ -559,13 +632,6 @@
                                         </tbody>
                             </table>
                         </div>
-                    </div>
-                </div>
-                <div class="col-5">
-                    <div class="panel p-4">
-                        <div class="section-title mb-1">Authentication Methods</div>
-                        <div class="text-10 text-faint mb-2">Login protocol mix in this window. &ldquo;Unknown&rdquo; is the LANL dataset's own missing value.</div>
-                        <div id="live-chart-auth" style="width:100%;height:240px"></div>
                     </div>
                 </div>
             </div>`;
@@ -642,54 +708,14 @@
                            attacksMissed: fmt(p.attacksMissed || 0), falsePositives: fmt(p.flagged || 0) };
 
             LIVE_KPI_DEFS.forEach(kpi => {
-                const card = document.querySelector(`[id="spark-${kpi.key}"]`)?.closest('.panel');
+                const card = document.querySelector(`#kpi-grid [data-kpi="${kpi.key}"]`);
                 if (card) {
                     const numEl = card.querySelector('.tape-num');
                     if (numEl) numEl.textContent = vals[kpi.key] || '0';
                 }
             });
 
-            // Update spark data
-            _liveSparkData.replayed.push(p.emitted || 0);
-            _liveSparkData.attacksCaught.push(p.attacksCaught || 0);
-            _liveSparkData.attacksMissed.push(p.attacksMissed || 0);
-            _liveSparkData.falsePositives.push(p.flagged || 0);
-
-            LIVE_KPI_DEFS.forEach(kpi => {
-                const sparkEl = document.getElementById('spark-' + kpi.key);
-                if (sparkEl && _liveSparkData[kpi.key].length > 1) {
-                    const color = kpi.color === 'info' ? '#6ea8e8' : kpi.color === 'critical' ? '#e5484d'
-                                : kpi.color === 'medium' ? '#e8a33d' : '#57b06c';
-                    renderSparkline(sparkEl, _liveSparkData[kpi.key], color);
-                }
-            });
-
-            // Gauge: share of confirmed attacks caught, straight from real ground truth
-            const caught = p.attacksCaught || 0, missed = p.attacksMissed || 0;
-            const seenAttacks = caught + missed;
-            const gaugeEl = document.getElementById('gauge-container');
-            if (gaugeEl) renderGauge(gaugeEl, seenAttacks > 0 ? caught / seenAttacks : 0);
-
-            // Decision split across replayed events, counted client-side
-            const legendEl = document.getElementById('risk-dist-legend');
-            if (legendEl) {
-                const counts = { allow: 0, flag: 0, block: 0 };
-                _replayEvents.forEach(e => { if (counts[e.decision] !== undefined) counts[e.decision]++; });
-                const total = _replayEvents.length || 1;
-                const dist = [
-                    { name: 'Allow', value: counts.allow, color: '#57b06c' },
-                    { name: 'Flag', value: counts.flag, color: '#e8a33d' },
-                    { name: 'Block', value: counts.block, color: '#e5484d' },
-                ];
-                legendEl.innerHTML = dist.map(d => {
-                    const pct = ((d.value / total) * 100).toFixed(1);
-                    return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">' +
-                        '<span style="width:8px;height:8px;border-radius:2px;background:' + d.color + ';flex-shrink:0"></span>' +
-                        '<span style="flex:1">' + d.name + '</span>' +
-                        '<span class="mono" style="font-weight:600">' + d.value + '</span>' +
-                        '<span class="mono text-faint" style="font-size:10px">(' + pct + '%)</span></div>';
-                }).join('');
-            }
+            window._paintReplayOutcome();
 
             // Attackers caught — filled from real replay events by _paintReplayAttackers
             const riskyEl = document.getElementById('top-risky-users');
@@ -726,13 +752,22 @@
         setActiveNav('alerts');
 
         content.innerHTML = `
+            ${pageHead('Monitor · Triage', 'Alerts',
+                'Replay-window escalations. Outcome is what the detection did, not a confidence level.')}
             <div class="flex-between mb-4" style="flex-wrap:wrap;gap:8px">
                 <div class="flex gap-2" id="severity-filters">
                     <button class="filter-btn active" data-sev="all">All</button>
                     <button class="filter-btn" data-sev="critical">Caught</button>
                     <button class="filter-btn" data-sev="medium">False Positive</button>
                 </div>
-                <span class="text-10 text-faint uppercase tracking-widest" id="alerts-total">0 alerts</span>
+                <div class="flex-center gap-2">
+                    <span class="text-10 text-faint uppercase tracking-widest">Sort</span>
+                    <div class="flex gap-1" id="sort-controls">
+                        <button class="filter-btn active" data-sort="time">Newest</button>
+                        <button class="filter-btn" data-sort="score">Highest score</button>
+                    </div>
+                    <span class="text-10 text-faint uppercase tracking-widest" id="alerts-total">0 alerts</span>
+                </div>
             </div>
             <div class="insight-box mb-4" style="border-color:var(--low);background:rgba(87,182,108,.08)">
                 <div style="font-weight:700;color:var(--low);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Real Data</div>
@@ -761,19 +796,44 @@
         document.getElementById('severity-filters').addEventListener('click', (e) => {
             const btn = e.target.closest('.filter-btn');
             if (!btn) return;
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('#severity-filters .filter-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            loadAlertsPage(btn.dataset.sev);
+            loadAlertsPage(btn.dataset.sev, currentAlertSort());
+        });
+        document.getElementById('sort-controls').addEventListener('click', (e) => {
+            const btn = e.target.closest('.filter-btn');
+            if (!btn) return;
+            document.querySelectorAll('#sort-controls .filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            loadAlertsPage(currentAlertSeverity(), btn.dataset.sort);
         });
 
-        await loadAlertsPage('all');
+        await loadAlertsPage('all', 'time');
     }
 
-    async function loadAlertsPage(severity) {
+    function currentAlertSeverity() {
+        const el = document.querySelector('#severity-filters .filter-btn.active');
+        return el ? el.dataset.sev : 'all';
+    }
+
+    function currentAlertSort() {
+        const el = document.querySelector('#sort-controls .filter-btn.active');
+        return el ? el.dataset.sort : 'time';
+    }
+
+    async function loadAlertsPage(severity, sort) {
         try {
             const alerts = await API.alerts();
             let filtered = alerts;
             if (severity !== 'all') filtered = alerts.filter(a => a.severity === severity);
+            filtered = filtered.slice();
+            if (sort === 'score') {
+                filtered.sort((a, b) => (b.combined_score - a.combined_score) ||
+                    ((b.offset || 0) - (a.offset || 0)));
+            } else {
+                // Newest first: the API returns chronological ascending order.
+                filtered.sort((a, b) => (b.offset || 0) - (a.offset || 0));
+            }
 
             const tbody = document.getElementById('alerts-page-tbody');
             const totalEl = document.getElementById('alerts-total');
@@ -796,7 +856,7 @@
                     tbody.innerHTML = '<tr><td colspan="6" class="text-center text-faint py-8">' +
                         'No alerts. Press Play on Live Monitoring to replay real events.</td></tr>';
                 } else {
-                    tbody.innerHTML = filtered.slice().reverse().map(a =>
+                    tbody.innerHTML = filtered.map(a =>
                         alertRow(a, openInvestigate, ackAlert)
                     ).join('');
                 }
@@ -812,21 +872,33 @@
         setActiveNav('users');
 
         content.innerHTML = `
+            ${pageHead('Monitor · Directory', 'Users',
+                'Per-user activity in the replay window. Ground truth is shown for every account, including attacks the model did not catch.')}
             <div class="grid-4 gap-4 mb-4">
                 ${['Users Seen', 'Attackers', 'Attacks Caught', 'False Positives'].map((label, i) => `
                     <div class="panel p-4">
                         <div class="text-10 text-faint uppercase tracking-widest" style="font-weight:700">${label}</div>
-                        <div class="tape-num" id="users-kpi-${i}" style="font-size:24px;font-weight:700;margin-top:6px">0</div>
+                        <div class="tape-num" id="users-kpi-${i}" style="font-size:24px;font-weight:700;margin-top:6px;color:${['var(--ink)','var(--critical)','var(--low)','var(--medium)'][i]}">0</div>
                     </div>`).join('')}
             </div>
 
             <div class="panel overflow-hidden">
-                <div class="flex-between px-4 py-3 hairline">
+                <div class="flex-between px-4 py-3 hairline" style="gap:10px;flex-wrap:wrap">
                     <div class="flex-center gap-2">
                         <span class="section-title">Users in Replay Window</span>
                         <span class="text-9 px-2 py-1" style="border:1px solid var(--low);color:var(--low);border-radius:3px;letter-spacing:.06em">REAL DATA</span>
                     </div>
-                    <span class="text-10 text-faint uppercase tracking-widest" id="users-total">0 users</span>
+                    <div class="flex-center gap-2" style="flex-wrap:wrap">
+                        <input class="table-filter-input" id="users-filter" type="text"
+                               placeholder="Filter users" autocomplete="off"
+                               aria-label="Filter users by name or id">
+                        <div class="flex gap-1" id="users-persona-filter">
+                            <button class="filter-btn active" data-persona="all">All</button>
+                            <button class="filter-btn" data-persona="attacker">Attackers</button>
+                            <button class="filter-btn" data-persona="clean">Normal</button>
+                        </div>
+                        <span class="text-10 text-faint uppercase tracking-widest" id="users-total">0 users</span>
+                    </div>
                 </div>
                 <div class="overflow-auto" style="max-height: calc(100vh - 340px)">
                     <table class="table-glass">
@@ -860,17 +932,53 @@
                 if (el) el.textContent = fmt(v);
             });
             if (tbody) {
+                const sortedUsers = users.slice().sort((a, b) => b.max_score - a.max_score);
+                const filterInput = document.getElementById('users-filter');
+                const personaFilter = document.getElementById('users-persona-filter');
+
+                const paintUsers = () => {
+                    const q = (filterInput && filterInput.value || '').trim().toLowerCase();
+                    const personaEl = document.querySelector('#users-persona-filter .filter-btn.active');
+                    const persona = personaEl ? personaEl.dataset.persona : 'all';
+                    const filtered = sortedUsers.filter(u => {
+                        if (persona === 'attacker' && !(u.attacks > 0)) return false;
+                        if (persona === 'clean' && u.attacks > 0) return false;
+                        if (!q) return true;
+                        const haystack = [u.user_id, u.name, u.persona, u.raw_id, humanizeUser(u.user_id)]
+                            .join(' ').toLowerCase();
+                        return haystack.indexOf(q) !== -1;
+                    });
+                    if (totalEl) {
+                        totalEl.textContent = filtered.length === sortedUsers.length
+                            ? sortedUsers.length + ' users'
+                            : filtered.length + ' of ' + sortedUsers.length + ' users';
+                    }
+                    if (!filtered.length) {
+                        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-faint py-8">' +
+                            'No users match this filter.</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = filtered.map(u => userRow(u)).join('');
+                };
+
+                if (filterInput) filterInput.addEventListener('input', paintUsers);
+                if (personaFilter) personaFilter.addEventListener('click', (e) => {
+                    const btn = e.target.closest('.filter-btn');
+                    if (!btn) return;
+                    personaFilter.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    paintUsers();
+                });
+                tbody.addEventListener('click', (e) => {
+                    const row = e.target.closest('tr[data-uid]');
+                    if (row) openUserProfile(row.dataset.uid);
+                });
+
                 if (users.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="8" class="text-center text-faint py-8">' +
                         'No users yet. Press Play on Live Monitoring to replay real events.</td></tr>';
                 } else {
-                    tbody.innerHTML = users.sort((a, b) => b.max_score - a.max_score).map(u =>
-                        userRow(u)
-                    ).join('');
-                    tbody.addEventListener('click', (e) => {
-                        const row = e.target.closest('tr[data-uid]');
-                        if (row) openUserProfile(row.dataset.uid);
-                    });
+                    paintUsers();
                     // The page previously left ~700px of dead space below a
                     // short table. Fill it with the numbers that matter.
                     const tfoot = document.getElementById('users-tfoot');
@@ -920,6 +1028,9 @@
 
         const overlay = document.createElement('div');
         overlay.className = 'drawer-overlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-label', 'User baseline profile');
         overlay.innerHTML = `
             <div class="drawer">
                 <div class="drawer-header">
@@ -927,7 +1038,7 @@
                         <div class="font-bold text-lg">${esc(_fmtUser(data.name, data.user_id))}</div>
                         <div class="text-11 text-faint mt-05">User Baseline Profile</div>
                     </div>
-                    <button class="drawer-close" id="drawer-close-btn">&times;</button>
+                    <button class="drawer-close" id="drawer-close-btn" type="button" aria-label="Close user profile">&times;</button>
                 </div>
 
                 <!-- Training Baseline -->
@@ -1027,19 +1138,28 @@
                     </div>` : ''}
             </div>`;
 
-        overlay.querySelector('#drawer-close-btn').addEventListener('click', () => {
+        const lastFocused = document.activeElement;
+        function closeDrawer() {
             overlay.classList.remove('open');
+            document.removeEventListener('keydown', onKey);
             setTimeout(() => overlay.remove(), 250);
-        });
+            if (lastFocused && lastFocused.focus) lastFocused.focus();
+        }
+        function onKey(event) {
+            if (event.key === 'Escape') closeDrawer();
+        }
+
+        overlay.querySelector('#drawer-close-btn').addEventListener('click', closeDrawer);
         overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) {
-                overlay.classList.remove('open');
-                setTimeout(() => overlay.remove(), 250);
-            }
+            if (e.target === overlay) closeDrawer();
         });
+        document.addEventListener('keydown', onKey);
 
         document.body.appendChild(overlay);
-        requestAnimationFrame(() => overlay.classList.add('open'));
+        requestAnimationFrame(() => {
+            overlay.classList.add('open');
+            overlay.querySelector('#drawer-close-btn').focus();
+        });
     }
 
     /* ── Settings Page ──────────────────────────────────────────── */
@@ -1048,6 +1168,8 @@
         setActiveNav('settings');
 
         content.innerHTML = `
+            ${pageHead('System · Controls', 'Settings',
+                'Session state, model identity, and the destructive reset control.')}
             <div class="grid-2 gap-4 mb-4">
                 <div class="panel p-4">
                     <div class="section-title mb-3">Session Stats</div>
@@ -1098,7 +1220,6 @@
                 try {
                     await API.reset();
                     _liveEvents = [];
-                    _liveSparkData = { replayed: [], attacksCaught: [], attacksMissed: [], falsePositives: [] };
                     const status = document.getElementById('reset-status');
                     if (status) status.textContent = 'Dashboard cleared.';
                 } catch (err) {
@@ -1205,6 +1326,53 @@
                  running: _replayRunning, done: _replayEvents.length >= total };
     };
 
+    window._paintReplayOutcome = function() {
+        const el = document.getElementById('replay-outcome');
+        if (!el) return;
+        const counts = { caught: 0, missed: 0, fp: 0, tn: 0 };
+        _replayEvents.forEach(e => {
+            if (e.is_red) {
+                if (e.decision === 'allow') counts.missed++;
+                else counts.caught++;
+            } else if (e.decision === 'block' || e.decision === 'flag') {
+                counts.fp++;
+            } else {
+                counts.tn++;
+            }
+        });
+        const attacks = counts.caught + counts.missed;
+        const normal = counts.fp + counts.tn;
+        const total = _replayEvents.length;
+        if (!total) {
+            el.innerHTML = '<div class="text-12 text-faint py-4 text-center">Press Play to replay</div>';
+            return;
+        }
+        const threshold = Number(_replayEvents[0] && _replayEvents[0].threshold) || 0.1872;
+        const pct = (a, b) => b ? ((a / b) * 100).toFixed(2) + '%' : '—';
+        const caughtW = attacks ? (counts.caught / attacks) * 100 : 0;
+        const missedW = attacks ? (counts.missed / attacks) * 100 : 0;
+        el.innerHTML =
+            '<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px">' +
+                '<div><div class="tape-num" style="font-size:30px;line-height:1;color:var(--low)">' +
+                    counts.caught + '<span style="font-size:16px;color:var(--ink-faint)"> / ' + attacks + '</span></div>' +
+                    '<div class="text-10 text-faint uppercase tracking-widest" style="margin-top:4px">attacks caught</div></div>' +
+                '<div class="text-10 text-faint mono" style="text-align:right">threshold<br><span style="color:var(--ochre);font-size:12px">' + threshold.toFixed(3) + '</span></div>' +
+            '</div>' +
+            '<div style="display:flex;height:7px;border-radius:4px;overflow:hidden;background:var(--wash-strong);margin:14px 0 10px">' +
+                '<span style="width:' + caughtW + '%;background:var(--low)"></span>' +
+                '<span style="width:' + missedW + '%;background:var(--critical)"></span>' +
+            '</div>' +
+            '<div style="display:grid;grid-template-columns:1fr auto;gap:5px 10px;font-size:11px">' +
+                '<span>Attacks missed</span><b class="mono" style="color:var(--critical)">' + counts.missed + '</b>' +
+                '<span>False positives</span><b class="mono" style="color:var(--medium)">' + counts.fp + '</b>' +
+                '<span>Normal logins allowed</span><span class="mono" style="color:var(--ink-dim)">' + fmt(counts.tn) + '</span>' +
+            '</div>' +
+            '<div class="text-10 text-faint" style="margin-top:10px">' +
+                counts.fp + ' of ' + fmt(normal) + ' normal logins (false-positive rate ' + pct(counts.fp, normal) + '). ' +
+                (attacks === 1 ? '1 attack' : attacks + ' attacks') + ' among ' + fmt(total) + ' replayed events.' +
+            '</div>';
+    };
+
     window._paintReplayAttackers = function() {
         const el = document.getElementById('top-risky-users');
         if (!el) return;
@@ -1239,6 +1407,7 @@
 
     window._paintReplayCharts = function() {
         try { updateLiveCharts(); } catch (err) { /* charts are cosmetic */ }
+        window._paintReplayOutcome();
         window._paintReplayAttackers();
     };
 
@@ -1253,42 +1422,13 @@
         const vals = { replayed: fmt(p.emitted), attacksCaught: fmt(p.attacksCaught),
                        attacksMissed: fmt(p.attacksMissed), falsePositives: fmt(p.flagged) };
         LIVE_KPI_DEFS.forEach(kpi => {
-            const card = document.querySelector(`[id="spark-${kpi.key}"]`)?.closest('.panel');
+            const card = document.querySelector(`#kpi-grid [data-kpi="${kpi.key}"]`);
             if (!card) return;
             const numEl = card.querySelector('.tape-num');
             if (numEl) numEl.textContent = vals[kpi.key];
-            const sparkEl = document.getElementById('spark-' + kpi.key);
-            const series = _liveSparkData[kpi.key] || (_liveSparkData[kpi.key] = []);
-            series.push(p[{ replayed: 'emitted', attacksCaught: 'attacksCaught',
-                            attacksMissed: 'attacksMissed', falsePositives: 'flagged' }[kpi.key]] || 0);
-            if (series.length > 60) series.shift();
-            if (sparkEl && series.length > 1) {
-                const color = kpi.color === 'info' ? '#6ea8e8' : kpi.color === 'critical' ? '#e5484d'
-                            : kpi.color === 'medium' ? '#e8a33d' : '#57b06c';
-                renderSparkline(sparkEl, series, color);
-            }
         });
 
-        const seen = p.attacksCaught + p.attacksMissed;
-        const gaugeEl = document.getElementById('gauge-container');
-        if (gaugeEl) renderGauge(gaugeEl, seen > 0 ? p.attacksCaught / seen : 0);
-
-        const legendEl = document.getElementById('risk-dist-legend');
-        if (legendEl) {
-            const counts = { allow: 0, flag: 0, block: 0 };
-            _replayEvents.forEach(e => { if (counts[e.decision] !== undefined) counts[e.decision]++; });
-            const total = _replayEvents.length || 1;
-            legendEl.innerHTML = [
-                { name: 'Allow', value: counts.allow, color: '#57b06c' },
-                { name: 'Flag', value: counts.flag, color: '#e8a33d' },
-                { name: 'Block', value: counts.block, color: '#e5484d' },
-            ].map(d => '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">' +
-                '<span style="width:8px;height:8px;border-radius:2px;background:' + d.color + ';flex-shrink:0"></span>' +
-                '<span style="flex:1">' + d.name + '</span>' +
-                '<span class="mono" style="font-weight:600">' + d.value + '</span>' +
-                '<span class="mono text-faint" style="font-size:10px">(' +
-                ((d.value / total) * 100).toFixed(1) + '%)</span></div>').join('');
-        }
+        window._paintReplayOutcome();
     };
 
     window._updateReplayStats = function() {
@@ -1503,84 +1643,9 @@
         }
     }
 
-    function updateGreeting() {
-        const el = document.getElementById('topbar-greeting');
-        if (!el) return;
-        const h = new Date().getHours();
-        const name = el.textContent.replace(/^(Good morning|Good afternoon|Good evening),?\s*/i, '').replace(/\.$/, '').trim() || 'Analyst';
-        const g = h < 12 ? GREETINGS[0] : h < 18 ? GREETINGS[1] : GREETINGS[2];
-        el.textContent = g + ', ' + name + '.';
-    }
-
     /* ── Search ─────────────────────────────────────────────────── */
     function initSearch() {
-        const input = document.getElementById('global-search');
-        const overlay = document.getElementById('search-overlay');
-        const modalInput = document.getElementById('search-modal-input');
-        const results = document.getElementById('search-results');
-        if (!input || !overlay) return;
-
-        function openSearch() {
-            overlay.classList.add('open');
-            setTimeout(() => modalInput.focus(), 100);
-        }
-        function closeSearch() {
-            overlay.classList.remove('open');
-            if (modalInput) modalInput.value = '';
-            if (results) results.innerHTML = '<div class="search-result-group">Type to search</div>';
-        }
-
-        input.addEventListener('focus', openSearch);
-        input.addEventListener('blur', (e) => { if (!overlay.contains(e.relatedTarget)) closeSearch(); });
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSearch(); });
-
-        document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); openSearch(); }
-            if (e.key === 'Escape') closeSearch();
-        });
-
-        let searchTimeout;
-        if (modalInput) {
-            modalInput.addEventListener('input', () => {
-                clearTimeout(searchTimeout);
-                const q = modalInput.value.trim();
-                if (!q) { results.innerHTML = '<div class="search-result-group">Type to search</div>'; return; }
-                searchTimeout = setTimeout(async () => {
-                    try {
-                        const data = await API.search(q);
-                        let html = '';
-                        if (data.users && data.users.length) {
-                            html += '<div class="search-result-group">Users (' + data.users.length + ')</div>';
-                            data.users.forEach(u => {
-                                html += '<div class="search-result-item" onclick="location.hash=\'#/users\';document.getElementById(\'search-overlay\').classList.remove(\'open\')">' +
-                                    '<span class="mono">' + esc(u.name || u.user_id) + '</span>: ' + esc(u.persona) +
-                                    ' <span class="text-faint">(' + u.live_events + ' events, max ' + u.max_score.toFixed(3) + ')</span></div>';
-                            });
-                        }
-                        if (data.events && data.events.length) {
-                            html += '<div class="search-result-group">Events (' + data.events.length + ')</div>';
-                            data.events.slice(0, 10).forEach(ev => {
-                                html += '<div class="search-result-item">' +
-                                    '<span class="mono">' + esc(ev.ts) + '</span> ' + esc(ev.name || ev.user_id) +
-                                    ' <span class="text-faint">' + esc(ev.src_computer) + ' → ' + esc(ev.dst_computer) + '</span> ' +
-                                    '<span class="mono">' + ev.combined_score.toFixed(4) + '</span> ' +
-                                    '<span class="stamp stamp-' + (ev.decision === 'block' ? 'critical' : ev.decision === 'flag' ? 'medium' : 'low') + '">' + esc(ev.decision) + '</span></div>';
-                            });
-                        }
-                        if (data.alerts && data.alerts.length) {
-                            html += '<div class="search-result-group">Alerts (' + data.alerts.length + ')</div>';
-                            data.alerts.slice(0, 10).forEach(a => {
-                                html += '<div class="search-result-item">' +
-                                    '<span class="mono">' + esc(a.timestamp) + '</span> ' + esc(a.name || a.user_id) +
-                                    ' <span class="stamp stamp-' + a.severity + '">' + esc(a.severity) + '</span></div>';
-                            });
-                        }
-                        if (!html) html = '<div class="search-result-group">No results for "' + esc(q) + '"</div>';
-                        results.innerHTML = html;
-                    } catch (err) { results.innerHTML = '<div class="search-result-group">Search failed</div>'; }
-                }, 200);
-            });
-        }
+        if (window.initGlobalSearch) window.initGlobalSearch();
     }
 
     /* ── SSE ────────────────────────────────────────────────────── */
@@ -1592,7 +1657,9 @@
                 // simulated-event pipeline so the two never mix on screen.
                 if (event && event.replay) {
                     _replayEvents.push(event);
-                    if (_replayEvents.length > 2000) _replayEvents = _replayEvents.slice(-1500);
+                    if (_replayEvents.length > REPLAY_BUFFER_LIMIT) {
+                        _replayEvents = _replayEvents.slice(-REPLAY_BUFFER_LIMIT);
+                    }
                     // Repaint on a timer, not per event. At 40 events/sec a
                     // render-per-event rebuilds the table 40 times a second and
                     // the browser drops the overflow, so the counters lagged far
@@ -1613,7 +1680,6 @@
                 const page = getPage();
                 if (page === 'dashboard') {
                     updateNarrative();
-                    updateGreeting();
                 }
             },
             onError() {
@@ -1628,7 +1694,7 @@
     async function renderBehaviorInsights() {
         destroyCharts();
         setActiveNav('behavior');
-        content.innerHTML = '<div class="dash-greeting"><h2>Behavior Insights</h2><p>Loading behavioral baselines...</p></div>' +
+        content.innerHTML = pageHead('Understand · Behavior', 'Behavior Insights', 'Loading behavioral baselines...') +
             '<div class="panel p-4 mb-4"><div class="skeleton-block"></div></div>' +
             '<div class="panel p-4 mb-4"><div class="skeleton-block"></div></div>';
         try {
@@ -1643,7 +1709,8 @@
                 'U2899@DOM1': { name: 'Luffy', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Standard employee \u2014 normal login patterns' },
                 'U66@DOM1': { name: 'Ashborn', role: 'attacker', badge: 'ATTACKER', badgeColor: 'var(--critical)', narrative: 'Known attacker \u2014 red-team account in the LANL dataset' },
             };
-            let html = '<div class="dash-greeting"><h2>Behavior Insights</h2><p>Per-user behavioral baselines derived from 6 months of LANL training data.</p></div>' +
+            let html = pageHead('Understand · Behavior', 'Behavior Insights',
+                    'Per-user behavioral baselines derived from 6 months of LANL training data.') +
                 '<div class="insight-box mb-4">' +
                 '<div style="font-weight:700;color:var(--info);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Two different data sources</div>' +
                 '<div class="text-12 text-dim"><b>Training baseline</b> counts (events, pairs, machines, hourly bars) come from the ' +
@@ -1654,10 +1721,17 @@
                 const s = p.replay || {};
                 const meta = userMeta[p.user_id] || { name: (p.user_id || 'unknown').split('@')[0], badge: 'USER', badgeColor: 'var(--info)', narrative: '' };
                 const displayName = meta.name;
-                const maxHour = Math.max(...(b.hourlyPattern || []), 1);
-                const hourlyBars = (b.hourlyPattern || []).map((v, i) => {
+                const pattern = b.hourlyPattern || [];
+                const rareHours = b.rareHours || [];
+                // A flat 24-hour baseline has no peak to show; every bar would be
+                // identical. Likewise, marking all 24 hours "rare" carries no signal.
+                const flatHours = pattern.length > 0 && pattern.every(v => v === pattern[0]);
+                const rareAll = rareHours.length >= 24;
+                const noHourlySignal = !pattern.length || flatHours || rareAll;
+                const maxHour = Math.max(...pattern, 1);
+                const hourlyBars = pattern.map((v, i) => {
                     const h = Math.max(2, (v / maxHour) * 40);
-                    const color = (b.rareHours || []).includes(i) ? 'var(--critical)' : 'var(--info)';
+                    const color = rareHours.includes(i) ? 'var(--critical)' : 'var(--info)';
                     return '<div title="' + i + ':00" style="width:100%;height:' + h + 'px;background:' + color + ';border-radius:1px"></div>';
                 }).join('');
                 var badgeStyle = 'display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.05em;color:' + meta.badgeColor + ';border:1px solid ' + meta.badgeColor + ';margin-left:10px';
@@ -1674,7 +1748,7 @@
                     '<div class="text-9 text-faint uppercase tracking-widest" style="font-weight:700;margin-bottom:6px">Known machines &middot; 6 months</div>' +
                     '<div class="text-12 text-dim">Sources: <strong>' + (b.knownSrcComputers || []).length + '</strong></div>' +
                     '<div class="text-12 text-dim">Destinations: <strong>' + (b.knownDstComputers || []).length + '</strong></div>' +
-                    '<div class="text-12 text-dim">Rare Hours: <strong style="color:var(--critical)">' + (b.rareHours || []).length + '</strong></div></div>' +
+                    '<div class="text-12 text-dim">Rare Hours: <strong style="color:' + (rareAll ? 'var(--ink-faint)' : 'var(--critical)') + '">' + (rareAll ? 'not separable' : rareHours.length) + '</strong></div></div>' +
                     '<div>' +
                     '<div class="text-9 text-faint uppercase tracking-widest" style="font-weight:700;margin-bottom:6px">Replay window &middot; real events</div>' +
                     '<div class="text-12 text-dim">Events: <strong>' + (s.totalEvents || 0) + '</strong></div>' +
@@ -1682,8 +1756,17 @@
                     '<div class="text-12 text-dim">Max Score: <strong>' + (s.maxScore || 0).toFixed(6) + '</strong></div></div>' +
                     '</div>' +
                     '<div style="margin-top:12px"><div class="text-10 text-dim" style="margin-bottom:4px">Hourly Activity &middot; training baseline</div>' +
-                    '<div style="display:flex;align-items:flex-end;gap:1px;height:44px">' + hourlyBars + '</div>' +
-                    '<div class="flex-between text-9 text-faint" style="margin-top:2px"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div></div>' +
+                    (noHourlySignal
+                        ? '<div class="text-11 text-faint" style="padding:10px 0">' +
+                          (flatHours
+                              ? 'Flat baseline across all 24 hours (' + pattern[0] + ' per hour). No hourly peak to plot.'
+                              : rareAll && pattern.length
+                                  ? 'Every hour is marked rare (24/24), so the hourly shading carries no signal.'
+                                  : 'No hourly baseline recorded for this user.') +
+                          '</div>'
+                        : '<div style="display:flex;align-items:flex-end;gap:1px;height:44px">' + hourlyBars + '</div>' +
+                          '<div class="flex-between text-9 text-faint" style="margin-top:2px"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div>') +
+                    '</div>' +
                     '</div>';
             });
             content.innerHTML = html;
@@ -1714,7 +1797,7 @@
         // pr_auc is the gate: ROC-AUC is near-saturated at this class ratio, so
         // the page is only truthful if it can show the metric that discriminates.
         if (!held || held.pr_auc == null) {
-            content.innerHTML = '<div class="dash-greeting"><h2>Model Performance</h2></div>' +
+            content.innerHTML = pageHead('Understand · Model', 'Model Performance') +
                 '<div class="insight-box" style="border-color:var(--critical)">' +
                 '<b>Held-out metrics unavailable.</b> /api/model/metrics returned no pr_auc ' +
                 'value, so this page has nothing truthful to show.</div>';
@@ -1737,7 +1820,8 @@
             '<div class="feature-bar-track"><div class="feature-bar-fill" style="width:' + ((f.v/mx)*100) + '%"></div></div>' +
             '<div class="feature-bar-val">' + Math.round((f.v/mx)*100) + '%</div></div>'
         ).join('');
-        content.innerHTML = '<div class="dash-greeting"><h2>Model Performance</h2><p>LGB-21 ensemble \u2014 LightGBM + LSTM Autoencoder.</p></div>' +
+        content.innerHTML = pageHead('Understand · Model', 'Model Performance',
+                'LGB-21 ensemble \u2014 LightGBM + LSTM Autoencoder.') +
             '<div class="grid-4 gap-4 mb-4">'+
             '<div class="insight-card"><h4>PR-AUC</h4><div class="tape-num" style="color:var(--low)">'+num(held.pr_auc, 4)+'</div><div class="text-10 text-faint">random baseline '+prevalence.toExponential(1)+'</div></div>'+
             '<div class="insight-card"><h4>Lift over random</h4><div class="tape-num" style="color:var(--info)">'+liftTxt+'</div><div class="text-10 text-faint">attacks are '+(prevalence*100).toFixed(4)+'% of the test split</div></div>'+
@@ -1749,17 +1833,17 @@
             'PR-AUC against a '+prevalence.toExponential(1)+' random baseline is the metric that carries information here. '+
             'ROC-AUC is still reported by /api/model/metrics, it is just not a headline figure.'+
             '</div>'+
-            '<div class="grid-2 gap-4 mb-4">'+
-            '<div class="insight-card"><h4>Detection Performance</h4>'+
+            '<div class="grid-12 gap-4 mb-4">'+
+            '<div class="col-7 insight-card"><h4>Detection Performance</h4>'+
             '<div class="grid-2 gap-4" style="margin-top:8px">'+
             '<div><div class="text-12 text-dim">True Positives</div><div class="tape-num" style="font-size:1.4rem;color:var(--low)">'+held.tp+' <span class="text-11 text-faint">/ '+split.test_reds+'</span></div><div class="text-10 text-faint">'+pct(recall)+' recall</div></div>'+
             '<div><div class="text-12 text-dim">False Positives</div><div class="tape-num" style="font-size:1.4rem;color:var(--ochre)">'+held.fp+' <span class="text-11 text-faint">/ '+(split.test_rows/1e6).toFixed(1)+'M</span></div><div class="text-10 text-faint">'+fpr.toExponential(1).replace('e-','e-')+' FPR</div></div></div></div>'+
-            '<div class="insight-card"><h4>Architecture</h4>'+
+            '<div class="col-5 insight-card"><h4>Architecture</h4>'+
             '<div class="text-12 text-dim" style="margin-top:8px">LightGBM (21 features) + LSTM-AE recon error<br>GroupShuffleSplit, spw=3<br>Held-out test: '+split.test_rows.toLocaleString()+' rows, '+split.test_reds+' red events</div></div></div>'+
-            '<div class="grid-2 gap-4 mb-4">'+
-            '<div class="insight-card"><h4>Feature Importance</h4>'+
+            '<div class="grid-12 gap-4 mb-4">'+
+            '<div class="col-5 insight-card"><h4>Feature Importance</h4>'+
             '<div class="text-10 text-faint" style="margin:4px 0 2px">Bar length and % are relative to the model\u2019s top feature (100%). It is an internal importance weight, not a probability.</div>' + bars + '</div>'+
-            '<div class="insight-card"><h4>Run Comparison</h4>'+
+            '<div class="col-7 insight-card"><h4>Run Comparison</h4>'+
             '<div class="text-10 text-faint" style="margin:4px 0 2px">Runs 7, 8, 10, 11 are historical values from reports/experiment_log.md. Run 9 is measured on the shipped scores (data/processed/lanl_scores.parquet) over the same seed-42 user split, so it is reproducible from this repo'+
             (function(){
                 if (!train || train.f1 == null || train.tp == null || train.fp == null) return '.';
@@ -1782,6 +1866,8 @@
         destroyCharts();
         setActiveNav('simulation');
         content.innerHTML = `
+            ${pageHead('Simulation · Signed-in employee', 'Simulation Lab',
+                'Real feature inputs and real scoring; the clock is synthetic. These are not replay events.')}
             <div class="insight-box mb-4" style="border-color:var(--ochre);background:rgba(232,163,61,.10)">
                 <div style="font-weight:700;color:var(--ochre);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Simulated Data</div>
                 These events are generated when an employee logs in through <span class="mono">/login</span>.
@@ -1868,6 +1954,19 @@
     function init() {
         initTheme();
         initSearch();
+        // The SPA treats every hash as a route. A raw #main-content jump would
+        // therefore fall through to the dashboard instead of focusing the page.
+        const skipLink = document.querySelector('.skip-link');
+        if (skipLink) {
+            skipLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                const main = document.getElementById('main-content');
+                if (main) {
+                    main.focus();
+                    main.scrollIntoView();
+                }
+            });
+        }
         updateDateTime();
         setInterval(updateDateTime, 1000);
         window.addEventListener('hashchange', route);
