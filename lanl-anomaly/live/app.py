@@ -373,6 +373,7 @@ def employee_view():
                            timestamp=time.strftime('%Y-%m-%d %H:%M:%S'),
                            reasons=explanation['reasons'],
                            baseline_note=_baseline_note(features, explanation['baseline']),
+                           cold_start=explanation['history_events'] < COLD_START_MIN,
                            simulated=True,
                            dev_mode=bool(os.environ.get('LANL_DEV')))
 

@@ -310,7 +310,13 @@
         </div>
 
         <div class="message">
-            {% if decision == 'ALLOW' %}
+            {% if cold_start %}
+                {% if decision == 'ALLOW' %}
+                    Access granted. We don't have enough history to compare this login with your baseline yet.
+                {% else %}
+                    This login was {{ 'blocked' if decision == 'BLOCK' else 'flagged' }} by the model. This account has too little history for a user-relative comparison. Your security team has been notified.
+                {% endif %}
+            {% elif decision == 'ALLOW' %}
                 Access granted. Your login pattern matches your normal behavior.
             {% elif decision == 'BLOCK' %}
                 Your login was blocked because the system detected behavior that doesn't match your normal pattern. This could indicate a compromised account or unauthorized access attempt. Your security team has been notified.
