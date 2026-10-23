@@ -1,5 +1,7 @@
 # LANL Anomaly Detection — Live System
 
+> Need the 5-second version? See [DEMO_TLDR.md](DEMO_TLDR.md).
+
 ## Components
 
 | File | Use | Lines |
@@ -36,6 +38,16 @@ The system scores the most recent login of the employee. The system uses the mos
 common source computer for the user. A login from a known machine produces ALLOW.
 This is correct UEBA behavior. The system finds abnormal behavior. It does not
 find bad users.
+
+### Live explanation
+
+Each live event is compared with the user's own history:
+
+- `vel_1h` percentile and median
+- `lstm_ae_recon_error` percentile
+
+The **Why** text uses those relative numbers, not absolute cutoffs. Below 20
+prior events, the UI marks the user **NEW** and suppresses user-relative claims.
 
 ### The 21 features
 
@@ -182,7 +194,9 @@ The values in this table are test data. They are not real accounts.
 
 Every employee login shows ALLOW. The page scores one real successful sign-in
 taken from that user's own history, so the verdict is stable. Measured in a
-browser: one login per account, all four scored 0.0 and returned ALLOW.
+browser: one login per account, all four returned ALLOW. Scores are tiny
+(about 1e-8 to 3e-8), not exactly zero; the UI shows exponential notation for
+these values.
 
 The attacks appear on the analyst side instead. The replay window holds 20
 confirmed red-team events, and Dataset Analysis covers all 702. `ace` is the
