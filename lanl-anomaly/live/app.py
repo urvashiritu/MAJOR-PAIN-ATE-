@@ -42,6 +42,7 @@ _live_users = {}  # user_id → {name, raw_id, persona, live_events, flags, max_
 _event_id_counter = 0
 _alert_id_counter = 0
 _sse_subscribers = []
+COLD_START_MIN = 20     # below this many prior events, there is no baseline
 
 # ── Real replay state ───────────────────────────────────────────
 # Replays genuine scored LANL events from the parquet. Independent of
@@ -353,14 +354,27 @@ def employee_view():
     _init_scorer()
     score, decision, features = simulate_login_burst(user_id, username)
 
-    reasons = _derive_reasons(features)
+    # simulate_login_burst records exactly one event, so the newest entry is
+    # this login. Reuse its explanation and baseline so the employee page and
+    # the analyst dashboard cannot disagree about the same event.
+    last = _live_events[-1] if _live_events else {}
+    if last.get('user_id') != user_id or not last.get('reasons'):
+        explanation = _explain_event(user_id, features, decision)
+    else:
+        explanation = {
+            'reasons': last.get('reasons', ''),
+            'baseline': last.get('baseline', {}),
+            'history_events': last.get('history_events', 0),
+        }
     return render_template('employee.html',
                            name=session.get('display_name', username),
-                           decision=decision, score=round(score, 4),
+                           decision=decision, score=round(score, 10),
                            threshold=round(THRESHOLD, 4),
                            timestamp=time.strftime('%Y-%m-%d %H:%M:%S'),
-                           reasons=reasons,
-                           simulated=True)
+                           reasons=explanation['reasons'],
+                           baseline_note=_baseline_note(features, explanation['baseline']),
+                           simulated=True,
+                           dev_mode=bool(os.environ.get('LANL_DEV')))
 
 
 # ── Page routes ─────────────────────────────────────────────────
@@ -391,6 +405,84 @@ def dataset_analysis():
 
 
 # ── Live event recording ────────────────────────────────────────
+def _explain_event(user_id, features, decision, src=None, dst=None):
+    """Decision-consistent explanation for a live-scored sign-in.
+
+    The old _derive_reasons() used absolute cutoffs and ran on every event,
+    including ALLOW. That produced rows such as "196 login attempts in the
+    last hour" for U2097@DOM1, whose median hourly volume is 209 -- the text
+    contradicted the decision. Reasons now come from this user's own
+    distribution and are suppressed on ALLOW.
+    """
+    vel = features.get('vel_1h')
+    lstm_err = features.get('lstm_ae_recon_error')
+    snap = _scorer.baseline_snapshot(user_id, vel, lstm_err)
+    history = int(snap.get('history_events') or 0)
+    dec = str(decision or '').upper()
+    baseline = {
+        'history_events': history,
+        'cold_start_min': COLD_START_MIN,
+        'vel_pct': snap.get('vel_pct'),
+        'vel_median': snap.get('vel_median'),
+        'vel_p99': snap.get('vel_p99'),
+        'lstm_pct': snap.get('lstm_pct'),
+        'lstm_p99': snap.get('lstm_p99'),
+    }
+
+    if history < COLD_START_MIN:
+        return {
+            'reasons': (f"New user - insufficient history ({history} prior events). "
+                        "First-time machines are expected and are not treated as "
+                        "evidence of anomaly."),
+            'baseline': baseline,
+            'history_events': history,
+        }
+
+    if dec == 'ALLOW':
+        pct = snap.get('vel_pct')
+        med = snap.get('vel_median')
+        if pct is not None and med is not None and vel is not None:
+            reason = (f"Within baseline - {int(vel)} logins/hr sits at percentile "
+                      f"{pct:.1f} for this user (median {med:.0f}).")
+        else:
+            reason = "Within baseline - no feature is in this user's tail."
+        return {'reasons': reason, 'baseline': baseline, 'history_events': history}
+
+    parts = []
+    if features.get('fail_1h', 0) > 0:
+        parts.append(f"{int(features['fail_1h'])} failed authentication attempts in the last hour")
+    if features.get('dst_first', 0) > 0 and dst:
+        parts.append(f"First login to {dst} for this user")
+    elif features.get('src_first', 0) > 0 and src:
+        parts.append(f"First login from {src} for this user")
+    vp = snap.get('vel_pct')
+    if vp is not None and vp >= 99:
+        parts.append(f"{int(vel)} logins/hr - percentile {vp:.1f} "
+                     f"(p99 {snap.get('vel_p99', 0):.0f})")
+    if features.get('is_rare_hour', 0) > 0:
+        parts.append("Unusual hour for this user")
+    lp = snap.get('lstm_pct')
+    if lp is not None and lp >= 99:
+        parts.append(f"Sequence reconstruction error in the top 1% "
+                     f"(p99 {snap.get('lstm_p99', 0):.2e})")
+    if features.get('iat_zscore', 0) >= 3:
+        parts.append(f"Login timing z={features['iat_zscore']:.1f}")
+    reason = '; '.join(parts[:3]) if parts else (
+        "Model score above threshold; no single feature is in this user's tail.")
+    return {'reasons': reason, 'baseline': baseline, 'history_events': history}
+
+
+def _baseline_note(features, baseline):
+    """One-line baseline context for the employee ALLOW page."""
+    pct = (baseline or {}).get('vel_pct')
+    med = (baseline or {}).get('vel_median')
+    vel = features.get('vel_1h')
+    if pct is None or med is None or vel is None:
+        return None
+    return (f"{int(vel)} logins/hr - percentile {pct:.1f} for you "
+            f"(your median is {med:.0f}).")
+
+
 def _derive_reasons(features):
     """Derive plain-language reasons from feature values."""
     reasons = []
@@ -428,6 +520,7 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
     live/replay.py.
     """
     global _event_id_counter, _alert_id_counter
+    explanation = _explain_event(user_id, features, decision, src, dst)
     _event_id_counter += 1
     event = {
         'id': _event_id_counter,
@@ -437,17 +530,17 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
         'src_computer': src,
         'dst_computer': dst,
         'auth_type': auth_type,
-        'anomaly_score': round(score, 6),
-        'combined_score': round(score, 6),
+        # Six decimals turned every normal probability (~1e-8) into 0.000000.
+        'anomaly_score': round(score, 10),
+        'combined_score': round(score, 10),
         'decision': decision.lower(),
         'is_red': None,
         'ts': time.strftime('%H:%M:%S'),
         'time': int(time_val),
-        # The event carries no reasons field of its own; the alert built below
-        # derives them. Without this the Live Detections panel rendered an empty
-        # "Why" column for every row.
-        'reasons': _derive_reasons(features),
-        'features': {k: round(float(v), 6) for k, v in features.items()},
+        'reasons': explanation['reasons'],
+        'baseline': explanation['baseline'],
+        'history_events': explanation['history_events'],
+        'features': {k: round(float(v), 8) for k, v in features.items()},
     }
     _live_events.append(event)
 
@@ -474,8 +567,8 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
             'user_id': user_id,
             'name': name,
             'severity': severity,
-            'combined_score': round(score, 6),
-            'reasons': _derive_reasons(features),
+            'combined_score': round(score, 10),
+            'reasons': explanation['reasons'],
             'decision': decision.lower(),
             'timestamp': event['ts'],
             'status': 'new',

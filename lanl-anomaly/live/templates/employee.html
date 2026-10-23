@@ -330,6 +330,10 @@
 
         {% if simulated %}
         <div class="sim-note">
+            {% if decision == 'ALLOW' and baseline_note %}
+            <div class="label">Your baseline</div>
+            <div class="reason" style="color:var(--low);margin-bottom:10px">{{ baseline_note }}</div>
+            {% endif %}
             <div class="label">How this was scored</div>
             <div class="reason">Real inputs, real models. The machine, hour and authentication type are a genuine
             sign-in taken from this user's own history, and the score comes from the same LSTM + LightGBM models and
@@ -343,6 +347,9 @@
         </div>
 
         <a href="/logout" class="back-link">$ LOGOUT</a>
+        {% if dev_mode %}
+        <a href="/analyst" class="back-link" style="margin-left:8px">$ ANALYST CONSOLE</a>
+        {% endif %}
 
         <div class="footer-line">
             MONITORED // {{ decision }} // {{ timestamp }}

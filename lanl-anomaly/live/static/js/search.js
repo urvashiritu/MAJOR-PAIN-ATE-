@@ -74,7 +74,7 @@
                             html += '<button type="button" class="search-result-item" data-go="#/users">' +
                                 '<span class="mono">' + esc(user.name || user.user_id) + '</span>' +
                                 '<span class="text-faint"> ' + esc(user.persona) + ' · ' +
-                                user.live_events + ' events · max ' + Number(user.max_score).toFixed(3) +
+                                user.live_events + ' events · max ' + formatScore(user.max_score) +
                                 '</span></button>';
                         });
                     }
@@ -86,7 +86,7 @@
                                 esc(event.name || event.user_id) +
                                 '<span class="text-faint"> ' + esc(event.src_computer) + ' → ' +
                                 esc(event.dst_computer) + '</span> ' +
-                                '<span class="mono">' + Number(event.combined_score).toFixed(4) + '</span> ' +
+                                '<span class="mono">' + formatScore(event.combined_score) + '</span> ' +
                                 '<span class="stamp stamp-' +
                                 (event.decision === 'block' ? 'critical' : event.decision === 'flag' ? 'medium' : 'low') +
                                 '">' + esc(event.decision) + '</span></div>';

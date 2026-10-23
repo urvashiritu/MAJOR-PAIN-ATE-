@@ -21,6 +21,29 @@ function humanizeUser(id) {
     return _personaNames[id] || String(id).split('@')[0];
 }
 
+/* Normal scores are probabilities around 1e-8; six decimals rendered every one
+   of them as 0.000000. Keep small values readable without inventing precision
+   the model does not have. */
+function formatScore(v) {
+    if (v === null || v === undefined || v === '') return '—';
+    const n = Number(v);
+    if (!isFinite(n)) return '—';
+    const a = Math.abs(n);
+    if (a === 0) return '0.000';
+    if (a >= 0.01) return n.toFixed(4);
+    if (a >= 1e-6) return n.toFixed(6);
+    return n.toExponential(2);
+}
+
+function formatFeatureValue(v) {
+    const n = Number(v);
+    if (!isFinite(n)) return String(v);
+    if (n === 0) return '0';
+    if (Math.abs(n) < 1e-4) return n.toExponential(2);
+    if (Math.abs(n) < 1) return n.toFixed(4);
+    return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 /* `level` here encodes the detection OUTCOME, not the score. Colour follows the
    dashboard KPI semantics: caught = green, false positive = amber, high = red. */
 function severityBadge(level) {
@@ -80,7 +103,7 @@ function eventRow(e, onClick) {
             <td>
                 <span class="score-inline">
                     <span class="score-inline-bar"><span class="score-inline-fill" style="width:${scorePct}%;background:${barColor}"></span></span>
-                    <span class="mono text-11">${e.combined_score.toFixed(4)}</span>
+                    <span class="mono text-11">${formatScore(e.combined_score)}</span>
                 </span>
             </td>
             <td><span class="${decCls}">${esc(e.decision)}</span></td>
@@ -94,7 +117,7 @@ function alertRow(a, onInvestigate, onAck) {
             <td class="nowrap">${esc(a.timestamp)}</td>
             <td class="font-semibold" title="${esc(a.name)}">${esc(humanizeUser(a.name))}</td>
             <td>${esc(a.reasons)}</td>
-            <td class="mono text-11">${a.combined_score.toFixed(4)}</td>
+            <td class="mono text-11">${formatScore(a.combined_score)}</td>
             <td>${severityBadge(sev)}</td>
             <td>
                 <div class="flex gap-1">
@@ -125,7 +148,7 @@ function userRow(u, onClick) {
             <td class="mono" style="color:var(--low)">${u.attacks_caught || 0}</td>
             <td class="mono" style="color:${missed ? 'var(--ochre)' : 'inherit'}">${missed}</td>
             <td class="mono" style="color:${u.false_positives ? 'var(--ochre)' : 'inherit'}">${u.false_positives || 0}</td>
-            <td class="mono">${Number(u.max_score).toFixed(6)}</td>
+            <td class="mono">${formatScore(u.max_score)}</td>
         </tr>`;
 }
 
@@ -189,7 +212,7 @@ function investigationDrawer(data, onClose) {
 
             <div class="flex gap-4">
                 <div>
-                    <div class="drawer-score" style="color:${barColor}">${data.combinedScore.toFixed(4)}</div>
+                    <div class="drawer-score" style="color:${barColor}">${formatScore(data.combinedScore)}</div>
                     <div class="text-10 text-faint uppercase tracking-wider">combined score</div>
                 </div>
                 <div>
@@ -253,6 +276,126 @@ function investigationDrawer(data, onClose) {
     });
 }
 
+function liveEventDrawer(e) {
+    const existing = document.querySelector('.drawer-overlay');
+    if (existing) existing.remove();
+
+    const dec = String(e.decision || 'allow').toLowerCase();
+    const col = dec === 'block' ? 'var(--critical)' : dec === 'flag' ? 'var(--medium)' : 'var(--low)';
+    const decCls = dec === 'block' ? 'stamp-critical' : dec === 'flag' ? 'stamp-medium' : 'stamp-low';
+    const b = e.baseline || {};
+    const f = e.features || {};
+    const coldMin = Number(b.cold_start_min || 20);
+    const isNew = b.history_events !== undefined && Number(b.history_events) < coldMin;
+    const pctNum = (v) => (v === undefined || v === null || !isFinite(Number(v)))
+        ? null : Math.max(0, Math.min(100, Number(v)));
+    const velPct = pctNum(b.vel_pct);
+    const lstmPct = pctNum(b.lstm_pct);
+    const maybe = (v) => (v === undefined || v === null) ? '—' : formatFeatureValue(v);
+
+    const pctBar = (label, pct, detail) => pct === null ? '' : `
+        <div class="pct-block">
+            <div class="pct-head"><span>${esc(label)}</span><span class="mono">p${pct.toFixed(1)}</span></div>
+            <div class="pct-track"><div class="pct-fill" style="width:${pct}%;background:${
+                pct >= 99 ? 'var(--critical)' : pct >= 95 ? 'var(--ochre)' : 'var(--info)'}"></div></div>
+            ${detail ? `<div class="pct-detail">${esc(detail)}</div>` : ''}
+        </div>`;
+
+    const velDetail = (b.vel_median !== undefined && b.vel_median !== null)
+        ? `this event ${maybe(f.vel_1h)}/hr · median ${Math.round(b.vel_median)} · p99 ${Math.round(b.vel_p99)}`
+        : '';
+    const lstmDetail = (b.lstm_p99 !== undefined && b.lstm_p99 !== null)
+        ? `this event ${maybe(f.lstm_ae_recon_error)} · p99 ${Number(b.lstm_p99).toExponential(2)}`
+        : '';
+
+    const featureRows = Object.keys(f).map(k => {
+        const tail = (k === 'vel_1h' && velPct !== null && velPct >= 99)
+            || (k === 'lstm_ae_recon_error' && lstmPct !== null && lstmPct >= 99)
+            || ((k === 'dst_first' || k === 'src_first' || k === 'is_rare_hour' || k === 'fail_1h')
+                && Number(f[k]) > 0);
+        return `<div class="live-feature${tail ? ' tail' : ''}"><span class="k">${esc(k)}</span><span class="v">${esc(formatFeatureValue(f[k]))}</span></div>`;
+    }).join('');
+
+    const baselineSummary = (b.history_events !== undefined && b.history_events !== null)
+        ? `${Number(b.history_events).toLocaleString()} prior events in the dataset`
+        : 'No baseline available';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'drawer-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Live event details');
+    overlay.innerHTML = `
+        <div class="drawer">
+            <div class="drawer-header">
+                <div>
+                    <div class="font-bold text-lg">${esc(humanizeUser(e.user_id))}</div>
+                    <div class="text-11 text-faint mt-05">${esc(e.user_id)} · ${esc(e.src_computer)} → ${esc(e.dst_computer)} · ${esc((!e.auth_type || e.auth_type === '?') ? 'Unknown' : e.auth_type)}</div>
+                </div>
+                <button class="drawer-close" id="live-drawer-close" type="button" aria-label="Close live event details">&times;</button>
+            </div>
+
+            <div class="flex gap-4">
+                <div>
+                    <div class="drawer-score" style="color:${col}">${formatScore(e.combined_score)}</div>
+                    <div class="text-10 text-faint uppercase tracking-wider">model score</div>
+                </div>
+                <div>
+                    <span class="stamp ${decCls}">${esc(dec.toUpperCase())}</span>
+                    <div class="text-10 text-faint mt-05">${e.simulated ? 'Live employee sign-in' : 'Live event'}</div>
+                </div>
+            </div>
+
+            ${isNew ? `
+            <div class="panel-inset p-3" style="border-color:rgba(232,163,61,.45)">
+                <div class="drawer-section-title">Cold start</div>
+                <div class="text-12 text-dim">This user has ${Number(b.history_events).toLocaleString()} prior events, below the ${coldMin}-event baseline floor. A user-relative explanation is not trustworthy yet.</div>
+            </div>` : ''}
+
+            <div class="panel-inset p-3">
+                <div class="drawer-section-title">Why this decision</div>
+                <div class="text-12 text-dim">${esc(e.reasons || 'No explanation recorded.')}</div>
+            </div>
+
+            <div class="panel-inset p-3">
+                <div class="drawer-section-title">Baseline</div>
+                <div class="text-11 text-dim" style="margin-bottom:10px">${esc(baselineSummary)}</div>
+                ${pctBar('Hourly volume percentile', velPct, velDetail)}
+                ${pctBar('Sequence-error percentile', lstmPct, lstmDetail)}
+            </div>
+
+            <div>
+                <div class="drawer-section-title">Feature values</div>
+                <div class="live-feature-grid">${featureRows}</div>
+            </div>
+
+            <div class="text-10 text-faint">Scored ${esc(e.ts)}. Feature values come from this user's LANL history; only the clock is synthetic.</div>
+        </div>`;
+
+    const lastFocused = document.activeElement;
+    function closeDrawer() {
+        overlay.classList.remove('open');
+        document.removeEventListener('keydown', onKey);
+        setTimeout(() => overlay.remove(), 250);
+        if (lastFocused && lastFocused.focus) lastFocused.focus();
+    }
+    function onKey(event) {
+        if (event.key === 'Escape') closeDrawer();
+    }
+
+    overlay.querySelector('#live-drawer-close').addEventListener('click', closeDrawer);
+    overlay.addEventListener('click', (ev) => {
+        if (ev.target === overlay) closeDrawer();
+    });
+    document.addEventListener('keydown', onKey);
+
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => {
+        overlay.classList.add('open');
+        overlay.querySelector('#live-drawer-close').focus();
+    });
+}
+
 function holdButton(label, duration, onDone) {
     const btn = document.createElement('button');
     btn.className = 'hold-btn';
@@ -309,6 +452,6 @@ function topRiskyUserRow(u) {
                 <div class="risky-user-name">${esc(u.name || name)}</div>
                 <div class="risky-score-bar"><div class="risky-score-fill" style="width:${pct}%;background:${sevColor}"></div></div>
             </div>
-            <div class="risky-user-score" style="color:${sevColor}">${score.toFixed(3)} <span style="color:var(--ink-faint);font-weight:400">(${severity})</span></div>
+            <div class="risky-user-score" style="color:${sevColor}">${formatScore(score)} <span style="color:var(--ink-faint);font-weight:400">(${severity})</span></div>
         </div>`;
 }

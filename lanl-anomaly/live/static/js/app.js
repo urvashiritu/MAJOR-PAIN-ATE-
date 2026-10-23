@@ -206,7 +206,7 @@
                         const d = p.data || {};
                         if (!d.value) return '';
                         return '<b>' + (d.user || 'event') + '</b><br>' +
-                            'T+' + fmtOffset(d.value[0]) + ' &middot; score ' + Number(d.value[1]).toFixed(6) + '<br>' +
+                            'T+' + fmtOffset(d.value[0]) + ' &middot; score ' + formatScore(d.value[1]) + '<br>' +
                             'Decision: ' + (d.decision || 'allow');
                     }
                 },
@@ -451,16 +451,16 @@
                             <button class="filter-btn" id="live-filter-flag" onclick="window._liveFilter='flag';window._renderLiveTable()">Flagged</button>
                         </div>
                     </div>
-                    <span class="text-9 px-2 py-1" style="border:1px solid var(--info);color:var(--info);border-radius:3px;letter-spacing:.06em">SCORED NOW</span>
+                    <span class="text-9 px-2 py-1 live-now-pill" style="border:1px solid var(--info);color:var(--info);border-radius:3px;letter-spacing:.06em">SCORED NOW</span>
                 </div>
                 <div class="overflow-auto" style="max-height:520px">
                     <table class="table-glass">
                         <thead><tr>
-                            <th>Time</th><th>User</th><th>Source &rarr; Destination</th>
+                            <th>Time</th><th>User</th><th>Source &rarr; Destination</th><th>Type</th>
                             <th>Score</th><th>Decision</th><th>Why</th>
                         </tr></thead>
                         <tbody id="live-tbody">
-                            <tr><td colspan="6" class="text-center text-faint py-8">
+                            <tr><td colspan="7" class="text-center text-faint py-8">
                                 No live sign-ins scored yet. <a class="view-all" href="/login">Sign in as an employee</a> to trigger real-time scoring.
                             </td></tr>
                         </tbody>
@@ -1128,7 +1128,7 @@
                                         return `<tr>
                                             <td class="nowrap">${esc(e.ts)}</td>
                                             <td class="text-11">${esc(e.src_computer)} → ${esc(e.dst_computer)}</td>
-                                            <td class="mono text-11">${e.combined_score.toFixed(4)}</td>
+                                            <td class="mono text-11">${formatScore(e.combined_score)}</td>
                                             <td><span class="${cls}">${esc(e.decision)}</span></td>
                                         </tr>`;
                                     }).join('')}
@@ -1293,6 +1293,35 @@
         }, 250);
     };
 
+    // Small, non-blocking toast for a freshly scored employee sign-in. Capped
+    // at three so a short burst cannot stack off the bottom of the screen.
+    function showLiveToast(e) {
+        let host = document.getElementById('toast-host');
+        if (!host) {
+            host = document.createElement('div');
+            host.id = 'toast-host';
+            document.body.appendChild(host);
+        }
+        while (host.children.length >= 3) host.removeChild(host.firstChild);
+        const dec = String(e.decision || 'allow').toLowerCase();
+        const col = dec === 'block' ? 'var(--critical)'
+            : dec === 'flag' ? 'var(--ochre)' : 'var(--low)';
+        const raw = e.name || humanizeUser(e.user_id) || 'Unknown';
+        const name = raw.charAt(0).toUpperCase() + raw.slice(1);
+        const t = document.createElement('div');
+        t.className = 'toast';
+        t.style.borderLeftColor = col;
+        t.innerHTML = '<span class="toast-dot" style="background:' + col + '"></span>' +
+            '<span><b>' + esc(name) + '</b> scored ' + formatScore(e.combined_score) +
+            ' &middot; <span style="color:' + col + ';font-weight:700">' +
+            esc(dec.toUpperCase()) + '</span></span>';
+        host.appendChild(t);
+        setTimeout(() => {
+            t.classList.add('out');
+            setTimeout(() => t.remove(), 300);
+        }, 3200);
+    }
+
     // Same 250ms throttle shape as the replay paint. Sign-in bursts arrive as a
     // short flood, so an unthrottled repaint would rebuild the table once per
     // event and the browser would drop the tail.
@@ -1399,7 +1428,7 @@
             const tag = r.caught ? 'CAUGHT' : 'MISSED';
             return '<tr><td class="mono" title="' + esc(r.uid) + '">' + esc(humanizeUser(r.uid)) + '</td>' +
                 '<td class="mono" style="text-align:right">' +
-                '<span style="color:' + col + ';font-weight:600">' + r.max.toFixed(6) + '</span><br>' +
+                '<span style="color:' + col + ';font-weight:600">' + formatScore(r.max) + '</span><br>' +
                 '<span style="color:' + col + ';font-size:9px;font-weight:800">' + tag + '</span> ' +
                 '<span class="text-faint" style="font-size:10px">×' + r.n + '</span></td></tr>';
         }).join('') + '</tbody></table>';
@@ -1477,7 +1506,7 @@
                 '<td class="mono nowrap" title="' + esc(e.user_id) + '">' + esc(humanizeUser(e.user_id)) + '</td>' +
                 '<td class="mono nowrap">' + esc(e.src_computer) + ' &rarr; ' + esc(e.dst_computer) + '</td>' +
                 '<td class="text-faint nowrap">' + esc((!e.auth_type || e.auth_type === '?') ? 'Unknown' : e.auth_type) + '</td>' +
-                '<td class="mono" style="color:' + col + '">' + Number(e.anomaly_score).toFixed(6) + '</td>' +
+                '<td class="mono" style="color:' + col + '">' + formatScore(e.anomaly_score) + '</td>' +
                 '<td style="color:' + col + ';font-weight:600">' + esc(String(e.decision).toUpperCase()) + '</td>' +
                 '<td>' + truth + '</td></tr>';
         }).join('');
@@ -1499,12 +1528,12 @@
     };
 
     /* ── Live detections (employee sign-ins scored now) ─────────── */
-    /* Deliberately NOT clickable. Replay rows open the investigation drawer
-       via /api/investigation/<id>, which addresses the replay window by its
-       1..N row index. Live event ids come from the event time column, so the
-       two id spaces overlap: clicking live id 27 returned replay #27, a
-       different user entirely. The plain-English `reasons` string is rendered
-       inline instead. */
+    /* Live rows open a local drawer built from the event object. They must NOT
+       call /api/investigation/<id>: that endpoint addresses the replay window
+       by its 1..N row index, while live event ids come from the event time
+       column, so the two id spaces overlap (clicking live id 27 used to return
+       replay #27, a different user entirely). The drawer is fed from
+       `_liveEvents`, which is the same list this table renders. */
     window._renderLiveTable = function() {
         const tbody = document.getElementById('live-tbody');
         if (!tbody) return;
@@ -1512,30 +1541,69 @@
         const f = window._liveFilter || 'all';
         if (f !== 'all') evts = evts.filter(e => String(e.decision || '').toLowerCase() === f);
         if (!evts.length) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-faint py-8">' +
+            // A filter that matches nothing is not the same state as "no events
+            // have ever been scored"; keep the sign-in prompt only for the latter.
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-faint py-8">' +
                 (_liveEvents.length
                     ? 'No live events match this filter.'
                     : 'No live sign-ins scored yet. <a class="view-all" href="/login">Sign in as an employee</a> to trigger real-time scoring.') +
                 '</td></tr>';
         } else {
-            tbody.innerHTML = evts.slice(0, 40).map(e => {
+            // Flash only the genuinely newest row, and only when the top id
+            // changed since the previous paint. Without the id check, every
+            // 250ms repaint would replay the animation on an unchanged table.
+            const topId = evts[0].id;
+            const isNewTop = f === 'all'
+                && window._lastLiveTopId !== undefined && window._lastLiveTopId !== null
+                && String(topId) !== String(window._lastLiveTopId);
+            window._lastLiveTopId = topId;
+
+            tbody.innerHTML = evts.slice(0, 40).map((e, i) => {
                 const dec = String(e.decision || '').toLowerCase();
                 const col = dec === 'block' ? 'var(--critical)'
                     : dec === 'flag' ? 'var(--ochre)' : 'var(--low)';
                 const score = Number(e.combined_score != null ? e.combined_score : e.anomaly_score);
                 const why = e.reasons || '';
-                return '<tr>' +
+                const uid = e.user_id || '';
+                const rawName = e.name || humanizeUser(uid);
+                const name = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : 'Unknown';
+                const hist = Number(e.history_events);
+                const coldMin = Number((e.baseline || {}).cold_start_min || 20);
+                const cold = e.history_events !== undefined && e.history_events !== null
+                    && isFinite(hist) && hist < coldMin;
+                const auth = (!e.auth_type || e.auth_type === '?') ? 'Unknown' : e.auth_type;
+                const whyCls = 'why-cell'
+                    + (why.indexOf('Within baseline') === 0 ? ' why-baseline'
+                        : why.indexOf('New user') === 0 ? ' why-cold' : '');
+                const userCell = '<td class="user-cell">' +
+                    '<span class="user-name">' + esc(name) + '</span>' +
+                    (uid ? '<span class="user-id">' + esc(uid) + '</span>' : '') +
+                    (cold ? '<span class="stamp stamp-medium badge-new" title="Fewer than ' + coldMin + ' prior events; no reliable user baseline">NEW</span>' : '') +
+                    '</td>';
+                return '<tr class="clickable' + (i === 0 && isNewTop ? ' row-new' : '') +
+                    '" data-live-id="' + esc(e.id) + '">' +
                     '<td class="mono text-faint nowrap">' + esc(e.ts || '') + '</td>' +
-                    '<td class="mono nowrap">' + esc(e.name || e.user_id || '') +
-                        (e.name && e.user_id ? ' <span class="text-faint">' + esc(e.user_id) + '</span>' : '') + '</td>' +
+                    userCell +
                     '<td class="mono nowrap">' + esc(e.src_computer || '?') + ' &rarr; ' + esc(e.dst_computer || '?') + '</td>' +
-                    '<td class="mono" style="color:' + col + '">' + (isFinite(score) ? score.toFixed(6) : '—') + '</td>' +
+                    '<td class="mono text-faint nowrap">' + esc(auth) + '</td>' +
+                    '<td class="mono" style="color:' + col + '">' + formatScore(score) + '</td>' +
                     '<td style="color:' + col + ';font-weight:600">' + esc(dec.toUpperCase()) + '</td>' +
                     // One line with the full text on hover. Unclamped this wrapped
                     // to seven lines and pushed everything else off the screen.
-                    '<td class="why-cell" title="' + esc(why) + '">' + esc(why) + '</td>' +
+                    '<td class="' + whyCls + '" title="' + esc(why) + '">' + esc(why || '—') + '</td>' +
                     '</tr>';
             }).join('');
+
+            if (!tbody._liveBound) {
+                tbody._liveBound = true;
+                tbody.addEventListener('click', ev => {
+                    const tr = ev.target.closest('tr[data-live-id]');
+                    if (!tr) return;
+                    const id = tr.getAttribute('data-live-id');
+                    const evt = _liveEvents.find(x => String(x.id) === String(id));
+                    if (evt && typeof liveEventDrawer === 'function') liveEventDrawer(evt);
+                });
+            }
         }
         ['all', 'block', 'flag'].forEach(f2 => {
             const btn = document.getElementById('live-filter-' + f2);
@@ -1669,6 +1737,7 @@
                 }
                 _liveEvents.push(event);
                 if (_liveEvents.length > 300) _liveEvents = _liveEvents.slice(-200);
+                showLiveToast(event);
 
                 // Employee sign-ins are scored live in-process and shown on the
                 // Live Monitoring page. Repaint on the shared throttle rather
@@ -1753,7 +1822,7 @@
                     '<div class="text-9 text-faint uppercase tracking-widest" style="font-weight:700;margin-bottom:6px">Replay window &middot; real events</div>' +
                     '<div class="text-12 text-dim">Events: <strong>' + (s.totalEvents || 0) + '</strong></div>' +
                     '<div class="text-12 text-dim">Attacks: <strong style="color:' + (s.attacks ? 'var(--critical)' : 'inherit') + '">' + (s.attacks || 0) + '</strong></div>' +
-                    '<div class="text-12 text-dim">Max Score: <strong>' + (s.maxScore || 0).toFixed(6) + '</strong></div></div>' +
+                    '<div class="text-12 text-dim">Max Score: <strong>' + formatScore(s.maxScore || 0) + '</strong></div></div>' +
                     '</div>' +
                     '<div style="margin-top:12px"><div class="text-10 text-dim" style="margin-bottom:4px">Hourly Activity &middot; training baseline</div>' +
                     (noHourlySignal
@@ -1921,7 +1990,7 @@
                         '<td class="mono">' + esc(e.name || e.user_id) + '</td>' +
                         '<td class="mono nowrap">' + esc(e.src_computer) + ' &rarr; ' + esc(e.dst_computer) + '</td>' +
                         '<td class="text-faint">' + esc(e.auth_type) + '</td>' +
-                        '<td class="mono" style="color:' + col + '">' + Number(e.combined_score).toFixed(6) + '</td>' +
+                        '<td class="mono" style="color:' + col + '">' + formatScore(e.combined_score) + '</td>' +
                         '<td style="color:' + col + ';font-weight:600">' + esc(String(e.decision).toUpperCase()) + '</td>' +
                         '<td class="text-faint">n/a</td></tr>';
                 }).join('') : '<tr><td colspan="7" class="text-center text-faint py-8">No simulated events yet. Log in as an employee to generate some.</td></tr>';

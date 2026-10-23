@@ -218,7 +218,7 @@ function createTimelineChart(ctx, data) {
                     ...CHART_DEFAULTS.plugins.tooltip,
                     callbacks: {
                         title: (items) => `Hour ${items[0].label}`,
-                        label: (item) => `${item.dataset.label}: ${item.raw.toFixed(6)}`
+                        label: (item) => `${item.dataset.label}: ${formatScore(item.raw)}`
                     }
                 }
             },

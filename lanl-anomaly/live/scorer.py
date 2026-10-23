@@ -70,6 +70,10 @@ _iat_history = {}         # src_user → deque of last 100 timestamps
 _context_windows = {}     # src_user → deque of last 50 token ids
 _last_timestamps = {}     # src_user → last event time
 
+# Per-user feature distributions (startup). Sorted arrays so a live event's
+# percentile is an O(log n) lookup instead of an absolute cutoff.
+_baselines = {}           # user_id → {'vel': ndarray, 'lstm': ndarray, ...}
+
 
 def _load_lstm():
     """Load LSTM-AE model + vocab from checkpoint."""
@@ -173,6 +177,74 @@ def precompute_global():
 
     con.close()
     print(f"  global context: {time.time()-t0:.1f}s ({len(_machine_pop)} machines, {len(_user_totals)} users)")
+
+
+def precompute_baselines(user_ids):
+    """Per-user distributions used to explain a live score.
+
+    Absolute cutoffs ("more than 10 logins/hour") are wrong for users whose
+    normal hour contains hundreds of events: 196/hr is the 34th percentile for
+    U2097@DOM1, whose median is 209. Store each user's own distribution so the
+    dashboard can say where an event actually sits instead of calling normal
+    volume suspicious.
+    """
+    global _baselines
+    if not os.path.exists(LANL_DB):
+        _baselines = {}
+        return
+    t0 = time.time()
+    con = duckdb.connect(os.path.abspath(LANL_DB), read_only=True)
+    out = {}
+    for uid in user_ids:
+        vel = con.execute(
+            "SELECT vel_1h FROM lanl.feat WHERE src_user = ?", [uid]
+        ).fetchnumpy().get('vel_1h')
+        lstm = con.execute(
+            "SELECT lstm_ae_recon_error FROM lanl.feat WHERE src_user = ?", [uid]
+        ).fetchnumpy().get('lstm_ae_recon_error')
+        if vel is None or len(vel) == 0:
+            continue
+        vel = np.sort(np.asarray(vel, dtype=float))
+        entry = {
+            'vel': vel,
+            'vel_median': float(np.median(vel)),
+            'vel_p99': float(np.quantile(vel, 0.99)),
+        }
+        if lstm is not None and len(lstm):
+            lstm = np.sort(np.asarray(lstm, dtype=float))
+            entry['lstm'] = lstm
+            entry['lstm_median'] = float(np.median(lstm))
+            entry['lstm_p99'] = float(np.quantile(lstm, 0.99))
+        out[uid] = entry
+    con.close()
+    _baselines = out
+    print(f"  baselines: {len(out)} users in {time.time()-t0:.1f}s")
+
+
+def history_count(user_id):
+    """Number of recorded events for this user in the LANL dataset."""
+    return int(_user_totals.get(user_id, 0))
+
+
+def baseline_snapshot(user_id, vel_1h=None, lstm_err=None):
+    """Percentile context for one event against this user's own history."""
+    b = _baselines.get(user_id)
+    snap = {'history_events': history_count(user_id)}
+    if not b:
+        return snap
+    if vel_1h is not None and 'vel' in b:
+        arr = b['vel']
+        snap['vel_pct'] = round(
+            float(np.searchsorted(arr, float(vel_1h), side='right')) / len(arr) * 100.0, 1)
+        snap['vel_median'] = round(float(b['vel_median']), 0)
+        snap['vel_p99'] = round(float(b['vel_p99']), 0)
+    if lstm_err is not None and 'lstm' in b:
+        arr = b['lstm']
+        snap['lstm_pct'] = round(
+            float(np.searchsorted(arr, float(lstm_err), side='right')) / len(arr) * 100.0, 2)
+        snap['lstm_median'] = float(b['lstm_median'])
+        snap['lstm_p99'] = float(b['lstm_p99'])
+    return snap
 
 
 # Real sign-in samples for the employee demo path. Each entry is a genuine
@@ -285,6 +357,8 @@ def init(users=None):
     _load_lstm()
     print("scorer: precomputing global context...")
     precompute_global()
+    print("scorer: loading per-user baselines...")
+    precompute_baselines(users)
     print("scorer: loading real login samples...")
     precompute_real_logins(users)
     print("scorer: precomputing per-user context...")
