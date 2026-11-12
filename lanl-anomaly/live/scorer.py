@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import math
+import threading
 import numpy as np
 import torch
 import torch.nn as nn
@@ -21,6 +22,11 @@ LSTM_CKPT = os.path.join(ROOT, 'models', 'lanl_lstm_ae_2ep_bs128_20260913_162002
 
 THRESHOLD = 0.18719510711736984
 FIELDS = ["src_user", "src_computer", "dst_computer", "auth_type", "logon_type", "orientation"]
+
+# score_event() mutates module-level dicts (pair row numbers, seen machines,
+# IAT history, LSTM context). Two callers now exist: the employee login path and
+# the log tailer thread. They must not interleave, so both hold this lock.
+SCORE_LOCK = threading.Lock()
 CONTEXT_WINDOW = 50
 HIDDEN_DIM = 128
 NUM_LAYERS = 2
@@ -470,8 +476,8 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
           COUNT(CASE WHEN time >= {time_val} - 86400 AND time <= {time_val} THEN 1 END),
           COUNT(CASE WHEN time % 86400 = {int(time_val) % 86400} THEN 1 END)
         FROM lanl.feat
-        WHERE src_user = '{user_id}'
-    """).fetchone()
+        WHERE src_user = ?
+    """, [user_id]).fetchone()
     vel_1h = int(counts[0])
     fail_1h = int(counts[1])
     auth_count_1h = int(counts[2])

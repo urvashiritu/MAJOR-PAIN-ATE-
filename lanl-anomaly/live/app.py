@@ -23,6 +23,8 @@ from auth import authenticate, USERS, get_current_code, get_totp_secret, get_tot
 from scorer import init as scorer_init, score_event, THRESHOLD, DEMO_USERS, MODEL_PATH
 import scorer as _scorer
 import replay as _replay
+import store as _store
+import ingest as _ingest
 
 app = Flask(__name__,
             template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
@@ -43,6 +45,13 @@ _event_id_counter = 0
 _alert_id_counter = 0
 _sse_subscribers = []
 COLD_START_MIN = 20     # below this many prior events, there is no baseline
+
+# ── Ingest state ────────────────────────────────────────────────
+# The tailer thread is optional. It starts only when LANL_INGEST_FILE is set,
+# so the default demo behaviour is unchanged.
+_ingest_thread = None
+_ingest_stop = None
+_ingest_path = None
 
 # ── Real replay state ───────────────────────────────────────────
 # Replays genuine scored LANL events from the parquet. Independent of
@@ -81,6 +90,22 @@ def _init_scorer():
     if not _scorer_ready:
         scorer_init(DEMO_USERS)
         _scorer_ready = True
+
+
+def _stored_event_count():
+    """Rows in the live events table, or 0 if the store is unavailable."""
+    try:
+        return _store.count()
+    except Exception as exc:
+        print(f"store: count failed: {type(exc).__name__}: {exc}")
+        return 0
+
+
+def _stored_ingest_count():
+    try:
+        return _store.count('ingest')
+    except Exception:
+        return 0
 
 
 # ── Role gate ───────────────────────────────────────────────────
@@ -510,22 +535,28 @@ def _derive_reasons(features):
     return '; '.join(reasons) if reasons else 'Multiple behavioral indicators deviate from baseline'
 
 
-def _record_event(user_id, name, src, dst, auth_type, score, decision, features, time_val):
-    """Record a simulated event from the employee login path.
+def _record_event(user_id, name, src, dst, auth_type, score, decision, features, time_val,
+                  simulated=True, source='employee-demo', ts=None):
+    """Record one scored event, persist it, and push it to SSE.
 
-    The event is simulated but its inputs are not: machine, hour and auth type
-    are a genuine sign-in from this user's own history (see
-    simulate_login_burst). Only the clock is synthetic. Events are tagged
-    simulated=True so the API and the Simulation Lab can label them, and they
-    are kept out of the analyst dashboard, which reads real events via
-    live/replay.py.
+    Two producers use this:
+
+      * the employee login path -- simulated=True. Machine, hour and auth type
+        are a genuine sign-in from this user's own history; only the clock is
+        synthetic.
+      * the log tailer -- simulated=False, source='ingest'. The line came from
+        the log file and the timestamp is the event's own.
+
+    The event is written to SQLite before it is pushed, so the API still has it
+    after a restart. `ts` lets the caller supply the event's own clock instead
+    of the wall clock.
     """
     global _event_id_counter, _alert_id_counter
     explanation = _explain_event(user_id, features, decision, src, dst)
-    _event_id_counter += 1
     event = {
-        'id': _event_id_counter,
-        'simulated': True,
+        'id': None,
+        'simulated': bool(simulated),
+        'source': source,
         'user_id': user_id,
         'name': name,
         'src_computer': src,
@@ -536,13 +567,15 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
         'combined_score': round(score, 10),
         'decision': decision.lower(),
         'is_red': None,
-        'ts': time.strftime('%H:%M:%S'),
+        'ts': ts or time.strftime('%H:%M:%S'),
         'time': int(time_val),
         'reasons': explanation['reasons'],
         'baseline': explanation['baseline'],
         'history_events': explanation['history_events'],
         'features': {k: round(float(v), 8) for k, v in features.items()},
     }
+    event['id'] = _store.insert_event(event)
+    _event_id_counter = max(_event_id_counter, event['id'])
     _live_events.append(event)
 
     # Update user stats
@@ -578,6 +611,38 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
 
     # Push to SSE
     _sse_push(event)
+
+
+def _display_name(user_id):
+    """Demo name for a user id, falling back to the id's local part."""
+    for u in USERS.values():
+        if u.get('user_id') == user_id:
+            return u['name']
+    return (user_id or 'unknown').split('@')[0]
+
+
+def _handle_ingest_event(ev):
+    """Score one parsed log line and record it as a real (non-simulated) event."""
+    user_id = ev['src_user']
+    time_val = int(ev['time'])
+    hour = (time_val % 86400) / 3600.0
+    # score_event mutates shared per-user state; the employee path holds the
+    # same lock, so events cannot interleave between the two producers.
+    with _scorer.SCORE_LOCK:
+        score, decision, features = score_event(
+            user_id=user_id,
+            src_computer=ev.get('src_computer') or '',
+            dst_computer=ev.get('dst_computer') or '',
+            auth_type=ev.get('auth_type') or '?',
+            logon_type=ev.get('logon_type') or 'Network',
+            hour=hour,
+            time_val=time_val,
+        )
+    event_ts = time.strftime('%H:%M:%S', time.gmtime(time_val % 86400))
+    _record_event(user_id, _display_name(user_id),
+                  ev.get('src_computer') or '', ev.get('dst_computer') or '',
+                  ev.get('auth_type') or '?', score, decision, features,
+                  time_val, simulated=False, source='ingest', ts=event_ts)
 
 
 def simulate_login_burst(user_id, username):
@@ -659,10 +724,11 @@ def simulate_login_burst(user_id, username):
 
         time_val = _scorer._last_timestamps.get(user_id, 0) + 60
 
-        score, decision, features = score_event(
-            user_id=user_id, src_computer=src, dst_computer=dst,
-            auth_type=auth, logon_type='Network', hour=hour, time_val=time_val,
-        )
+        with _scorer.SCORE_LOCK:
+            score, decision, features = score_event(
+                user_id=user_id, src_computer=src, dst_computer=dst,
+                auth_type=auth, logon_type='Network', hour=hour, time_val=time_val,
+            )
 
         _record_event(user_id, username, src, dst, auth, score, decision, features, time_val)
         results.append((score, decision, features))
@@ -857,19 +923,19 @@ def api_known_users():
 @app.route('/api/live_events')
 @analyst_required
 def api_live_events():
-    """Live-scored employee logins, oldest first.
+    """Live-scored events, oldest first, read from SQLite.
 
-    Replay events are served by /api/replay/status. This endpoint is the
-    employee login path only: events the model scored in this process, which
-    otherwise vanish on the next page refresh because /api/dashboard reports
-    the replay window only.
+    Two producers write here: the employee login demo (simulated=true) and the
+    log tailer (simulated=false, source='ingest'). Because the rows are stored,
+    they survive a process restart; the in-memory deque is only a hot copy for
+    the current session.
 
-    These carry no ground truth (is_red is None) and their ids come from the
-    event time column, NOT the replay window index, so they must never be fed
+    Replay events are served by /api/replay/status. These ids come from the
+    live events table, NOT the replay window index, so they must never be fed
     to /api/investigation/<id> -- that endpoint addresses replay rows and the
     id spaces overlap.
     """
-    return jsonify(list(_live_events))
+    return jsonify(_store.list_events(500))
 
 
 @app.route('/api/stats')
@@ -879,13 +945,16 @@ def api_stats():
     global _replay_events
     if _replay_events is None:
         _replay_events = _replay.get_events()
+    simulated = [e for e in _live_events if e.get('simulated')]
     return jsonify({
         'replay_events': _replay_index,
         'replay_total': len(_replay_events),
         'replay_alerts': len(_replay_alerts()),
         'replay_users': len(_replay_user_stats()),
-        'simulated_events': len(_live_events),
+        'simulated_events': len(simulated),
         'simulated_alerts': len(_live_alerts),
+        'ingested_events': _stored_ingest_count(),
+        'stored_events': _stored_event_count(),
         'history_events': 0,
     })
 
@@ -1131,7 +1200,7 @@ def api_simulation():
     Kept separate from /api/dashboard so demo sign-ins can never be mistaken
     for the scored LANL replay records.
     """
-    events = list(_live_events)
+    events = [e for e in _live_events if e.get('simulated')]
     anomalies = sum(1 for e in events if e['decision'] in ('flag', 'block'))
     return jsonify({
         'disclaimer': ('SIMULATED SIGN-INS - generated by the employee login demo, '
@@ -1151,6 +1220,7 @@ def api_simulation():
 def api_reset():
     """Clear simulated events and alerts (real replay state is untouched)."""
     global _event_id_counter, _alert_id_counter
+    _store.clear()
     _live_events.clear()
     _live_alerts.clear()
     _live_users.clear()
@@ -1177,7 +1247,17 @@ def api_totp_status():
 # ── Health ──────────────────────────────────────────────────────
 @app.route('/api/health')
 def health():
-    return jsonify({'status': 'ok', 'scorer_ready': _scorer_ready, 'scores_loaded': _scores_df is not None})
+    return jsonify({
+        'status': 'ok',
+        'scorer_ready': _scorer_ready,
+        'scores_loaded': _scores_df is not None,
+        'ingest': {
+            'file': _ingest_path,
+            'running': bool(_ingest_thread and _ingest_thread.is_alive()),
+            'stats': dict(_ingest.stats),
+            'stored_events': _stored_event_count(),
+        },
+    })
 
 
 # ── Dataset precompute (separate from live) ─────────────────────
@@ -1519,6 +1599,20 @@ if __name__ == '__main__':
     _precompute_dashboard()
     print("initializing scorer...")
     _init_scorer()
+
+    print("opening live event store...")
+    _store.init()
+
+    # Optional real ingest. Without LANL_INGEST_FILE nothing changes: the app
+    # behaves exactly as the employee-demo build. With it, new lines appended to
+    # the file are scored and persisted as simulated=False.
+    _ingest_path = os.environ.get('LANL_INGEST_FILE')
+    if _ingest_path:
+        from_end = os.environ.get('LANL_INGEST_FROM_END', '1') != '0'
+        _ingest_thread, _ingest_stop = _ingest.start(
+            _ingest_path, _handle_ingest_event, from_end=from_end)
+        print(f"ingest: tailing {_ingest_path} "
+              f"({'new lines only' if from_end else 'from the start'})")
 
     # Start the replay without waiting for anyone to click Play. On a stage the
     # dashboard showing zeros looks broken. Set LANL_AUTOPLAY=0 to opt out.

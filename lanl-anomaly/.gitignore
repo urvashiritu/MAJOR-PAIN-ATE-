@@ -28,5 +28,10 @@ package.json
 package-lock.json
 live/patch_*.py
 
+# SQLite live event store (runtime data, not source)
+live/live_events.db
+live/live_events.db-shm
+live/live_events.db-wal
+
 # Report figures are source assets, not transient screenshots
 !report/assets/*.png
