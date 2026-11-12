@@ -41,6 +41,18 @@ CREATE TABLE IF NOT EXISTS events (
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_events_id ON events(id);
+
+-- Analyst decisions. Kept in a second table because a verdict belongs to an
+-- alert, and an alert id is only unique within its source: replay ids come
+-- from the replay window, live ids from the events table above, and those id
+-- spaces overlap. (source, event_id) is the real key.
+CREATE TABLE IF NOT EXISTS verdicts (
+    source     TEXT NOT NULL,
+    event_id   INTEGER NOT NULL,
+    verdict    TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (source, event_id)
+);
 """
 
 # Columns stored as JSON and parsed back on read.
@@ -153,6 +165,56 @@ def clear():
         con = _connect()
         try:
             con.execute("DELETE FROM events")
+            con.commit()
+        finally:
+            con.close()
+
+
+def set_verdict(source, event_id, verdict):
+    """Record an analyst decision for one alert.
+
+    Repeat calls overwrite, so an analyst can change their mind without
+    creating a second row for the same alert.
+    """
+    with _lock:
+        con = _connect()
+        try:
+            con.execute(
+                "INSERT INTO verdicts (source, event_id, verdict) VALUES (?,?,?)"
+                " ON CONFLICT(source, event_id) DO UPDATE SET"
+                " verdict=excluded.verdict, created_at=datetime('now')",
+                (str(source), int(event_id), str(verdict)))
+            con.commit()
+        finally:
+            con.close()
+
+
+def get_verdicts(source):
+    """Map event_id -> verdict for one source. Empty dict when none exist."""
+    with _lock:
+        con = _connect()
+        try:
+            rows = con.execute(
+                "SELECT event_id, verdict FROM verdicts WHERE source = ?",
+                (str(source),)).fetchall()
+        finally:
+            con.close()
+    return {int(r['event_id']): r['verdict'] for r in rows}
+
+
+def clear_verdicts(source=None):
+    """Delete stored decisions, optionally only for one source.
+
+    Called with source='live' by /api/reset, which wipes the live events but
+    deliberately leaves replay state alone.
+    """
+    with _lock:
+        con = _connect()
+        try:
+            if source:
+                con.execute("DELETE FROM verdicts WHERE source = ?", (str(source),))
+            else:
+                con.execute("DELETE FROM verdicts")
             con.commit()
         finally:
             con.close()

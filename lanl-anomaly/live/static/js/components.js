@@ -110,8 +110,26 @@ function eventRow(e, onClick) {
         </tr>`;
 }
 
-function alertRow(a, onInvestigate, onAck) {
+function verdictStamp(v) {
+    const cls = v === 'malicious' ? 'stamp-critical'
+        : v === 'benign' ? 'stamp-low' : 'stamp-info';
+    return `<span class="stamp ${cls}">${esc(String(v).toUpperCase())}</span>`;
+}
+
+/* `source` says which id space `a.id` belongs to: replay alerts and live
+   events both number from 1, so the same id can exist in both.
+   The verdict handler is called through window._setVerdict because this HTML
+   is inserted as an onclick attribute, which runs in global scope. */
+function alertRow(a, onInvestigate, source) {
     const sev = a.severity || 'medium';
+    const src = source || 'replay';
+    const decided = a.verdict || (a.status === 'acknowledged' ? 'acknowledged' : null);
+    const actions = decided
+        ? verdictStamp(decided)
+        : `<div class="flex gap-1">
+                    <button class="btn-low" onclick="event.stopPropagation();window._setVerdict(${a.id},'${src}','benign')">benign</button>
+                    <button class="btn-ochre" onclick="event.stopPropagation();window._setVerdict(${a.id},'${src}','malicious')">malicious</button>
+                </div>`;
     return `
         <tr>
             <td class="nowrap">${esc(a.timestamp)}</td>
@@ -122,9 +140,7 @@ function alertRow(a, onInvestigate, onAck) {
             <td>
                 <div class="flex gap-1">
                     <button class="btn-ochre" onclick="event.stopPropagation();(${onInvestigate || 'function(){}'})(${a.id})">investigate</button>
-                    ${a.status !== 'acknowledged'
-                        ? `<button class="btn-muted" onclick="event.stopPropagation();(${onAck || 'function(){}'})(${a.id})">ack</button>`
-                        : `<span class="text-10 text-faint uppercase">acked</span>`}
+                    ${actions}
                 </div>
             </td>
         </tr>`;

@@ -437,21 +437,22 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
     # is_rare_hour matches SCORING_SQL: the event's time-of-day falls in a rare
     # (cume_dist <= 0.2) hour for this user. _rare_tods holds (time % 86400).
     is_rare = 1.0 if (int(time_val) % 86400) in _rare_tods.get(user_id, set()) else 0.0
-    # pairs_last_100 — KNOWN UNRESOLVED TRAIN/SERVE SKEW. Read before trusting.
+    # pairs_last_100 — approximation, not the training-time value.
     #
-    # The served model splits on this feature at thresholds 1.5 / 2.5 / 3.5
-    # (173 splits), so its training values were 1, 2, 3 and 4+, NOT a constant.
-    # eval_lstm.py computes it as len(set(last 100 dst_computers)) within each
-    # user's run, which is >= 1 and never 0. A constant 0.0 therefore falls
-    # below every threshold the model uses.
+    # Training (eval_lstm.py) computes this as the number of distinct
+    # destinations in the last 100 events of the same user's contiguous run in
+    # global time order. Live scoring does not reconstruct that run state, so it
+    # serves a constant 0.0. The model splits at 1.5 / 2.5 / 3.5, so 0.0 lands in
+    # the same low branch as the common training value (the run-based value is
+    # 1 for most rows).
     #
-    # Measured cost, reproducing the held-out split (5,399,886 rows / 240 reds)
-    # with this model and the features table:
-    #     pairs_last_100 = 0.0            -> PR-AUC 0.3152, FP 244
-    #     natural last-100 computation    -> PR-AUC 0.0491, avg value 6.16
-    # 0.0 is the less harmful of the two, so it is what ships for now, but both
-    # are wrong against eval_lstm.py's run-scoped semantics. Fixing this needs
-    # the training-side value distribution measured, not guessed.
+    # Low-impact feature: rank 16 of 21 by split count, under 1% of total gain.
+    #
+    # Do NOT record PR-AUC numbers here. Measured values differ by feature
+    # source and scoring path (features table vs scored parquet vs training
+    # script), and an earlier version of this comment quoted numbers that could
+    # not be reproduced. Use eval_lstm.py on the fixed GroupShuffleSplit if you
+    # need one.
     pairs_last_100 = 0.0
 
     # ── 4. Auth features ──

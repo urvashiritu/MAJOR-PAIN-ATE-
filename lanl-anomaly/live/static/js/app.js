@@ -457,10 +457,10 @@
                     <table class="table-glass">
                         <thead><tr>
                             <th>Time</th><th>User</th><th>Source &rarr; Destination</th><th>Type</th>
-                            <th>Score</th><th>Decision</th><th>Why</th>
+                            <th>Score</th><th>Decision</th><th>Why</th><th>Verdict</th>
                         </tr></thead>
                         <tbody id="live-tbody">
-                            <tr><td colspan="7" class="text-center text-faint py-8">
+                            <tr><td colspan="8" class="text-center text-faint py-8">
                                 No live sign-ins scored yet. <a class="view-all" href="/login">Sign in as an employee</a> to trigger real-time scoring.
                             </td></tr>
                         </tbody>
@@ -735,7 +735,7 @@
             const alertsTbody = document.getElementById('dash-alerts-tbody');
             if (alertsTbody && dash.alerts && dash.alerts.length) {
                 alertsTbody.innerHTML = dash.alerts.slice().reverse().map(a =>
-                    alertRow(a, openInvestigate, ackAlert)
+                    alertRow(a, openInvestigate)
                 ).join('');
                 const cnt = document.getElementById('alert-count');
                 if (cnt) cnt.textContent = dash.alerts.length + ' alerts';
@@ -857,7 +857,7 @@
                         'No alerts. Press Play on Live Monitoring to replay real events.</td></tr>';
                 } else {
                     tbody.innerHTML = filtered.map(a =>
-                        alertRow(a, openInvestigate, ackAlert)
+                        alertRow(a, openInvestigate)
                     ).join('');
                 }
             }
@@ -1254,6 +1254,26 @@
         }
     }
 
+    /* ── Verdict (benign / malicious) ───────────────────────────── */
+    async function setVerdict(alertId, source, verdict) {
+        try {
+            await API.setVerdict(alertId, source, verdict);
+            if (source === 'live') {
+                await window._loadLiveEvents();
+            } else {
+                const page = (location.hash || '#/dashboard').replace('#/', '') || 'dashboard';
+                if (page === 'alerts') renderAlerts();
+                else if (page === 'dashboard') renderDashboard();
+            }
+        } catch (err) {
+            console.error('verdict failed:', err);
+        }
+    }
+    // alertRow() writes this into an onclick attribute as a string, so the
+    // handler is re-parsed in global scope and cannot see this closure. Publish
+    // it, or every click would throw "renderAlerts is not defined".
+    window._setVerdict = setVerdict;
+
     /* ── Event table filter + pause ────────────────────────────── */
     window._evtFilter = 'all';
     window._renderEventsTable = function() {
@@ -1543,7 +1563,7 @@
         if (!evts.length) {
             // A filter that matches nothing is not the same state as "no events
             // have ever been scored"; keep the sign-in prompt only for the latter.
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-faint py-8">' +
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-faint py-8">' +
                 (_liveEvents.length
                     ? 'No live events match this filter.'
                     : 'No live sign-ins scored yet. <a class="view-all" href="/login">Sign in as an employee</a> to trigger real-time scoring.') +
@@ -1575,6 +1595,16 @@
                 const whyCls = 'why-cell'
                     + (why.indexOf('Within baseline') === 0 ? ' why-baseline'
                         : why.indexOf('New user') === 0 ? ' why-cold' : '');
+                const ver = e.verdict || null;
+                const actionable = dec === 'block' || dec === 'flag';
+                const verdictCell = ver
+                    ? '<td>' + verdictStamp(ver) + '</td>'
+                    : actionable
+                        ? '<td><div class="flex gap-1">' +
+                          '<button class="btn-low" data-verdict="benign">benign</button>' +
+                          '<button class="btn-ochre" data-verdict="malicious">malicious</button>' +
+                          '</div></td>'
+                        : '<td><span class="text-10 text-faint">&mdash;</span></td>';
                 const userCell = '<td class="user-cell">' +
                     '<span class="user-name">' + esc(name) + '</span>' +
                     (uid ? '<span class="user-id">' + esc(uid) + '</span>' : '') +
@@ -1591,17 +1621,29 @@
                     // One line with the full text on hover. Unclamped this wrapped
                     // to seven lines and pushed everything else off the screen.
                     '<td class="' + whyCls + '" title="' + esc(why) + '">' + esc(why || '—') + '</td>' +
+                    verdictCell +
                     '</tr>';
             }).join('');
 
             if (!tbody._liveBound) {
                 tbody._liveBound = true;
                 tbody.addEventListener('click', ev => {
+                    // Verdict buttons live inside a clickable row; without this
+                    // guard the row handler also opened the event drawer.
+                    if (ev.target.closest('button[data-verdict]')) return;
                     const tr = ev.target.closest('tr[data-live-id]');
                     if (!tr) return;
                     const id = tr.getAttribute('data-live-id');
                     const evt = _liveEvents.find(x => String(x.id) === String(id));
                     if (evt && typeof liveEventDrawer === 'function') liveEventDrawer(evt);
+                });
+                tbody.addEventListener('click', ev => {
+                    const btn = ev.target.closest('button[data-verdict]');
+                    if (!btn) return;
+                    const tr = btn.closest('tr[data-live-id]');
+                    if (!tr) return;
+                    setVerdict(tr.getAttribute('data-live-id'), 'live',
+                        btn.getAttribute('data-verdict'));
                 });
             }
         }

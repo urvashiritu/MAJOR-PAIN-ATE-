@@ -54,6 +54,16 @@ const API = {
         return res.json();
     },
 
+    async setVerdict(id, source, verdict) {
+        const res = await fetch(`/api/alerts/${id}/verdict`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source, verdict }),
+        });
+        if (!res.ok) throw new Error(`verdict: ${res.status}`);
+        return res.json();
+    },
+
     async reset() {
         const res = await fetch('/api/reset', { method: 'POST' });
         if (!res.ok) throw new Error(`reset: ${res.status}`);

@@ -285,6 +285,7 @@ def api_replay_reset():
         _replay_index = 0
         _replay_running = False
         _replay_acked.clear()
+    _store.clear_verdicts('replay')
     return jsonify({'ok': True, 'progress': _replay_progress()})
 
 
@@ -819,6 +820,7 @@ def _replay_alerts():
     global _replay_events, _replay_index
     if _replay_events is None:
         _replay_events = _replay.get_events()
+    verdicts = _store.get_verdicts('replay')
     out = []
     for e in _replay_events[:_replay_index]:
         if e['decision'] not in ('block', 'flag'):
@@ -846,7 +848,12 @@ def _replay_alerts():
             'correct': correct,
             'src_computer': e['src_computer'],
             'dst_computer': e['dst_computer'],
-            'status': 'acknowledged' if e['id'] in _replay_acked else 'new',
+            # Persisted verdict wins over the in-memory ack set, which only
+            # holds decisions made before verdicts were stored. A replay reset
+            # clears both; /api/reset leaves replay state alone.
+            'verdict': verdicts.get(e['id']),
+            'status': verdicts.get(e['id'])
+                      or ('acknowledged' if e['id'] in _replay_acked else 'new'),
         })
     # Chronological, not score-ranked. The table shows T+ times, so ordering by
     # score made the timestamps jump around and read as if they were wrong.
@@ -935,7 +942,12 @@ def api_live_events():
     to /api/investigation/<id> -- that endpoint addresses replay rows and the
     id spaces overlap.
     """
-    return jsonify(_store.list_events(500))
+    events = _store.list_events(500)
+    verdicts = _store.get_verdicts('live')
+    for e in events:
+        e['verdict'] = verdicts.get(e['id'])
+        e['status'] = e['verdict'] or 'new'
+    return jsonify(events)
 
 
 @app.route('/api/stats')
@@ -1118,13 +1130,62 @@ def api_investigation(event_id):
 @app.route('/api/alerts/<int:alert_id>/ack', methods=['POST'])
 @analyst_required
 def api_ack_alert(alert_id):
-    """Acknowledge an alert from the real replay window."""
-    with _replay_lock:
-        _replay_acked.add(alert_id)
+    """Acknowledge an alert. Kept as an alias for the old UI.
+
+    The decision is written to SQLite, so it survives a restart exactly like a
+    benign/malicious verdict. `_replay_acked` stays in memory only so the
+    reset paths keep working unchanged.
+    """
     alert = next((a for a in _replay_alerts() if a['id'] == alert_id), None)
     if alert is None:
         return jsonify({'error': 'not found'}), 404
-    return jsonify({'ok': True, 'alert': alert})
+    _store.set_verdict('replay', alert_id, 'acknowledged')
+    with _replay_lock:
+        _replay_acked.add(alert_id)
+    return jsonify({'ok': True, 'alert': _alert_by_id('replay', alert_id)})
+
+
+# Verdicts an analyst can set. 'acknowledged' is accepted only through the
+# legacy ack endpoint, so the two-button UI cannot produce a third state.
+_VERDICTS = ('benign', 'malicious')
+_ALERT_SOURCES = ('replay', 'live')
+
+
+def _alert_by_id(source, alert_id):
+    """Look up one alert by its (source, id) pair, or None.
+
+    Live rows get the same verdict/status merge /api/live_events applies, so
+    the POST response matches what a subsequent GET will show.
+    """
+    if source == 'replay':
+        return next((a for a in _replay_alerts() if a['id'] == alert_id), None)
+    event = next((e for e in _store.list_events(500) if e['id'] == alert_id), None)
+    if event is not None:
+        verdict = _store.get_verdicts('live').get(event['id'])
+        event['verdict'] = verdict
+        event['status'] = verdict or 'new'
+    return event
+
+
+@app.route('/api/alerts/<int:alert_id>/verdict', methods=['POST'])
+@analyst_required
+def api_alert_verdict(alert_id):
+    """Persist an analyst verdict for one alert.
+
+    The body must name the source as well as the verdict: replay and live ids
+    overlap, so an id alone is ambiguous.
+    """
+    payload = request.get_json(silent=True) or {}
+    verdict = str(payload.get('verdict', '')).strip().lower()
+    source = str(payload.get('source', 'replay')).strip().lower()
+    if verdict not in _VERDICTS:
+        return jsonify({'error': 'verdict must be one of: ' + ', '.join(_VERDICTS)}), 400
+    if source not in _ALERT_SOURCES:
+        return jsonify({'error': 'source must be one of: ' + ', '.join(_ALERT_SOURCES)}), 400
+    if _alert_by_id(source, alert_id) is None:
+        return jsonify({'error': 'not found'}), 404
+    _store.set_verdict(source, alert_id, verdict)
+    return jsonify({'ok': True, 'alert': _alert_by_id(source, alert_id)})
 
 
 def _bundle_float(bundle, key):
@@ -1221,6 +1282,7 @@ def api_reset():
     """Clear simulated events and alerts (real replay state is untouched)."""
     global _event_id_counter, _alert_id_counter
     _store.clear()
+    _store.clear_verdicts('live')
     _live_events.clear()
     _live_alerts.clear()
     _live_users.clear()
