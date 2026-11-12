@@ -15,3 +15,18 @@ data/**/*.zst
 data/**/*.csv.gz
 node_modules/
 dist/
+
+# Agent tooling and local scratch (not part of the shipped project)
+.agents/
+.claude/
+agent/
+data/skills/
+graphify-out/
+logs/
+skills-lock.json
+package.json
+package-lock.json
+live/patch_*.py
+
+# Report figures are source assets, not transient screenshots
+!report/assets/*.png

@@ -1,0 +1,398 @@
+{
+  "front": [
+    {
+      "key": "front:certificate",
+      "label": "CERTIFICATE"
+    },
+    {
+      "key": "front:declaration",
+      "label": "DECLARATION"
+    },
+    {
+      "key": "front:acknowledgement",
+      "label": "ACKNOWLEDGEMENT"
+    },
+    {
+      "key": "front:abstract",
+      "label": "ABSTRACT"
+    },
+    {
+      "key": "front:list_figures",
+      "label": "LIST OF FIGURES"
+    },
+    {
+      "key": "front:list_tables",
+      "label": "LIST OF TABLES"
+    },
+    {
+      "key": "front:abbreviations",
+      "label": "ABBREVIATIONS"
+    }
+  ],
+  "chapters": [
+    {
+      "key": "chapter:1",
+      "label": "1.  INTRODUCTION"
+    },
+    {
+      "key": "section:1.1",
+      "label": "1.1  Overview"
+    },
+    {
+      "key": "section:1.2",
+      "label": "1.2  Problem Statement"
+    },
+    {
+      "key": "section:1.3",
+      "label": "1.3  Objectives"
+    },
+    {
+      "key": "section:1.4",
+      "label": "1.4  Scope and Limitations"
+    },
+    {
+      "key": "section:1.5",
+      "label": "1.5  Methodology Overview"
+    },
+    {
+      "key": "section:1.6",
+      "label": "1.6  Organization of the Report"
+    },
+    {
+      "key": "chapter:2",
+      "label": "2.  LITERATURE SURVEY"
+    },
+    {
+      "key": "section:2.1",
+      "label": "2.1  Review Approach"
+    },
+    {
+      "key": "section:2.2",
+      "label": "2.2  Existing Approaches"
+    },
+    {
+      "key": "section:2.3",
+      "label": "2.3  Research Gaps"
+    },
+    {
+      "key": "section:2.4",
+      "label": "2.4  Summary"
+    },
+    {
+      "key": "chapter:3",
+      "label": "3.  SYSTEM REQUIREMENTS SPECIFICATION"
+    },
+    {
+      "key": "section:3.1",
+      "label": "3.1  Functional Requirements"
+    },
+    {
+      "key": "section:3.2",
+      "label": "3.2  Non-Functional Requirements"
+    },
+    {
+      "key": "section:3.3",
+      "label": "3.3  Hardware Requirements"
+    },
+    {
+      "key": "section:3.4",
+      "label": "3.4  Software Requirements"
+    },
+    {
+      "key": "section:3.5",
+      "label": "3.5  Dataset Requirements"
+    },
+    {
+      "key": "section:3.6",
+      "label": "3.6  Assumptions and Constraints"
+    },
+    {
+      "key": "chapter:4",
+      "label": "4.  SYSTEM DESIGN"
+    },
+    {
+      "key": "section:4.1",
+      "label": "4.1  System Architecture"
+    },
+    {
+      "key": "section:4.2",
+      "label": "4.2  Data Acquisition and Slicing"
+    },
+    {
+      "key": "section:4.3",
+      "label": "4.3  Feature Engineering"
+    },
+    {
+      "key": "section:4.4",
+      "label": "4.4  Model Design"
+    },
+    {
+      "key": "section:4.5",
+      "label": "4.5  Decision Logic"
+    },
+    {
+      "key": "section:4.6",
+      "label": "4.6  Data and Storage Design"
+    },
+    {
+      "key": "section:4.7",
+      "label": "4.7  Dashboard Design"
+    },
+    {
+      "key": "chapter:5",
+      "label": "5.  IMPLEMENTATION"
+    },
+    {
+      "key": "section:5.1",
+      "label": "5.1  Technology Stack"
+    },
+    {
+      "key": "section:5.2",
+      "label": "5.2  Module Description"
+    },
+    {
+      "key": "section:5.3",
+      "label": "5.3  Key Algorithms"
+    },
+    {
+      "key": "section:5.4",
+      "label": "5.4  User Interface Implementation"
+    },
+    {
+      "key": "section:5.5",
+      "label": "5.5  Implementation Challenges"
+    },
+    {
+      "key": "section:5.6",
+      "label": "5.6  Deployment and Execution"
+    },
+    {
+      "key": "chapter:6",
+      "label": "6.  TESTING"
+    },
+    {
+      "key": "section:6.1",
+      "label": "6.1  Testing Strategy"
+    },
+    {
+      "key": "section:6.2",
+      "label": "6.2  Test Environment"
+    },
+    {
+      "key": "section:6.3",
+      "label": "6.3  Test Cases"
+    },
+    {
+      "key": "section:6.4",
+      "label": "6.4  Automated Test Results"
+    },
+    {
+      "key": "section:6.5",
+      "label": "6.5  Observations and Limitations"
+    },
+    {
+      "key": "chapter:7",
+      "label": "7.  RESULTS AND DISCUSSION"
+    },
+    {
+      "key": "section:7.1",
+      "label": "7.1  Experimental Setup"
+    },
+    {
+      "key": "section:7.2",
+      "label": "7.2  Held-Out Detection Results"
+    },
+    {
+      "key": "section:7.3",
+      "label": "7.3  Full-Dataset Results"
+    },
+    {
+      "key": "section:7.4",
+      "label": "7.4  Model and Feature Comparison"
+    },
+    {
+      "key": "section:7.5",
+      "label": "7.5  Feature Importance"
+    },
+    {
+      "key": "section:7.6",
+      "label": "7.6  Score Separation"
+    },
+    {
+      "key": "section:7.7",
+      "label": "7.7  Replay and Live Validation"
+    },
+    {
+      "key": "section:7.8",
+      "label": "7.8  Discussion"
+    },
+    {
+      "key": "chapter:8",
+      "label": "8.  CONCLUSION AND FUTURE SCOPE"
+    },
+    {
+      "key": "section:8.1",
+      "label": "8.1  Conclusion"
+    },
+    {
+      "key": "section:8.2",
+      "label": "8.2  Contributions"
+    },
+    {
+      "key": "section:8.3",
+      "label": "8.3  Limitations"
+    },
+    {
+      "key": "section:8.4",
+      "label": "8.4  Future Scope"
+    },
+    {
+      "key": "chapter:refs",
+      "label": "REFERENCES"
+    },
+    {
+      "key": "chapter:appA",
+      "label": "APPENDIX A:  TWENTY-ONE FEATURES"
+    },
+    {
+      "key": "chapter:appB",
+      "label": "APPENDIX B:  REPRODUCIBILITY ARTIFACTS"
+    }
+  ],
+  "figures": [
+    {
+      "key": "1.1",
+      "caption": "End-to-end data preparation, scoring, and serving pipeline"
+    },
+    {
+      "key": "4.1",
+      "caption": "System architecture of the identity anomaly detection platform"
+    },
+    {
+      "key": "4.2",
+      "caption": "LSTM autoencoder and LightGBM scoring path"
+    },
+    {
+      "key": "5.1",
+      "caption": "Live Monitoring page with a scored employee sign-in"
+    },
+    {
+      "key": "5.2",
+      "caption": "Investigation drawer showing score context and feature values"
+    },
+    {
+      "key": "5.3",
+      "caption": "Completed replay of the 33-minute LANL window"
+    },
+    {
+      "key": "5.4",
+      "caption": "Employee access decision for a normal sign-in"
+    },
+    {
+      "key": "5.5",
+      "caption": "Analyst login with password and TOTP"
+    },
+    {
+      "key": "5.6",
+      "caption": "Dataset Analysis page: full-dataset confusion matrix"
+    },
+    {
+      "key": "5.7",
+      "caption": "Model Performance page: held-out metrics and run comparison"
+    },
+    {
+      "key": "7.1",
+      "caption": "Held-out precision-recall curve"
+    },
+    {
+      "key": "7.2",
+      "caption": "Confusion matrices for held-out and full-dataset evaluation"
+    },
+    {
+      "key": "7.3",
+      "caption": "Held-out comparison of feature and model variants"
+    },
+    {
+      "key": "7.4",
+      "caption": "LightGBM split gain by feature"
+    },
+    {
+      "key": "7.5",
+      "caption": "Score separation between normal and red-team events"
+    }
+  ],
+  "tables": [
+    {
+      "key": "2.1",
+      "caption": "Summary of reviewed literature"
+    },
+    {
+      "key": "3.1",
+      "caption": "Functional requirements"
+    },
+    {
+      "key": "3.2",
+      "caption": "Non-functional requirements"
+    },
+    {
+      "key": "3.3",
+      "caption": "Hardware and software requirements"
+    },
+    {
+      "key": "4.1",
+      "caption": "Dataset scale and label statistics"
+    },
+    {
+      "key": "4.2",
+      "caption": "Feature groups used by the model"
+    },
+    {
+      "key": "4.3",
+      "caption": "LightGBM hyperparameters"
+    },
+    {
+      "key": "4.4",
+      "caption": "LSTM autoencoder configuration"
+    },
+    {
+      "key": "5.1",
+      "caption": "Technology stack"
+    },
+    {
+      "key": "5.2",
+      "caption": "Selected API endpoints"
+    },
+    {
+      "key": "6.1",
+      "caption": "Test cases and results"
+    },
+    {
+      "key": "7.1",
+      "caption": "Held-out detection metrics at the BLOCK threshold"
+    },
+    {
+      "key": "7.2",
+      "caption": "Full-dataset confusion matrix at the BLOCK threshold"
+    },
+    {
+      "key": "7.3",
+      "caption": "Held-out comparison of model variants"
+    },
+    {
+      "key": "7.4",
+      "caption": "Top ten features by LightGBM split gain"
+    },
+    {
+      "key": "7.5",
+      "caption": "Replay-window results"
+    },
+    {
+      "key": "A.1",
+      "caption": "The twenty-one input features"
+    },
+    {
+      "key": "B.1",
+      "caption": "Reproducibility commands and artifacts"
+    }
+  ]
+}

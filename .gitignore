@@ -3,3 +3,19 @@ venv/
 
 # Generated at runtime by live/auth.py — never commit TOTP seeds
 .totp_secrets.json
+
+# Workspace siblings. The repo root holds more than the LANL project; these
+# are separate experiments, caches or agent tooling and must not be committed.
+/.opencode/
+/.playwright-mcp/
+/graphify-out/
+/live/
+/rba-anomaly/
+/rba-xgboost/
+/reports/
+/shared/
+/laptop2_demo_kit.zip
+
+# Local scratch
+/.tmp/
+/logs/

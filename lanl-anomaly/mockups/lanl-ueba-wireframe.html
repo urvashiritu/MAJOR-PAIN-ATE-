@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LANL UEBA — Before / After Wireframe</title>
+<style>
+  :root{
+    --bg:#0a0d0f;
+    --bg-2:#0d1114;
+    --panel:#11171b;
+    --panel-2:#161e23;
+    --hair:#1f282e;
+    --hair-2:#2a353c;
+    --txt:#d9e2e6;
+    --txt-dim:#8b9aa1;
+    --txt-faint:#5d6b72;
+    --sig:#35d07f;
+    --amber:#f5a524;
+    --red:#f05252;
+    --cyan:#43b7e8;
+    --violet:#a78bfa;
+    --mono:"SFMono-Regular",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--txt);
+    font-family:var(--sans);
+    font-size:14px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    pointer-events:none;
+    background:
+      radial-gradient(1100px 500px at 20% -10%,rgba(67,183,232,.07),transparent 60%),
+      radial-gradient(900px 500px at 90% 0%,rgba(167,139,250,.06),transparent 55%);
+    z-index:0;
+  }
+
+  .wrap{position:relative;z-index:1;max-width:1420px;margin:0 auto;padding:34px 28px 90px}
+
+  /* ── masthead ───────────────────────────────────────────── */
+  .masthead{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;flex-wrap:wrap;margin-bottom:26px}
+  .eyebrow{
+    font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--txt-faint);margin-bottom:10px;
+  }
+  h1{margin:0;font-size:27px;font-weight:620;letter-spacing:-.02em}
+  h1 span{color:var(--txt-faint);font-weight:400}
+  .sub{margin:8px 0 0;color:var(--txt-dim);font-size:13px;max-width:62ch}
+
+  .switch{display:flex;background:var(--panel);border:1px solid var(--hair);border-radius:9px;padding:4px;gap:2px}
+  .switch button{
+    appearance:none;border:0;background:transparent;color:var(--txt-dim);
+    font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    padding:9px 15px;border-radius:6px;cursor:pointer;transition:.16s;
+  }
+  .switch button:hover{color:var(--txt)}
+  .switch button[aria-selected="true"]{background:var(--panel-2);color:var(--txt);box-shadow:inset 0 0 0 1px var(--hair-2)}
+
+  /* ── legend ─────────────────────────────────────────────── */
+  .legend{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:22px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--txt-dim)}
+  .legend i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:1px}
+  .dot-v{background:var(--sig);box-shadow:0 0 8px rgba(53,208,127,.7)}
+  .dot-p{background:var(--amber);box-shadow:0 0 8px rgba(245,165,36,.7)}
+
+  .view{display:none}
+  .view.is-on{display:block;animation:fade .22s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* ── app chrome ─────────────────────────────────────────── */
+  .app{
+    border:1px solid var(--hair);
+    border-radius:12px;
+    overflow:hidden;
+    background:var(--bg-2);
+    box-shadow:0 30px 70px -30px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.02) inset;
+  }
+  .app-grid{display:grid;grid-template-columns:224px 1fr;min-height:640px}
+
+  .side{
+    background:linear-gradient(180deg,#0e1417,#0b0f12);
+    border-right:1px solid var(--hair);
+    padding:18px 12px;
+    display:flex;flex-direction:column;gap:16px;
+  }
+  .brand{display:flex;align-items:center;gap:10px;padding:2px 8px 14px;border-bottom:1px solid var(--hair)}
+  .brand svg{color:var(--sig);flex:0 0 auto}
+  .brand b{display:block;font-size:12.5px;letter-spacing:.06em}
+  .brand small{display:block;font-family:var(--mono);font-size:8px;letter-spacing:.16em;color:var(--txt-faint);margin-top:2px}
+
+  .nav-group-label{font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:var(--txt-faint);padding:0 9px;margin-bottom:5px}
+  .nav-item{
+    display:flex;align-items:center;gap:9px;
+    padding:7px 9px;border-radius:6px;font-size:12.5px;color:var(--txt-dim);
+    cursor:default;border-left:2px solid transparent;
+  }
+  .nav-item .ico{width:14px;text-align:center;opacity:.75;font-size:12px}
+  .nav-item.active{background:rgba(67,183,232,.09);color:var(--txt);border-left-color:var(--cyan)}
+  .nav-item .badge{
+    margin-left:auto;font-family:var(--mono);font-size:9px;padding:1px 6px;border-radius:9px;
+    background:rgba(240,82,82,.16);color:#ff8f8f;
+  }
+  .nav-item .badge.dim{background:var(--panel-2);color:var(--txt-faint)}
+  .side-spacer{flex:1}
+  .side-foot{font-family:var(--mono);font-size:9.5px;color:var(--txt-faint);padding:0 9px;line-height:1.8}
+  .side-foot i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--sig);margin-right:6px}
+
+  .main{display:flex;flex-direction:column;min-width:0}
+  .topbar{
+    display:flex;align-items:center;gap:18px;
+    padding:12px 20px;border-bottom:1px solid var(--hair);
+    font-family:var(--mono);font-size:11px;color:var(--txt-faint);
+  }
+  .crumb b{color:var(--txt)}
+  .crumb span{color:var(--txt-faint)}
+  .topbar-right{margin-left:auto;display:flex;align-items:center;gap:16px}
+  .search{
+    border:1px solid var(--hair);background:#0a0e11;border-radius:6px;
+    padding:6px 10px;color:var(--txt-faint);font-family:var(--mono);font-size:10.5px;min-width:210px;
+  }
+  .online{display:flex;align-items:center;gap:6px;color:var(--sig)}
+  .online i{width:6px;height:6px;border-radius:50%;background:var(--sig);box-shadow:0 0 8px var(--sig)}
+  .avatar{width:22px;height:22px;border-radius:5px;background:var(--panel-2);display:grid;place-items:center;color:var(--txt-dim);font-size:10px}
+
+  .body{padding:22px 22px 26px;overflow:hidden}
+  .page-eyebrow{font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt-faint);margin-bottom:6px}
+  .page-title{font-size:20px;font-weight:600;letter-spacing:-.015em;margin:0 0 4px}
+  .page-lede{color:var(--txt-dim);font-size:12.5px;margin:0 0 20px}
+
+  /* kpis */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+  .kpi{
+    background:linear-gradient(180deg,var(--panel),#0f1519);
+    border:1px solid var(--hair);border-radius:8px;padding:13px 14px;
+  }
+  .kpi .k-label{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--txt-faint)}
+  .kpi .k-val{font-family:var(--mono);font-size:23px;font-weight:600;letter-spacing:-.02em;margin-top:7px}
+  .kpi .k-sub{font-family:var(--mono);font-size:9.5px;color:var(--txt-faint);margin-top:4px}
+  .kpi.info .k-val{color:var(--cyan)}
+  .kpi.crit .k-val{color:var(--red)}
+  .kpi.med  .k-val{color:var(--amber)}
+  .kpi.low  .k-val{color:var(--sig)}
+
+  /* panel + table */
+  .panel{border:1px solid var(--hair);border-radius:9px;background:var(--panel);overflow:hidden}
+  .panel-head{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--hair)}
+  .panel-title{font-size:12px;font-weight:600;letter-spacing:.01em}
+  .chips{display:flex;gap:5px;margin-left:2px}
+  .chip{font-family:var(--mono);font-size:9.5px;padding:3px 9px;border-radius:4px;border:1px solid var(--hair-2);color:var(--txt-faint)}
+  .chip.on{background:rgba(67,183,232,.12);border-color:rgba(67,183,232,.35);color:var(--cyan)}
+  .now-pill{
+    margin-left:auto;font-family:var(--mono);font-size:9px;letter-spacing:.12em;
+    color:var(--cyan);border:1px solid rgba(67,183,232,.4);border-radius:4px;padding:3px 8px;
+  }
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  thead th{
+    text-align:left;font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--txt-faint);font-weight:500;padding:9px 14px;border-bottom:1px solid var(--hair);
+    background:#0c1114;white-space:nowrap;
+  }
+  tbody td{padding:9px 14px;border-bottom:1px solid rgba(31,40,46,.6);color:var(--txt-dim);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover td{background:rgba(255,255,255,.018)}
+  .mono{font-family:var(--mono)}
+  .who{color:var(--txt);font-weight:500}
+  .muted{color:var(--txt-faint)}
+  .score{font-family:var(--mono);color:var(--txt)}
+  .tag{font-family:var(--mono);font-size:9px;letter-spacing:.1em;padding:2px 7px;border-radius:3px;text-transform:uppercase}
+  .tag.allow{color:var(--sig);background:rgba(53,208,127,.1);border:1px solid rgba(53,208,127,.25)}
+  .tag.block{color:#ff9090;background:rgba(240,82,82,.12);border:1px solid rgba(240,82,82,.3)}
+  .tag.flag{color:var(--amber);background:rgba(245,165,36,.1);border:1px solid rgba(245,165,36,.28)}
+  .why{color:var(--txt-faint);font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis}
+  .empty{text-align:center;color:var(--txt-faint);padding:46px 20px;font-size:12.5px}
+  .empty a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(67,183,232,.5)}
+
+  /* alert rows (after) */
+  .sev{font-family:var(--mono);font-size:9px;letter-spacing:.08em;display:inline-flex;align-items:center;gap:6px}
+  .sev i{width:6px;height:6px;border-radius:50%}
+  .sev.crit{color:#ff8f8f}.sev.crit i{background:var(--red);box-shadow:0 0 7px var(--red)}
+  .sev.high{color:var(--amber)}.sev.high i{background:var(--amber)}
+  .sev.med{color:#d9c97a}.sev.med i{background:#d9c97a}
+  .sev.low{color:var(--txt-faint)}.sev.low i{background:var(--txt-faint)}
+  .status{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase}
+  .status.new{color:var(--cyan)}
+  .status.triage{color:var(--amber)}
+  .status.conf{color:var(--sig)}
+  .owner{font-family:var(--mono);font-size:10.5px;color:var(--txt-dim)}
+
+  .ingest-bar{
+    display:flex;align-items:center;gap:14px;font-family:var(--mono);font-size:10px;color:var(--txt-faint);
+    border:1px solid var(--hair);border-radius:8px;background:#0c1114;padding:9px 14px;margin-bottom:16px;
+  }
+  .spark{display:flex;align-items:flex-end;gap:2px;height:16px}
+  .spark span{width:3px;background:rgba(67,183,232,.55);border-radius:1px}
+  .ingest-bar b{color:var(--txt-dim);font-weight:500}
+  .ingest-bar .sep{width:1px;height:14px;background:var(--hair-2)}
+
+  /* case drawer */
+  .after-grid{display:grid;grid-template-columns:1fr 396px;gap:0}
+  .drawer{border-left:1px solid var(--hair);background:linear-gradient(180deg,#121a1f,#0d1215);display:flex;flex-direction:column}
+  .drawer-head{padding:14px 16px;border-bottom:1px solid var(--hair)}
+  .drawer-case{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--txt-faint)}
+  .drawer-entity{font-size:16px;font-weight:600;margin:4px 0 8px}
+  .drawer-score{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px}
+  .drawer-score b{color:#ff9090}
+  .drawer-body{padding:14px 16px;overflow:auto;flex:1}
+  .dsec{margin-bottom:18px}
+  .dsec-t{font-family:var(--mono);font-size:8.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt-faint);margin-bottom:9px}
+  .why-row{display:grid;grid-template-columns:74px 1fr;gap:8px;font-family:var(--mono);font-size:10.5px;padding:5px 0;border-bottom:1px solid rgba(31,40,46,.55)}
+  .why-row:last-child{border-bottom:0}
+  .why-row .k{color:var(--txt-faint)}
+  .why-row .v{color:var(--txt-dim)}
+  .why-row .v b{color:var(--amber);font-weight:600}
+  .tl{position:relative;padding-left:14px}
+  .tl::before{content:"";position:absolute;left:3px;top:5px;bottom:5px;width:1px;background:var(--hair-2)}
+  .tl-item{position:relative;padding:4px 0;font-family:var(--mono);font-size:10px;color:var(--txt-dim)}
+  .tl-item::before{content:"";position:absolute;left:-14px;top:9px;width:5px;height:5px;border-radius:50%;background:var(--hair-2)}
+  .tl-item.hot::before{background:var(--red);box-shadow:0 0 7px var(--red)}
+  .tl-item .t{color:var(--txt-faint);margin-right:8px}
+  .verdict{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .vbtn{
+    border:1px solid var(--hair-2);background:#0d1216;border-radius:6px;padding:10px 8px;
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--txt-dim);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;transition:.15s;
+  }
+  .vbtn:hover{border-color:var(--hair-2);background:#131b20;color:var(--txt)}
+  .vbtn.conf:hover{border-color:rgba(53,208,127,.5);color:var(--sig)}
+  .vbtn.fp:hover{border-color:rgba(245,165,36,.5);color:var(--amber)}
+  .note{
+    width:100%;background:#0a0f12;border:1px solid var(--hair);border-radius:6px;
+    color:var(--txt-dim);font-family:var(--mono);font-size:10.5px;padding:9px;resize:none;min-height:58px;
+  }
+  .note::placeholder{color:var(--txt-faint)}
+  .drawer-foot{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--hair)}
+  .btn{
+    flex:1;border:0;border-radius:6px;padding:9px;font-family:var(--mono);font-size:9.5px;
+    letter-spacing:.1em;text-transform:uppercase;cursor:pointer;
+  }
+  .btn.primary{background:var(--sig);color:#04120a;font-weight:700}
+  .btn.ghost{background:transparent;border:1px solid var(--hair-2);color:var(--txt-dim)}
+
+  /* annotations */
+  .notes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
+  .note-card{
+    border:1px solid var(--hair);border-radius:8px;background:var(--panel);
+    padding:13px 15px;font-size:12px;color:var(--txt-dim);
+  }
+  .note-card .n-t{font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;margin-bottom:7px}
+  .note-card.v .n-t{color:var(--sig)}
+  .note-card.p .n-t{color:var(--amber)}
+  .note-card code{font-family:var(--mono);font-size:10.5px;color:var(--txt);background:#0a0f12;padding:1px 5px;border-radius:3px;border:1px solid var(--hair)}
+
+  /* loop */
+  .loop-wrap{border:1px solid var(--hair);border-radius:12px;background:var(--bg-2);padding:26px;overflow-x:auto}
+  .loop-title{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt-faint);margin-bottom:6px}
+  .loop-title.v{color:var(--sig)}
+  .loop-title.p{color:var(--amber)}
+  .loop-sub{font-size:12.5px;color:var(--txt-dim);margin-bottom:22px}
+  .flow{display:flex;align-items:stretch;gap:0;min-width:900px;margin-bottom:34px}
+  .fnode{
+    flex:1;border:1px solid var(--hair-2);border-radius:8px;background:var(--panel);
+    padding:12px 13px;min-width:110px;
+  }
+  .fnode .fn-k{font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--txt-faint);margin-bottom:5px}
+  .fnode .fn-v{font-size:12.5px;font-weight:600;color:var(--txt)}
+  .fnode .fn-d{font-family:var(--mono);font-size:9.5px;color:var(--txt-faint);margin-top:4px;line-height:1.45}
+  .fnode.p{border-color:rgba(245,165,36,.35);background:linear-gradient(180deg,rgba(245,165,36,.07),var(--panel))}
+  .fnode.g{border-color:rgba(53,208,127,.35);background:linear-gradient(180deg,rgba(53,208,127,.07),var(--panel))}
+  .fnode.r{border-color:rgba(240,82,82,.3)}
+  .farrow{flex:0 0 26px;display:grid;place-items:center;color:var(--txt-faint);font-size:14px}
+  .flow-note{font-family:var(--mono);font-size:10px;color:var(--txt-faint);margin-top:10px}
+  .flow-note.bad{color:#ff9090}
+  .gap-split{height:1px;background:var(--hair);margin:6px 0 30px}
+
+  @media (max-width:1080px){
+    .kpis{grid-template-columns:repeat(2,1fr)}
+    .after-grid{grid-template-columns:1fr}
+    .drawer{border-left:0;border-top:1px solid var(--hair)}
+    .notes{grid-template-columns:1fr}
+  }
+  @media (max-width:760px){
+    .app-grid{grid-template-columns:1fr}
+    .side{display:none}
+    .wrap{padding:20px 14px 60px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <div class="eyebrow">LANL UEBA · product wireframe · plan mode</div>
+      <h1>Before <span>/</span> After</h1>
+      <p class="sub">
+        Left side is what the code does today. Right side is the proposed product loop.
+        Nothing here is implemented — this is a design artifact.
+      </p>
+    </div>
+    <div class="switch" role="tablist" aria-label="Wireframe view">
+      <button role="tab" aria-selected="true" data-view="before">Before</button>
+      <button role="tab" aria-selected="false" data-view="after">After</button>
+      <button role="tab" aria-selected="false" data-view="loop">The gap</button>
+    </div>
+  </header>
+
+  <div class="legend">
+    <span><i class="dot-v"></i>VERIFIED — read from the running code</span>
+    <span><i class="dot-p"></i>PROPOSED — not built yet</span>
+  </div>
+
+  <!-- ══════════════════ BEFORE ══════════════════ -->
+  <section class="view is-on" data-view="before">
+    <div class="app">
+      <div class="app-grid">
+        <aside class="side">
+          <div class="brand">
+            <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 13h4l2.2-6 3.4 11 2.2-5H21"/></svg>
+            <div><b>LANL UEBA</b><small>BEHAVIOR ANALYTICS</small></div>
+          </div>
+          <div>
+            <div class="nav-group-label">MONITOR</div>
+            <div class="nav-item active"><span class="ico">∿</span>Live Monitoring<span class="badge dim">0</span></div>
+            <div class="nav-item"><span class="ico">↺</span>Replay Feed</div>
+            <div class="nav-item"><span class="ico">⌁</span>Alerts</div>
+            <div class="nav-item"><span class="ico">◍</span>Users</div>
+          </div>
+          <div>
+            <div class="nav-group-label">UNDERSTAND</div>
+            <div class="nav-item"><span class="ico">≈</span>Behavior Insights</div>
+            <div class="nav-item"><span class="ico">▥</span>Model Performance</div>
+            <div class="nav-item"><span class="ico">▦</span>Dataset Analysis</div>
+          </div>
+          <div>
+            <div class="nav-group-label">SYSTEM</div>
+            <div class="nav-item"><span class="ico">⚙</span>Settings</div>
+          </div>
+          <div class="side-spacer"></div>
+          <div class="side-foot"><i></i>Real LANL data<br><span style="color:#4b575d">Turning data into<br>safer workspaces</span></div>
+        </aside>
+
+        <div class="main">
+          <div class="topbar">
+            <div class="crumb"><b>LANL UEBA</b> <span>/</span> Live Monitoring</div>
+            <div class="topbar-right">
+              <div class="search">Search events or users&nbsp;&nbsp;<span style="color:#3d484e">Ctrl K</span></div>
+              <div class="online"><i></i>Online</div>
+              <span>19:42:07</span>
+              <div class="avatar">A</div>
+            </div>
+          </div>
+
+          <div class="body">
+            <div class="page-eyebrow">Monitor · Live</div>
+            <h2 class="page-title">Live Monitoring</h2>
+            <p class="page-lede">Authentication events scored in this process, as they arrive. These carry no ground-truth label.</p>
+
+            <div class="kpis">
+              <div class="kpi info"><div class="k-label">Scored live</div><div class="k-val">1</div><div class="k-sub">this process</div></div>
+              <div class="kpi crit"><div class="k-label">Blocked</div><div class="k-val">0</div><div class="k-sub">&gt; 0.187195</div></div>
+              <div class="kpi med"><div class="k-label">Flagged</div><div class="k-val">0</div><div class="k-sub">&gt; 0.131037</div></div>
+              <div class="kpi low"><div class="k-label">Allowed</div><div class="k-val">1</div><div class="k-sub">under threshold</div></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-head">
+                <span class="panel-title">Live-scored events</span>
+                <div class="chips"><span class="chip on">All</span><span class="chip">Blocked</span><span class="chip">Flagged</span></div>
+                <span class="now-pill">SCORED NOW</span>
+              </div>
+              <table>
+                <thead>
+                  <tr><th>Time</th><th>User</th><th>Source → Destination</th><th>Type</th><th>Score</th><th>Decision</th><th>Why</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="mono muted">19:41:58</td>
+                    <td class="who">Igris <span class="muted mono" style="font-size:10px">U2097@DOM1</span></td>
+                    <td class="mono">C1184 → C9021</td>
+                    <td class="mono muted">NTLM</td>
+                    <td class="score">3.35e-8</td>
+                    <td><span class="tag allow">allow</span></td>
+                    <td class="why">Within baseline · vel 190/hr, p26.0 of his own history</td>
+                  </tr>
+                  <tr>
+                    <td class="mono muted">—</td><td colspan="6" class="muted" style="font-size:11px;padding:10px 14px">
+                      No live sign-ins scored yet. <a href="#">Sign in as an employee</a> to trigger real-time scoring.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <div class="note-card v">
+        <div class="n-t">Verified · app.js:421-469</div>
+        Live page copies the four replay KPI keys but <b>relabels</b> them
+        <code>Scored live</code>, <code>Blocked</code>, <code>Flagged</code>, <code>Allowed</code>.
+        Table headers are <code>Time · User · Source→Destination · Type · Score · Decision · Why</code>.
+      </div>
+      <div class="note-card v">
+        <div class="n-t">Verified · app.py</div>
+        24 routes. <b>1 mutation</b>: <code>/api/alerts/&lt;id&gt;/ack</code>.
+        The ack is a Python set (<code>_replay_acked</code>) cleared on reset and lost on restart.
+      </div>
+      <div class="note-card v">
+        <div class="n-t">Verified · app.py:583-687</div>
+        Sign-in path does <b>not</b> invent an event: it samples a real historical sign-in,
+        then calls the real <code>score_event()</code> against live DuckDB. The weak part is
+        the <b>ingest</b>, not the model.
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ AFTER ══════════════════ -->
+  <section class="view" data-view="after">
+    <div class="app">
+      <div class="app-grid">
+        <aside class="side">
+          <div class="brand">
+            <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 13h4l2.2-6 3.4 11 2.2-5H21"/></svg>
+            <div><b>LANL UEBA</b><small>BEHAVIOR ANALYTICS</small></div>
+          </div>
+          <div>
+            <div class="nav-group-label">MONITOR</div>
+            <div class="nav-item"><span class="ico">⇉</span>Live Ingest<span class="badge dim">live</span></div>
+            <div class="nav-item active"><span class="ico">⌁</span>Triage Queue<span class="badge">7</span></div>
+            <div class="nav-item"><span class="ico">▤</span>Cases</div>
+            <div class="nav-item"><span class="ico">◍</span>Entities</div>
+          </div>
+          <div>
+            <div class="nav-group-label">UNDERSTAND</div>
+            <div class="nav-item"><span class="ico">≈</span>Behavior Insights</div>
+            <div class="nav-item"><span class="ico">▥</span>Model Performance</div>
+            <div class="nav-item"><span class="ico">▦</span>Dataset Analysis</div>
+            <div class="nav-item"><span class="ico">◫</span>Baselines<span class="badge dim">stored</span></div>
+          </div>
+          <div>
+            <div class="nav-group-label">SYSTEM</div>
+            <div class="nav-item"><span class="ico">◉</span>Ingest Health</div>
+            <div class="nav-item"><span class="ico">⚙</span>Settings</div>
+          </div>
+          <div class="side-spacer"></div>
+          <div class="side-foot"><i></i>SQLite · persistent<br><span style="color:#4b575d">Turning data into<br>safer workspaces</span></div>
+        </aside>
+
+        <div class="main">
+          <div class="topbar">
+            <div class="crumb"><b>LANL UEBA</b> <span>/</span> Triage Queue</div>
+            <div class="topbar-right">
+              <div class="search">Search events or users&nbsp;&nbsp;<span style="color:#3d484e">Ctrl K</span></div>
+              <div class="online"><i></i>Healthy</div>
+              <span>19:42:07</span>
+              <div class="avatar">A</div>
+            </div>
+          </div>
+
+          <div class="body">
+            <div class="ingest-bar">
+              <span>INGEST</span>
+              <div class="spark">
+                <span style="height:4px"></span><span style="height:7px"></span><span style="height:11px"></span>
+                <span style="height:15px"></span><span style="height:12px"></span><span style="height:9px"></span>
+                <span style="height:6px"></span><span style="height:10px"></span><span style="height:14px"></span>
+                <span style="height:8px"></span><span style="height:5px"></span><span style="height:9px"></span>
+                <span style="height:13px"></span><span style="height:16px"></span><span style="height:10px"></span>
+              </div>
+              <b>1,204 ev/min</b>
+              <span class="sep"></span><span>p99 <b>23 ms</b></span>
+              <span class="sep"></span><span>lag <b>0.4 s</b></span>
+              <span class="sep"></span><span>source <b>auth.log</b></span>
+              <span style="margin-left:auto;color:#35d07f">● streaming</span>
+            </div>
+
+            <div class="page-eyebrow">Monitor · Triage</div>
+            <h2 class="page-title">Triage Queue</h2>
+            <p class="page-lede">Assign, investigate, label. Every verdict becomes a training row.</p>
+
+            <div class="panel">
+              <div class="panel-head">
+                <span class="panel-title">Open alerts</span>
+                <div class="chips"><span class="chip on">Open 7</span><span class="chip">Mine 2</span><span class="chip">All 41</span></div>
+                <span class="now-pill" style="color:#f5a524;border-color:rgba(245,165,36,.4)">SLA 15m</span>
+              </div>
+              <table>
+                <thead>
+                  <tr><th>Sev</th><th>Entity</th><th>Signal</th><th>Age</th><th>Owner</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  <tr style="background:rgba(240,82,82,.045)">
+                    <td><span class="sev crit"><i></i>CRIT</span></td>
+                    <td class="who">U293@DOM1</td>
+                    <td class="muted">New pair + velocity 41× baseline</td>
+                    <td class="mono muted">2m</td><td class="owner">you</td>
+                    <td><span class="status triage">investigating</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="sev crit"><i></i>CRIT</span></td>
+                    <td class="who">C17693</td>
+                    <td class="muted">Lateral movement · 12 new destinations</td>
+                    <td class="mono muted">4m</td><td class="owner">—</td>
+                    <td><span class="status new">new</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="sev high"><i></i>HIGH</span></td>
+                    <td class="who">U66@DOM1</td>
+                    <td class="muted">03:00 first-seen destination</td>
+                    <td class="mono muted">11m</td><td class="owner">ana</td>
+                    <td><span class="status triage">investigating</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="sev med"><i></i>MED</span></td>
+                    <td class="who">U2097@DOM1</td>
+                    <td class="muted">LSTM recon error p99.4</td>
+                    <td class="mono muted">22m</td><td class="owner">—</td>
+                    <td><span class="status new">new</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="sev low"><i></i>LOW</span></td>
+                    <td class="who">U2899@DOM1</td>
+                    <td class="muted">New source computer</td>
+                    <td class="mono muted">1h</td><td class="owner">—</td>
+                    <td><span class="status new">new</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- case drawer -->
+        <aside class="drawer">
+          <div class="drawer-head">
+            <div class="drawer-case">CASE #A-1042 · OPEN</div>
+            <div class="drawer-entity">U293@DOM1</div>
+            <div class="drawer-score">
+              <span class="muted">score</span><b>0.9412</b>
+              <span class="muted">/ thr</span><span>0.1872</span>
+              <span class="tag block" style="margin-left:auto">block</span>
+            </div>
+          </div>
+          <div class="drawer-body">
+            <div class="dsec">
+              <div class="dsec-t">Why · relative to this entity</div>
+              <div class="why-row"><span class="k">vel_1h</span><span class="v"><b>41×</b> own hourly median (209)</span></div>
+              <div class="why-row"><span class="k">pair</span><span class="v"><b>first</b> time this pair is seen</span></div>
+              <div class="why-row"><span class="k">lstm</span><span class="v"><b>p99.4</b> reconstruction error</span></div>
+              <div class="why-row"><span class="k">dst</span><span class="v"><b>first</b> time this destination is seen</span></div>
+            </div>
+
+            <div class="dsec">
+              <div class="dsec-t">Timeline · U293</div>
+              <div class="tl">
+                <div class="tl-item hot"><span class="t">19:41</span>C17693 → C9 · <span style="color:#ff9090">BLOCK</span></div>
+                <div class="tl-item"><span class="t">19:39</span>U293 → C4 · allow</div>
+                <div class="tl-item"><span class="t">19:31</span>U293 → C4 · allow</div>
+                <div class="tl-item"><span class="t">19:22</span>U293 → C4 · allow</div>
+              </div>
+            </div>
+
+            <div class="dsec">
+              <div class="dsec-t">Verdict · writes a label row</div>
+              <div class="verdict">
+                <button class="vbtn conf">✓ Confirmed</button>
+                <button class="vbtn fp">✕ False positive</button>
+              </div>
+            </div>
+
+            <div class="dsec">
+              <div class="dsec-t">Note</div>
+              <textarea class="note" placeholder="Matched known red-team tooling pattern…"></textarea>
+            </div>
+
+            <div class="dsec">
+              <div class="dsec-t">All 21 features</div>
+              <div class="mono" style="font-size:10px;color:var(--txt-faint);line-height:1.9">
+                dst_first · src_first · hour_ratio · dst_prior_events · fail_1h · vel_1h ·
+                hour_sin · hour_cos · is_ntlm · pair_first · src_dst_pair_first · fail_rate ·
+                dst_first_x_ntlm · log_pair_rank · pair_freq_ratio · is_rare_hour ·
+                pairs_last_100 · iat_zscore · velocity_ratio · machine_popularity · lstm_ae_recon_error
+              </div>
+            </div>
+          </div>
+          <div class="drawer-foot">
+            <button class="btn primary">Save case</button>
+            <button class="btn ghost">Export JSON</button>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <div class="notes">
+      <div class="note-card p">
+        <div class="n-t">Proposed · ingest</div>
+        Log tailer → queue → existing <code>score_event()</code>. One path for real events;
+        the replay stays as a labelled demo mode instead of pretending to be live.
+      </div>
+      <div class="note-card p">
+        <div class="n-t">Proposed · persistence</div>
+        SQLite tables: <code>events</code>, <code>alerts</code>, <code>cases</code>, <code>labels</code>.
+        Replaces the in-memory ack set; survives restart.
+      </div>
+      <div class="note-card p">
+        <div class="n-t">Proposed · feedback loop</div>
+        Confirmed / false-positive writes a label. <code>Baselines</code> updates per event.
+        Retrain consumes labels, so the product closes.
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ LOOP ══════════════════ -->
+  <section class="view" data-view="loop">
+    <div class="loop-wrap">
+      <div class="loop-title v">BEFORE · verified</div>
+      <div class="loop-sub">Every arrow below exists in the code. The loop stops at a human, and state dies on restart.</div>
+
+      <div class="flow">
+        <div class="fnode"><div class="fn-k">input</div><div class="fn-v">Replay window</div><div class="fn-d">9,954 curated events<br>out of 29.9M</div></div>
+        <div class="farrow">→</div>
+        <div class="fnode g"><div class="fn-k">score</div><div class="fn-v">21 features</div><div class="fn-d">LGB + LSTM-AE<br>real models</div></div>
+        <div class="farrow">→</div>
+        <div class="fnode g"><div class="fn-k">show</div><div class="fn-v">Dashboard</div><div class="fn-d">SSE · drawer<br>explanation</div></div>
+        <div class="farrow">→</div>
+        <div class="fnode"><div class="fn-k">human</div><div class="fn-v">Look</div><div class="fn-d">read score<br>read why</div></div>
+        <div class="farrow">→</div>
+        <div class="fnode r"><div class="fn-k">mutate</div><div class="fn-v">Ack</div><div class="fn-d">in-memory set<br>cleared on reset</div></div>
+        <div class="farrow">→</div>
+        <div class="fnode r"><div class="fn-k">failure</div><div class="fn-v">Restart</div><div class="fn-d">state gone<br>no label written</div></div>
+      </div>
+      <div class="flow-note bad">There is no edge back to the model. Nothing the analyst does changes what the system does next.</div>
+
+      <div class="gap-split"></div>
+
+      <div class="loop-title p">AFTER · proposed</div>
+      <div class="loop-sub">Two edges change the identity of the project: a real ingest at the front, and labels at the back.</div>
+
+      <div class="flow">
+        <div class="fnode p"><div class="fn-k">ingest</div><div class="fn-v">Log tailer</div><div class="fn-d">auth.log / syslog<br>queue + backpressure</div></div>
+        <div class="farrow">→</div>
+        <div class="fnode g"><div class="fn-k">score</div><div class="fn-v">Same scorer</div><div class="fn-d">unchanged model<br>p99 budget</div></div>
+        <div class="farrow">→</div>
+        <div class="fnode g"><div class="fn-k">alert</div><div class="fn-v">Threshold</div><div class="fn-d">BLOCK / FLAG<br>dedupe + SLA</div></div>
+        <div class="farrow">→</div>
+        <div class="fnode g"><div class="fn-k">triage</div><div class="fn-v">Case</div><div class="fn-d">assign · note<br>timeline</div></div>
+        <div class="farrow">→</div>
+        <div class="fnode p"><div class="fn-k">learn</div><div class="fn-v">Label</div><div class="fn-d">confirmed / FP<br>SQLite row</div></div>
+      </div>
+
+      <div class="flow" style="margin-top:14px">
+        <div class="fnode g"><div class="fn-k">refresh</div><div class="fn-v">Baselines</div><div class="fn-d">stored, incremental<br>O(1) per event</div></div>
+        <div class="farrow">↖</div>
+        <div class="fnode p"><div class="fn-k">retrain</div><div class="fn-v">make retrain</div><div class="fn-d">labels in, model out</div></div>
+        <div class="farrow">←</div>
+        <div class="fnode p"><div class="fn-k">dataset</div><div class="fn-v">Label store</div><div class="fn-d">auditable<br>versioned</div></div>
+        <div class="farrow">←</div>
+        <div class="fnode"><div class="fn-k">replay</div><div class="fn-v">Demo mode</div><div class="fn-d">honestly labelled<br>not called live</div></div>
+        <div class="farrow">…</div>
+        <div class="fnode"><div class="fn-k">scope</div><div class="fn-v">Not adding</div><div class="fn-d">K8s · microservices<br>third model</div></div>
+      </div>
+      <div class="flow-note">Target: the system learns from the analyst. That is the line between a dashboard and a product.</div>
+    </div>
+
+    <div class="notes">
+      <div class="note-card v">
+        <div class="n-t">Verified starting point</div>
+        Scoring, thresholds, held-out metrics and the explanation are real and recomputed from the
+        scored parquet (<code>app.py:1201</code>). They are not the thing to rebuild.
+      </div>
+      <div class="note-card p">
+        <div class="n-t">Highest-leverage change</div>
+        The label edge. It is the smallest piece of code that turns a demo into a system that improves.
+      </div>
+      <div class="note-card p">
+        <div class="n-t">Sequencing</div>
+        Ingest → persistence → triage → labels → incremental baselines. Each step is independently demoable.
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const tabs = [...document.querySelectorAll('.switch button')];
+  const views = [...document.querySelectorAll('.view')];
+  tabs.forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabs.forEach(b => b.setAttribute('aria-selected', String(b === btn)));
+      views.forEach(v => v.classList.toggle('is-on', v.dataset.view === btn.dataset.view));
+    });
+  });
+</script>
+</body>
+</html>
