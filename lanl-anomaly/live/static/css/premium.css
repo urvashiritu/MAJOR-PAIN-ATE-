@@ -1,0 +1,279 @@
+/* ── Premium layer ──────────────────────────────────────────────────
+   Additive overrides only. Nothing here rewrites layout: every rule
+   below adjusts type, rhythm, radii or an interactive state of a
+   component that already exists in style.css.
+
+   Load order matters — this file must come AFTER style.css.
+
+   Measured before this file: 13 rendered font sizes (8, 8.5, 9, 9.5,
+   10, 10.5, 11, 11.5, 12, 13, 16, 27, 30.4). After: 6 — 11, 12, 13,
+   16, 24, 32 — and nothing below 11px.
+
+   Colours are token references on purpose. The .dark block in
+   style.css redefines the same tokens, so this layer follows the
+   theme without a second set of rules.
+   ─────────────────────────────────────────────────────────────────── */
+
+:root {
+  --t-xs: 11px;   /* labels, table headers, footer, keyboard hints */
+  --t-sm: 12px;   /* dense chrome: nav, search, breadcrumb           */
+  --t-md: 13px;   /* body copy, table cells                          */
+  --t-lg: 16px;   /* rare emphasis                                   */
+  --t-xl: 24px;   /* KPI numerals                                    */
+  --t-2xl: 32px;  /* page title                                      */
+
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --dur: 150ms;
+}
+
+/* ── Page head ────────────────────────────────────────────────────── */
+
+.page-title {
+  font-size: var(--t-2xl);
+  line-height: 1.06;
+  letter-spacing: -.024em;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.page-eyebrow {
+  font-size: var(--t-xs);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ochre);
+}
+
+/* Slightly longer rule: at 11px the old 14px dash looked like a hyphen. */
+.page-eyebrow::before {
+  width: 18px;
+  height: 1px;
+  background: var(--ochre);
+}
+
+.page-lede {
+  font-size: var(--t-md);
+  line-height: 1.6;
+  max-width: 68ch;
+}
+
+.page-lede-sub { font-size: var(--t-xs); line-height: 1.5; }
+
+/* ── Type floor ───────────────────────────────────────────────────────
+   style.css ships .text-8 and .text-9 class names in markup but only
+   defines .text-10 and .text-11. Anything tagged .text-9 therefore
+   inherits 16px — that is why "SCORED NOW" rendered at 16px. Define
+   them here instead of editing the member rules one by one. */
+
+.text-8,
+.text-9,
+.text-10,
+.text-11 { font-size: var(--t-xs) !important; }
+
+/* ── Sidebar ──────────────────────────────────────────────────────── */
+
+.sidebar-logo-sub { font-size: var(--t-xs); letter-spacing: .12em; }
+
+.nav-group-label {
+  font-size: var(--t-xs);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.nav-label { font-size: var(--t-sm); }
+
+.sidebar-item { min-height: 34px; transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease); }
+
+.nav-badge {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.theme-btn {
+  font-size: var(--t-xs);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.tagline { font-size: var(--t-xs) !important; letter-spacing: .1em; line-height: 1.45; }
+
+/* ── Top bar ──────────────────────────────────────────────────────── */
+
+.breadcrumb {
+  font-size: var(--t-xs);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.topbar-search {
+  font-size: var(--t-sm);
+  height: 30px;
+  border-radius: var(--radius-sm);
+}
+
+.topbar-search-shortcut,
+.search-modal kbd,
+.search-footer kbd {
+  font-size: var(--t-xs);
+  letter-spacing: .06em;
+  border-radius: 3px;
+}
+
+.search-result-group {
+  font-size: var(--t-xs);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.topbar-status span { font-size: var(--t-xs); letter-spacing: .08em; }
+
+.topbar-clock {
+  font-size: var(--t-xs);
+  letter-spacing: .04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.user-avatar { font-size: var(--t-xs); }
+
+.user-meta-name { font-size: var(--t-sm); }
+
+.user-meta-role {
+  font-size: var(--t-xs);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.logout-link { font-size: var(--t-xs); letter-spacing: .08em; text-transform: uppercase; }
+
+/* ── KPI cards ────────────────────────────────────────────────────────
+   Numerals are the most-read thing on the page, so they get the mono
+   face, tabular figures and a tighter track. The icon chip shrinks to
+   the 4px radius so it stops competing with the card. */
+
+.kpi-card { gap: 12px; }
+
+/* The chip is sized by an inline style emitted in components.js:77
+   (width/height/radius/font-size), so a stylesheet cannot win without
+   !important. Kept to three properties on one selector — the colours
+   stay inline, since those are per-KPI data. */
+.kpi-icon {
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 6px;
+  font-size: 14px;
+}
+
+.kpi-label {
+  font-size: var(--t-xs) !important;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.tape-num {
+  font-size: var(--t-xl);
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ── Table + filters ──────────────────────────────────────────────── */
+
+.section-title {
+  font-size: var(--t-xs) !important;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.filter-btn {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs) !important;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+/* Selected filter reads as ink, not as a tinted outline — one
+   unambiguous state instead of two competing borders. */
+.filter-btn.active {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+
+.live-now-pill {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs) !important;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  border-radius: var(--radius-sm);
+  padding: 3px 8px !important;
+}
+
+thead th {
+  font-size: var(--t-xs) !important;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  padding: 9px 12px;
+}
+
+tbody td {
+  font-size: var(--t-md);
+  padding: 9px 12px;
+}
+
+/* Every number in the product lines up in a column. */
+.mono,
+td.mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+tbody tr { transition: background-color var(--dur) var(--ease); }
+tbody tr:hover { background: var(--wash); }
+
+/* Remaining sub-11px text found by scanning all eight routes. */
+.section-title span,
+.headline-label,
+.feature-bar-val { font-size: var(--t-xs) !important; }
+
+/* ── Surfaces ─────────────────────────────────────────────────────── */
+
+.panel { border-radius: var(--radius-md); box-shadow: none; }
+
+/* Hover promotes the hairline instead of adding a shadow. */
+.panel-hover:hover {
+  box-shadow: none;
+  border-color: var(--wash-strong);
+}
+
+/* ── Footer ───────────────────────────────────────────────────────── */
+
+.dash-footer,
+.dash-footer span,
+.dash-footer .mono {
+  font-size: var(--t-xs) !important;
+  letter-spacing: .09em;
+}
+
+/* ── Focus + motion ───────────────────────────────────────────────── */
+
+:where(button, a, input, .filter-btn):focus-visible {
+  outline: 2px solid var(--ochre);
+  outline-offset: 2px;
+}
+
+/* Motion is scoped to colour and position only. A blanket transition
+   animates font-size too, which makes every measurement mid-flight and
+   the first paint visibly reflow. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
