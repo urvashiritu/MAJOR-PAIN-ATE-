@@ -446,18 +446,21 @@
                     <div class="flex-center gap-2">
                         <span class="section-title">Live-scored events</span>
                         <div class="table-controls">
-                            <button class="filter-btn active" id="live-filter-all" onclick="window._liveFilter='all';window._renderLiveTable()">All</button>
-                            <button class="filter-btn" id="live-filter-block" onclick="window._liveFilter='block';window._renderLiveTable()">Blocked</button>
-                            <button class="filter-btn" id="live-filter-flag" onclick="window._liveFilter='flag';window._renderLiveTable()">Flagged</button>
+                            <button class="filter-btn active" id="live-filter-all" aria-pressed="true" onclick="window._liveFilter='all';window._renderLiveTable()">All</button>
+                            <button class="filter-btn" id="live-filter-block" aria-pressed="false" onclick="window._liveFilter='block';window._renderLiveTable()">Blocked</button>
+                            <button class="filter-btn" id="live-filter-flag" aria-pressed="false" onclick="window._liveFilter='flag';window._renderLiveTable()">Flagged</button>
                         </div>
                     </div>
                     <span class="text-9 px-2 py-1 live-now-pill" style="border:1px solid var(--info);color:var(--info);border-radius:3px;letter-spacing:.06em">SCORED NOW</span>
                 </div>
                 <div class="overflow-auto" style="max-height:520px">
                     <table class="table-glass">
+                        <caption class="sr-only">Live-scored authentication events, newest first</caption>
                         <thead><tr>
-                            <th>Time</th><th>User</th><th>Source &rarr; Destination</th><th>Type</th>
-                            <th>Score</th><th>Decision</th><th>Why</th><th>Verdict</th>
+                            <th scope="col">Time</th><th scope="col">User</th>
+                            <th scope="col">Source &rarr; Destination</th><th scope="col">Type</th>
+                            <th scope="col">Score</th><th scope="col">Decision</th>
+                            <th scope="col">Why</th><th scope="col">Verdict</th>
                         </tr></thead>
                         <tbody id="live-tbody">
                             <tr><td colspan="8" class="text-center text-faint py-8">
@@ -1320,6 +1323,10 @@
         if (!host) {
             host = document.createElement('div');
             host.id = 'toast-host';
+            // Fallback host for pages without the markup in index.html.
+            host.setAttribute('role', 'status');
+            host.setAttribute('aria-live', 'polite');
+            host.setAttribute('aria-atomic', 'true');
             document.body.appendChild(host);
         }
         while (host.children.length >= 3) host.removeChild(host.firstChild);
@@ -1578,6 +1585,17 @@
                 && String(topId) !== String(window._lastLiveTopId);
             window._lastLiveTopId = topId;
 
+            // innerHTML replaces every row, destroying whatever node had focus.
+            // Remember the focused control so it can be restored after the paint
+            // -- otherwise an event every 250ms makes the table impossible to
+            // drive from the keyboard.
+            const focused = document.activeElement;
+            const focusedRow = focused && tbody.contains(focused)
+                ? focused.closest('tr[data-live-id]') : null;
+            const focusedRowId = focusedRow ? focusedRow.getAttribute('data-live-id') : null;
+            const focusedVerdict = focused && focused.getAttribute
+                ? focused.getAttribute('data-verdict') : null;
+
             tbody.innerHTML = evts.slice(0, 40).map((e, i) => {
                 const dec = String(e.decision || '').toLowerCase();
                 const col = dec === 'block' ? 'var(--critical)'
@@ -1612,7 +1630,9 @@
                     '</td>';
                 return '<tr class="clickable' + (i === 0 && isNewTop ? ' row-new' : '') +
                     '" data-live-id="' + esc(e.id) + '">' +
-                    '<td class="mono text-faint nowrap">' + esc(e.ts || '') + '</td>' +
+                    '<td class="mono text-faint nowrap"><button type="button" class="row-open" ' +
+                    'aria-label="Open details for ' + esc(name) + ' at ' + esc(e.ts || '') + '">' +
+                    esc(e.ts || '') + '</button></td>' +
                     userCell +
                     '<td class="mono nowrap">' + esc(e.src_computer || '?') + ' &rarr; ' + esc(e.dst_computer || '?') + '</td>' +
                     '<td class="mono text-faint nowrap">' + esc(auth) + '</td>' +
@@ -1624,6 +1644,16 @@
                     verdictCell +
                     '</tr>';
             }).join('');
+
+            // Put focus back on the same control if the rebuild destroyed it.
+            if (focusedRowId && focused && !focused.isConnected) {
+                const sameRow = tbody.querySelector(
+                    'tr[data-live-id="' + CSS.escape(String(focusedRowId)) + '"]');
+                const target = sameRow && (focusedVerdict
+                    ? sameRow.querySelector('button[data-verdict="' + focusedVerdict + '"]')
+                    : sameRow.querySelector('.row-open'));
+                if (target) target.focus({ preventScroll: true });
+            }
 
             if (!tbody._liveBound) {
                 tbody._liveBound = true;
@@ -1649,7 +1679,9 @@
         }
         ['all', 'block', 'flag'].forEach(f2 => {
             const btn = document.getElementById('live-filter-' + f2);
-            if (btn) btn.classList.toggle('active', f === f2);
+            if (!btn) return;
+            btn.classList.toggle('active', f === f2);
+            btn.setAttribute('aria-pressed', String(f === f2));
         });
         _paintLiveKpis();
     };
@@ -1779,6 +1811,11 @@
                 }
                 _liveEvents.push(event);
                 if (_liveEvents.length > 300) _liveEvents = _liveEvents.slice(-200);
+
+                // A hidden tab still buffers the event, but skips the toast and
+                // the repaint: nobody is looking, and the visibilitychange
+                // handler paints the current state when the tab comes back.
+                if (document.hidden) return;
                 showLiveToast(event);
 
                 // Employee sign-ins are scored live in-process and shown on the
@@ -2079,7 +2116,15 @@
             });
         }
         updateDateTime();
-        setInterval(updateDateTime, 1000);
+        // The clock only exists for a human looking at the screen, so skip the
+        // two Intl formatting calls per second while the tab is hidden.
+        setInterval(() => { if (!document.hidden) updateDateTime(); }, 1000);
+        // Paints are parked while hidden, so bring the table current on return.
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) return;
+            updateDateTime();
+            if (window._renderLiveTable) window._renderLiveTable();
+        });
         window.addEventListener('hashchange', route);
         route();
         startSSE();

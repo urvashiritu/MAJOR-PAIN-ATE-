@@ -1,5 +1,8 @@
 /* ── Theme tokens ──────────────────────────────────────────────── */
 :root {
+  /* Tells the browser which scheme the page is painted in, so native controls,
+     scrollbars and the pre-paint canvas follow the theme instead of guessing. */
+  color-scheme: light;
   --bg: #f2efe7;
   --surface: #faf8f2;
   --surface-2: #eeeae0;
@@ -27,6 +30,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --bg: #0b0e14;
   --surface: #10151d;
   --surface-2: #151a24;
@@ -105,9 +109,17 @@ button, select, input, textarea, code, kbd, samp {
   font-family: var(--font-mono);
 }
 ::selection { background: rgba(232, 163, 61, 0.25); }
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--ink-faint); border-radius: var(--radius-sm); }
+/* Standard scrollbar properties first. The webkit pseudo-elements are kept
+   only as a fallback for engines that do not support scrollbar-color yet. */
+html {
+  scrollbar-color: var(--ink-faint) transparent;
+  scrollbar-width: thin;
+}
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--ink-faint); border-radius: var(--radius-sm); }
+}
 a { color: inherit; text-decoration: none; }
 
 /* ── Layout ───────────────────────────────────────────────────── */
@@ -498,6 +510,23 @@ a { color: inherit; text-decoration: none; }
 }
 .table-glass tr:hover td { background: var(--wash); }
 .table-glass tr.clickable { cursor: pointer; }
+/* The timestamp is a real button so the row can be opened from the keyboard.
+   Styled flat so the row still reads as one line of data. */
+.row-open {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 1px 2px;
+  margin: -1px -2px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.row-open:focus-visible { outline-offset: 0; }
+@media (hover: hover) and (pointer: fine) {
+  .row-open:hover { color: var(--ink-dim); }
+}
 .overflow-auto { overflow: auto; }
 .overflow-hidden { overflow: hidden; }
 
@@ -1736,6 +1765,17 @@ tr.row-block:hover { background: rgba(229,72,77,0.10); }
 }
 
 /* ── Focus + accessibility ─────────────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 :focus-visible {
   outline: 2px solid var(--ochre);
   outline-offset: 2px;

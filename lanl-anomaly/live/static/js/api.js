@@ -1,4 +1,6 @@
 /* API fetch wrappers — live + dataset + SSE */
+/* Reconnect attempt counter for the SSE stream; reset on every successful open. */
+let _sseAttempts = 0;
 const API = {
     async dashboard() {
         const res = await fetch('/api/dashboard');
@@ -163,8 +165,14 @@ const API = {
         es.onerror = () => {
             if (callbacks.onError) callbacks.onError();
             es.close();
-            setTimeout(() => API.connectSSE(callbacks), 3000);
+            // Exponential backoff with jitter, capped at 30s. A fixed 3s retry
+            // makes every open tab hammer the server the moment it restarts.
+            _sseAttempts = Math.min(_sseAttempts + 1, 5);
+            const base = Math.min(30000, 1000 * Math.pow(2, _sseAttempts));
+            const delay = Math.round(base * (0.75 + Math.random() * 0.5));
+            setTimeout(() => API.connectSSE(callbacks), delay);
         };
+        es.onopen = () => { _sseAttempts = 0; };
         return es;
     }
 };
