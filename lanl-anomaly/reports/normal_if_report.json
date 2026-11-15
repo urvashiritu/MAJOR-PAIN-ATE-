@@ -1,0 +1,13 @@
+{
+  "model": "IsolationForest trained on benign events only",
+  "feature_count": 9,
+  "normal_training_rows": 200000,
+  "normal_calibration_rows": 50000,
+  "red_team_evaluation_rows": 702,
+  "calibration_target_fpr": 0.0001,
+  "calibration_observed_fpr": 0.0001,
+  "red_team_recall_at_calibration_threshold": 0.04415954415954416,
+  "sample_pr_auc": 0.6026030150590487,
+  "sample_roc_auc": 0.9908162108262107,
+  "note": "PR-AUC is on a sampled class mixture and is not a population estimate."
+}

@@ -70,6 +70,27 @@ LANL_DEV=1 venv/bin/python -m live.app
 #    The address is http://localhost:5000
 ```
 
+### Live SSH monitoring (Linux)
+
+Live Monitoring has a separate SSH audit table. It reads `USER_AUTH` records
+with `ausearch`; it does not send SSH events through the
+LANL model. On the monitored Linux host, make sure `auditd` is running and
+kernel auditing is enabled:
+
+```bash
+sudo systemctl enable --now auditd
+sudo auditctl -e 1
+sudo auditctl -s
+sudo ausearch -m USER_AUTH -ts recent -i
+```
+
+The account running Flask must be allowed to read the audit log. Keep Flask
+running as your normal account; do not run the web server as root just to read
+the log. If the audit table says `needs privilege`, configure audit-log access
+for that account on the monitored host. The table marks brute force after 5
+failed attempts from one IP within 5 minutes; this is a display rule, separate
+from the LANL model.
+
 The script fetches 1.5 GB from Git LFS. It does not fetch the database. Copy
 `lanl.duckdb.zst` into `data/raw/lanl/` before you run the script. A memory
 stick or a phone cable works. See `SETUP.md` for the instructions.

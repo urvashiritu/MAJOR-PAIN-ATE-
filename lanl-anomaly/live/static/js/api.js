@@ -67,6 +67,12 @@ const API = {
         return res.json();
     },
 
+    async replayAttackCases() {
+        const res = await fetch('/api/replay/attack_cases');
+        if (!res.ok) throw new Error(`replayAttackCases: ${res.status}`);
+        return res.json();
+    },
+
     /* Live-scored employee sign-ins. Separate from replayStatus: these are
        scored in-process by the employee login path, not replayed from the
        parquet. Ids are event times, NOT replay row indices -- do not pass a
@@ -74,6 +80,13 @@ const API = {
     async liveEvents() {
         const res = await fetch('/api/live_events');
         if (!res.ok) throw new Error(`liveEvents: ${res.status}`);
+        return res.json();
+    },
+
+    /* Host SSH audit events. Kept separate from LANL and company demo events. */
+    async sshEvents() {
+        const res = await fetch('/api/ssh/events');
+        if (!res.ok) throw new Error(`sshEvents: ${res.status}`);
         return res.json();
     },
 
@@ -131,6 +144,13 @@ const API = {
         const res = await fetch(`/api/user_profile/${encodeURIComponent(userId)}`);
         if (!res.ok) throw new Error(`userProfile: ${res.status}`);
         return res.json();
+    },
+
+    async blockDemoUser(userId) {
+        const res = await fetch(`/api/demo_users/${encodeURIComponent(userId)}/block`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `blockDemoUser: ${res.status}`);
+        return data;
     },
 
     async health() {

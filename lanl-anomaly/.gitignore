@@ -13,5 +13,7 @@ data/**/*.duckdb
 data/**/*.duckdb.wal
 data/**/*.zst
 data/**/*.csv.gz
+# LANL source data is copied in manually; keep it out of future commits.
+data/raw/lanl/
 node_modules/
 dist/

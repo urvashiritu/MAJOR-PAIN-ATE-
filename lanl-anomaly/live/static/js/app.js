@@ -22,6 +22,8 @@
     ];
 
     let _liveEvents = [];
+    let _sshPollTimer = null;
+    let _sshEventCache = [];
     let _replayProgress = null;
     let _activeCharts = [];
     let _sse = null;
@@ -414,17 +416,15 @@
     }
 
     /* ── Live Monitoring ────────────────────────────────────────────
-       Only events the model scored in this process (the employee sign-in
-       path). The pre-scored parquet window lives on the Replay Feed page:
-       streaming stored scores is not "live" and labelling it as such was
-       the reason this page was renamed. */
+       LANL employee sign-ins and host SSH audit events have separate tables
+       and data paths. The pre-scored parquet window stays on Replay Feed. */
     async function renderLiveMonitoring() {
         destroyCharts();
         setActiveNav('live');
 
         content.innerHTML = `
             ${pageHead('Monitor · Live', 'Live Monitoring',
-                'Authentication events scored in this process, as they arrive. These carry no ground-truth label.')}
+                'Live employee sign-ins plus a separate host SSH audit feed. SSH events are not scored by the LANL model.')}
 
             <div class="grid-4 gap-4 mb-4" id="live-kpi-grid">
                 ${LIVE_KPI_DEFS.map(k => kpiCard(
@@ -457,12 +457,31 @@
                     <table class="table-glass">
                         <thead><tr>
                             <th>Time</th><th>User</th><th>Source &rarr; Destination</th><th>Type</th>
-                            <th>Score</th><th>Decision</th><th>Why</th>
+                            <th>Model score</th><th>Profile deviation</th><th>Decision</th><th>Why</th>
                         </tr></thead>
                         <tbody id="live-tbody">
-                            <tr><td colspan="7" class="text-center text-faint py-8">
+                            <tr><td colspan="8" class="text-center text-faint py-8">
                                 No live sign-ins scored yet. <a class="view-all" href="/login">Sign in as an employee</a> to trigger real-time scoring.
                             </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="panel overflow-hidden mt-4">
+                <div class="flex-between px-4 py-3 hairline">
+                    <div>
+                        <div class="section-title">Live SSH Authentication</div>
+                        <div class="text-9 text-faint mt-1">Host audit records · brute force is marked after 5 failures from one IP within 5 minutes</div>
+                    </div>
+                    <span id="ssh-monitor-status" class="text-9 px-2 py-1" style="border:1px solid var(--ochre);color:var(--ochre);border-radius:3px;letter-spacing:.04em">CONNECTING</span>
+                </div>
+                <div id="ssh-monitor-message" class="px-4 py-2 text-9 text-faint hairline">Connecting to Linux Audit…</div>
+                <div class="overflow-auto" style="max-height:360px">
+                    <table class="table-glass">
+                        <thead><tr><th>Time</th><th>Source IP</th><th>Account</th><th>Result</th><th>Detection</th><th>Details</th></tr></thead>
+                        <tbody id="ssh-events-tbody">
+                            <tr><td colspan="6" class="text-center text-faint py-6">Waiting for SSH authentication events…</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -470,7 +489,60 @@
 
         window._renderLiveTable();
         await window._loadLiveEvents();
+        if (_sshPollTimer) clearInterval(_sshPollTimer);
+        await _refreshSshEvents();
+        _sshPollTimer = setInterval(() => {
+            if (getPage() !== 'live') {
+                clearInterval(_sshPollTimer);
+                _sshPollTimer = null;
+                return;
+            }
+            _refreshSshEvents();
+        }, 2000);
         _paintLiveKpis();
+    }
+
+    async function _refreshSshEvents() {
+        const body = document.getElementById('ssh-events-tbody');
+        if (!body) return;
+        try {
+            const data = await API.sshEvents();
+            _sshEventCache = Array.isArray(data.events) ? data.events : [];
+            const pill = document.getElementById('ssh-monitor-status');
+            const message = document.getElementById('ssh-monitor-message');
+            if (pill) {
+                const ready = !!data.available;
+                pill.textContent = ready ? 'AUDIT CONNECTED' : String(data.state || 'UNAVAILABLE').replaceAll('_', ' ').toUpperCase();
+                pill.style.borderColor = ready ? 'var(--low)' : 'var(--ochre)';
+                pill.style.color = ready ? 'var(--low)' : 'var(--ochre)';
+            }
+            if (message) message.textContent = data.message || 'No audit status available.';
+            const evts = _sshEventCache.slice().reverse().slice(0, 100);
+            if (!evts.length) {
+                body.innerHTML = '<tr><td colspan="6" class="text-center text-faint py-6">' +
+                    (data.available ? 'No SSH authentication events received yet.' : 'SSH event feed is waiting for Linux Audit access.') +
+                    '</td></tr>';
+                return;
+            }
+            body.innerHTML = evts.map(e => {
+                const attack = e.classification === 'BRUTE FORCE';
+                const success = e.result === 'SUCCESS';
+                const color = attack ? 'var(--critical)' : success ? 'var(--low)' : 'var(--ochre)';
+                return '<tr>' +
+                    '<td class="mono text-faint nowrap">' + esc(e.ts || '') + '</td>' +
+                    '<td class="mono">' + esc(e.source_ip || 'Unknown') + '</td>' +
+                    '<td class="mono">' + esc(e.username || 'Unknown') + '</td>' +
+                    '<td style="color:' + color + ';font-weight:600">' + esc(e.result || '') + '</td>' +
+                    '<td style="color:' + color + ';font-weight:600">' + esc(e.classification || '') + '</td>' +
+                    '<td class="text-faint">' + esc(e.message || '') + '</td>' +
+                    '</tr>';
+            }).join('');
+        } catch (err) {
+            const pill = document.getElementById('ssh-monitor-status');
+            const message = document.getElementById('ssh-monitor-message');
+            if (pill) pill.textContent = 'FEED ERROR';
+            if (message) message.textContent = 'Could not load SSH audit events.';
+        }
     }
 
     /* KPI tiles on the live page are counted from _liveEvents, not from the
@@ -501,8 +573,8 @@
         setActiveNav('dashboard');
 
         content.innerHTML = `
-            ${pageHead('Monitor · Replay', 'Replay Feed',
-                'Replaying real recorded logins from a 33-minute LANL window. Ground truth is shown ' +
+            ${pageHead('Monitor · Historical Replay', 'Historical Events',
+                'Recorded LANL logins streamed in timestamp order. Ground truth is shown ' +
                 'next to every event, so you can see exactly which attacks the model caught, which ' +
                 'it missed, and what it wrongly flagged.' +
                 '<span class="page-lede-sub">The four numbers directly below are the model\'s real ' +
@@ -516,6 +588,17 @@
                 <div class="headline-stat"><span class="headline-num" id="hl-rate">&mdash;</span><span class="headline-label" id="hl-rate-label">Detection rate</span></div>
             </div>
             <div class="text-11 text-faint mb-4" id="hl-population"></div>
+
+            <div class="panel overflow-hidden mb-4">
+                <div class="flex-between px-4 py-3 hairline">
+                    <div><div class="section-title">Previous LANL Attack Events</div><div class="text-10 text-faint mt-1">Confirmed red-team login records from the historical window, with the model’s recorded decision.</div></div>
+                    <span class="text-9 px-2 py-1" style="border:1px solid var(--critical);color:var(--critical);border-radius:3px;letter-spacing:.06em">GROUND TRUTH</span>
+                </div>
+                <div class="overflow-auto" style="max-height:300px">
+                    <table class="table-glass"><thead><tr><th>Dataset time</th><th>User</th><th>Source &rarr; Destination</th><th>Auth</th><th>Score</th><th>Model decision</th><th>Label</th></tr></thead>
+                    <tbody id="historical-attacks-tbody"><tr><td colspan="7" class="text-center text-faint py-5">Loading historical attack cases…</td></tr></tbody></table>
+                </div>
+            </div>
 
             <div class="text-11 text-faint mb-2">Replay window &mdash; this session only (not the held-out figures above)</div>
             <div class="grid-4 gap-4 mb-4" id="kpi-grid">
@@ -581,6 +664,7 @@
                                 <option value="40" selected>40/s</option>
                                 <option value="150">150/s</option>
                                 <option value="500">500/s</option>
+                                <option value="1000">1000/s</option>
                             </select>
                             <span id="replay-stats" class="text-10 text-faint" style="margin-left:auto"></span>
                         </div>
@@ -637,6 +721,7 @@
             </div>`;
 
         await loadDashboard();
+        loadHistoricalAttackCases();
         loadHeadlineBar();
         initLiveCharts();
         updateLiveCharts();
@@ -687,6 +772,27 @@
             if (mm && mm.held_out) set('hl-auc', Number(mm.held_out.pr_auc).toFixed(4));
         } catch (e) {
             // A missing headline is not worth breaking the dashboard over.
+        }
+    }
+
+    async function loadHistoricalAttackCases() {
+        const tbody = document.getElementById('historical-attacks-tbody');
+        if (!tbody) return;
+        try {
+            const events = await API.replayAttackCases();
+            tbody.innerHTML = events.length ? events.map(e => {
+                const decision = String(e.decision || 'allow').toLowerCase();
+                const color = decision === 'block' ? 'var(--critical)' : decision === 'flag' ? 'var(--ochre)' : 'var(--low)';
+                return '<tr><td class="mono text-faint">T+' + fmtOffset(e.offset) + '</td>' +
+                    '<td class="mono">' + esc(humanizeUser(e.user_id)) + '</td>' +
+                    '<td class="mono nowrap">' + esc(e.src_computer) + ' &rarr; ' + esc(e.dst_computer) + '</td>' +
+                    '<td class="text-faint">' + esc(e.auth_type || 'Unknown') + '</td>' +
+                    '<td class="mono" style="color:' + color + '">' + formatScore(e.anomaly_score) + '</td>' +
+                    '<td style="color:' + color + ';font-weight:600">' + esc(decision.toUpperCase()) + '</td>' +
+                    '<td style="color:var(--critical);font-weight:700">RED TEAM</td></tr>';
+            }).join('') : '<tr><td colspan="7" class="text-center text-faint py-5">No labeled attacks in this replay window.</td></tr>';
+        } catch (error) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-faint py-5">Could not load historical attack cases.</td></tr>';
         }
     }
 
@@ -882,6 +988,17 @@
                     </div>`).join('')}
             </div>
 
+            <div class="panel overflow-hidden mb-4">
+                <div class="flex-between px-4 py-3 hairline">
+                    <div><span class="section-title">Flagged Company Demo Sign-ins</span><span class="text-9 text-faint ml-2">SIMULATED</span></div>
+                    <span class="text-10 text-faint" id="company-blocks-total">0 flagged</span>
+                </div>
+                <div class="overflow-auto"><table class="table-glass"><thead><tr><th>Time</th><th>User profile</th><th>Source → destination</th><th>IP</th><th>Deviation</th><th>Outcome</th></tr></thead>
+                    <tbody id="company-blocks-tbody"><tr><td colspan="6" class="text-center text-faint py-4">Loading demo blocks…</td></tr></tbody>
+                </table></div>
+                <div class="text-10 text-faint px-4 py-2">Select a flagged user's row to review reasons and optionally block the account.</div>
+            </div>
+
             <div class="panel overflow-hidden">
                 <div class="flex-between px-4 py-3 hairline" style="gap:10px;flex-wrap:wrap">
                     <div class="flex-center gap-2">
@@ -917,6 +1034,30 @@
                     </table>
                 </div>
             </div>`;
+
+        try {
+            const liveEvents = await API.liveEvents();
+            const flagged = liveEvents.filter(e => e.decision_basis === 'normal_profile' && e.profile_match === false);
+            const tbody = document.getElementById('company-blocks-tbody');
+            const total = document.getElementById('company-blocks-total');
+            if (total) total.textContent = flagged.length + ' flagged';
+            if (tbody) tbody.innerHTML = flagged.length ? flagged.slice().reverse().map(e =>
+                '<tr class="clickable" data-company-user="' + esc(e.user_id) + '">' +
+                '<td class="mono text-faint">' + esc(e.ts || '') + '</td>' +
+                '<td class="font-semibold">' + esc(e.name || humanizeUser(e.user_id)) + '<div class="text-9 text-faint mono">' + esc(e.user_id) + '</div></td>' +
+                '<td class="mono nowrap">' + esc(e.src_computer || '?') + ' &rarr; ' + esc(e.dst_computer || '?') + '</td>' +
+                '<td class="mono">' + esc(e.source_ip || '—') + '</td>' +
+                '<td class="mono">' + Math.round(Number(e.profile_deviation_score || 0) * 100) + '%</td>' +
+                '<td><span class="stamp stamp-medium">FLAGGED</span></td></tr>'
+            ).join('') : '<tr><td colspan="6" class="text-center text-faint py-4">No flagged company demo sign-ins yet.</td></tr>';
+            if (tbody) tbody.addEventListener('click', e => {
+                const row = e.target.closest('tr[data-company-user]');
+                if (row) openUserProfile(row.dataset.companyUser);
+            });
+        } catch (err) {
+            const tbody = document.getElementById('company-blocks-tbody');
+            if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center text-faint py-4">Could not load company demo blocks.</td></tr>';
+        }
 
         try {
             const users = await API.users();
@@ -1041,6 +1182,20 @@
                     <button class="drawer-close" id="drawer-close-btn" type="button" aria-label="Close user profile">&times;</button>
                 </div>
 
+                ${(data.companyDemoFlags || []).length ? `
+                    <div class="panel-inset p-3" style="border-color:var(--critical)">
+                        <div class="drawer-section-title" style="color:var(--medium)">Flagged Company Demo Sign-ins</div>
+                        ${(data.companyDemoFlags || []).slice().reverse().map(e => `
+                            <div class="py-2" style="border-top:1px solid var(--hairline)">
+                                <div class="flex-between text-11"><span>${esc(e.ts || '')} · ${esc(e.src_computer || '?')} → ${esc(e.dst_computer || '?')}</span><span class="stamp stamp-medium">FLAGGED</span></div>
+                                <div class="text-10 text-faint mt-1">Profile deviation: ${Math.round(Number(e.profile_deviation_score || 0) * 100)}%${e.source_ip ? ' · IP ' + esc(e.source_ip) : ''}</div>
+                                <div class="text-11 mt-1">${esc(e.reasons || 'Profile deviation detected.')}</div>
+                            </div>`).join('')}
+                        ${data.demo_user ? `<div class="flex-between mt-2"><span id="manual-block-status" class="text-10 text-faint">${data.manuallyBlocked ? 'Blocked by analyst; future sign-ins will be denied.' : 'User is not blocked.'}</span><button id="manual-block-user" class="${data.manuallyBlocked ? 'btn-muted' : 'btn-ochre'}" ${data.manuallyBlocked ? 'disabled' : ''}>${data.manuallyBlocked ? 'Blocked' : 'Block user'}</button></div>` : ''}
+                    </div>` : ''}
+
+                ${!(data.companyDemoFlags || []).length && data.demo_user && data.manuallyBlocked ? `<div class="panel-inset p-3" style="border-color:var(--critical)"><div class="flex-between"><span class="text-11 text-critical">Blocked by analyst; future sign-ins will be denied.</span><button class="btn-muted" disabled>Blocked</button></div></div>` : ''}
+
                 <!-- Training Baseline -->
                 <div class="panel-inset p-3">
                     <div class="drawer-section-title">Training Dataset Baseline</div>
@@ -1150,6 +1305,21 @@
         }
 
         overlay.querySelector('#drawer-close-btn').addEventListener('click', closeDrawer);
+        const blockButton = overlay.querySelector('#manual-block-user');
+        if (blockButton) blockButton.addEventListener('click', async () => {
+            blockButton.disabled = true;
+            try {
+                await API.blockDemoUser(data.user_id);
+                blockButton.textContent = 'Blocked';
+                blockButton.className = 'btn-muted';
+                const status = overlay.querySelector('#manual-block-status');
+                if (status) status.textContent = 'Blocked by analyst; future sign-ins will be denied.';
+            } catch (err) {
+                blockButton.disabled = false;
+                const status = overlay.querySelector('#manual-block-status');
+                if (status) status.textContent = 'Could not block user. Try again.';
+            }
+        });
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) closeDrawer();
         });
@@ -1483,7 +1653,7 @@
         else if (window._evtFilter !== 'all') evts = evts.filter(e => e.decision === window._evtFilter);
 
         if (!evts.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-faint py-8">' +
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-faint py-8">' +
                 'Press Play to replay real scored LANL events.</td></tr>';
             ['all', 'block', 'flag', 'attack'].forEach(f => {
                 const b = document.getElementById('evt-filter-' + f);
@@ -1562,8 +1732,20 @@
                 const dec = String(e.decision || '').toLowerCase();
                 const col = dec === 'block' ? 'var(--critical)'
                     : dec === 'flag' ? 'var(--ochre)' : 'var(--low)';
-                const score = Number(e.combined_score != null ? e.combined_score : e.anomaly_score);
-                const why = e.reasons || '';
+                // Company demo verdicts come from the saved-profile comparison;
+                // combined_score is its deviation fraction (zero for a match).
+                // Keep the table's Score column consistent with the company
+                // page and show the actual model output for those sign-ins.
+                const scoreValue = e.decision_basis === 'normal_profile'
+                    ? e.anomaly_score
+                    : (e.combined_score != null ? e.combined_score : e.anomaly_score);
+                const score = Number(scoreValue);
+                const deviation = e.profile_deviation_score == null
+                    ? null : Number(e.profile_deviation_score);
+                const deviationLabel = deviation == null || !isFinite(deviation)
+                    ? '—' : deviation.toFixed(2) + ' (' + Math.round(deviation * 100) + '%)';
+                const why = e.decision_basis === 'normal_profile' && e.profile_match === false
+                    ? 'Flagged. Open user profile to view reasons.' : (e.reasons || '');
                 const uid = e.user_id || '';
                 const rawName = e.name || humanizeUser(uid);
                 const name = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : 'Unknown';
@@ -1587,6 +1769,7 @@
                     '<td class="mono nowrap">' + esc(e.src_computer || '?') + ' &rarr; ' + esc(e.dst_computer || '?') + '</td>' +
                     '<td class="mono text-faint nowrap">' + esc(auth) + '</td>' +
                     '<td class="mono" style="color:' + col + '">' + formatScore(score) + '</td>' +
+                    '<td class="mono nowrap" title="Share of tracked profile values that differ" style="color:' + (e.profile_match === false ? 'var(--ochre)' : 'var(--ink-faint)') + '">' + esc(deviationLabel) + '</td>' +
                     '<td style="color:' + col + ';font-weight:600">' + esc(dec.toUpperCase()) + '</td>' +
                     // One line with the full text on hover. Unclamped this wrapped
                     // to seven lines and pushed everything else off the screen.
@@ -1601,7 +1784,8 @@
                     if (!tr) return;
                     const id = tr.getAttribute('data-live-id');
                     const evt = _liveEvents.find(x => String(x.id) === String(id));
-                    if (evt && typeof liveEventDrawer === 'function') liveEventDrawer(evt);
+                    if (evt && evt.decision_basis === 'normal_profile') openUserProfile(evt.user_id);
+                    else if (evt && typeof liveEventDrawer === 'function') liveEventDrawer(evt);
                 });
             }
         }

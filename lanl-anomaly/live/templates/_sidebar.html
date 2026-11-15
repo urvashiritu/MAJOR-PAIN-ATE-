@@ -12,6 +12,10 @@
 
     <div class="nav-group">
         <div class="nav-group-label">Monitor</div>
+        <a href="/company" class="sidebar-item" target="_blank" rel="noopener">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5 6h6M5 9h3"/></svg></span>
+            <span class="nav-label">Company Demo Site ↗</span>
+        </a>
         <a href="/analyst#/live" class="sidebar-item{% if active == 'live' %} active{% endif %}"{% if active == 'live' %} aria-current="page"{% endif %} data-page="live" id="nav-live">
             <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8h2.4l1.6-4 2.6 8 1.7-4h4.7"/></svg></span>
             <span class="nav-label">Live Monitoring</span>
@@ -19,7 +23,7 @@
         </a>
         <a href="/analyst#/dashboard" class="sidebar-item{% if active == 'dashboard' %} active{% endif %}"{% if active == 'dashboard' %} aria-current="page"{% endif %} data-page="dashboard">
             <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.5v3h3"/><path d="M6.5 6.4 8 9l2-1.2"/></svg></span>
-            <span class="nav-label">Replay Feed</span>
+            <span class="nav-label">Historical Events</span>
         </a>
         <a href="/analyst#/alerts" class="sidebar-item{% if active == 'alerts' %} active{% endif %}"{% if active == 'alerts' %} aria-current="page"{% endif %} data-page="alerts">
             <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6.5a4 4 0 0 1 8 0c0 3 1 4 1 4H3s1-1 1-4Z"/><path d="M6.5 13a1.6 1.6 0 0 0 3 0"/></svg></span>

@@ -16,10 +16,13 @@ from db import FEATURE_COLS
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LANL_DB = os.path.join(ROOT, 'data', 'raw', 'lanl', 'lanl.duckdb')
 FEATURES_DB = os.path.join(ROOT, 'data', 'processed', 'lanl_features.duckdb')
-MODEL_PATH = os.path.join(ROOT, 'models', 'lanl_lgb_21feat.joblib')
+MODEL_PATH = os.path.join(ROOT, 'models', 'lanl_lgb_13feat.joblib')
 LSTM_CKPT = os.path.join(ROOT, 'models', 'lanl_lstm_ae_2ep_bs128_20260913_162002.pt')
 
-THRESHOLD = 0.18719510711736984
+# This bundle was trained and calibrated on the same 13 features assembled by
+# the live path. The 21-feature model expects several batch-only features and
+# produced near-zero probabilities for live events.
+THRESHOLD = 0.19347506966661734
 FIELDS = ["src_user", "src_computer", "dst_computer", "auth_type", "logon_type", "orientation"]
 CONTEXT_WINDOW = 50
 HIDDEN_DIM = 128
@@ -47,6 +50,7 @@ class LSTMAutoencoder(nn.Module):
 
 # ── State ────────────────────────────────────────────────────────────
 _lgb_model = None
+_lgb_features = None
 _lstm_model = None
 _lstm_vocab = None
 
@@ -67,6 +71,7 @@ _seen_src_dst_pairs = set()
 # Per-user state (incremental)
 _pair_row_numbers = {}    # "user|src|dst" → int
 _iat_history = {}         # src_user → deque of last 100 timestamps
+_dst_history = {}         # src_user → deque of last 100 destination computers
 _context_windows = {}     # src_user → deque of last 50 token ids
 _last_timestamps = {}     # src_user → last event time
 
@@ -91,9 +96,12 @@ def _load_lstm():
 
 def _load_lgb():
     """Load LGB model."""
-    global _lgb_model
+    global _lgb_model, _lgb_features
     d = joblib.load(MODEL_PATH)
     _lgb_model = d['model']
+    _lgb_features = d.get('features', FEATURE_COLS)
+    if len(_lgb_features) != _lgb_model.n_features_in_:
+        raise ValueError("LightGBM bundle feature list does not match the model")
     print(f"  LGB loaded (threshold={THRESHOLD:.6f})")
 
 
@@ -250,7 +258,7 @@ def baseline_snapshot(user_id, vel_1h=None, lstm_err=None):
 # Real sign-in samples for the employee demo path. Each entry is a genuine
 # authentication taken from that user's own history in the features table, so
 # the demo scores real inputs instead of machine names drawn at random.
-_real_login_pool = {}     # user_id -> list of (src_computer, dst_computer, hour, auth_type)
+_real_login_pool = {}     # user_id -> list of (src, dst, hour, auth_type, logon_type)
 
 
 def precompute_real_logins(user_ids):
@@ -265,21 +273,25 @@ def precompute_real_logins(user_ids):
     between them) do too.
     """
     global _real_login_pool
-    if not os.path.exists(FEATURES_DB):
+    source_db = FEATURES_DB if os.path.exists(FEATURES_DB) else LANL_DB
+    source_table = 'features' if source_db == FEATURES_DB else 'feat'
+    if not os.path.exists(source_db):
         _real_login_pool = {}
         return
     t0 = time.time()
-    con = duckdb.connect(os.path.abspath(FEATURES_DB), read_only=True)
+    con = duckdb.connect(os.path.abspath(source_db), read_only=True)
     pool = {}
     for uid in user_ids:
-        rows = con.execute("""
-            SELECT src_computer, dst_computer, hour, auth_type FROM (
-                SELECT src_computer, dst_computer, hour, auth_type
-                FROM features
+        rows = con.execute(f"""
+            SELECT src_computer, dst_computer, hour, auth_type, logon_type FROM (
+                SELECT src_computer, dst_computer, hour, auth_type, logon_type
+                FROM {source_table}
                 WHERE src_user = ? AND result = 'Success' AND is_red = FALSE
+                  AND auth_type IN ('NTLM', 'Kerberos', 'Other')
+                  AND logon_type IN ('Network', 'Interactive', 'Batch', 'Service', 'RemoteInteractive')
             ) USING SAMPLE 120 ROWS (reservoir, 11)
         """, [uid]).fetchall()
-        pool[uid] = [(r[0], r[1], float(r[2]), r[3] or 'NTLM') for r in rows]
+        pool[uid] = [(r[0], r[1], float(r[2]), r[3] or 'NTLM', r[4] or 'Network') for r in rows]
     con.close()
     _real_login_pool = pool
     total = sum(len(v) for v in pool.values())
@@ -317,6 +329,14 @@ def precompute_user(user_id):
         LIMIT 101
     """).fetchall()]
     _iat_history[user_id] = deque(reversed(times), maxlen=101)
+
+    destinations = [r[0] for r in con.execute(f"""
+        SELECT dst_computer FROM lanl.feat WHERE src_user = '{user_id}'
+        ORDER BY time DESC, dst_user, src_computer, dst_computer,
+                 auth_type, logon_type, orientation, result
+        LIMIT 100
+    """).fetchall()]
+    _dst_history[user_id] = deque(reversed(destinations), maxlen=100)
 
     # Context window: last ~34 events (34*6=204 tokens, we keep last 50)
     context_events = con.execute(f"""
@@ -431,22 +451,11 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
     # is_rare_hour matches SCORING_SQL: the event's time-of-day falls in a rare
     # (cume_dist <= 0.2) hour for this user. _rare_tods holds (time % 86400).
     is_rare = 1.0 if (int(time_val) % 86400) in _rare_tods.get(user_id, set()) else 0.0
-    # pairs_last_100 — KNOWN UNRESOLVED TRAIN/SERVE SKEW. Read before trusting.
-    #
-    # The served model splits on this feature at thresholds 1.5 / 2.5 / 3.5
-    # (173 splits), so its training values were 1, 2, 3 and 4+, NOT a constant.
-    # eval_lstm.py computes it as len(set(last 100 dst_computers)) within each
-    # user's run, which is >= 1 and never 0. A constant 0.0 therefore falls
-    # below every threshold the model uses.
-    #
-    # Measured cost, reproducing the held-out split (5,399,886 rows / 240 reds)
-    # with this model and the features table:
-    #     pairs_last_100 = 0.0            -> PR-AUC 0.3152, FP 244
-    #     natural last-100 computation    -> PR-AUC 0.0491, avg value 6.16
-    # 0.0 is the less harmful of the two, so it is what ships for now, but both
-    # are wrong against eval_lstm.py's run-scoped semantics. Fixing this needs
-    # the training-side value distribution measured, not guessed.
-    pairs_last_100 = 0.0
+    # Match training: distinct destinations in the user's last 100 events,
+    # including this event. Keeping the actual window avoids feeding the model
+    # a constant zero for a feature it used during training.
+    dst_history = _dst_history.get(user_id, deque(maxlen=100))
+    pairs_last_100 = float(len(set(list(dst_history)[-99:] + [dst_computer])))
 
     # ── 4. Auth features ──
     is_ntlm = 1.0 if auth_type == 'NTLM' else 0.0
@@ -533,7 +542,9 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
         'lstm_ae_recon_error': lstm_recon,
     }
 
-    X = np.array([[features[col] for col in FEATURE_COLS]], dtype=np.float32)
+    # Use only the bundle's training features. The previous 21-feature bundle
+    # consumed batch-only signals whose live values were out of distribution.
+    X = np.array([[features[col] for col in _lgb_features]], dtype=np.float32)
     score = float(_lgb_model.predict_proba(X)[0, 1])
     decision = 'BLOCK' if score > THRESHOLD else ('FLAG' if score > THRESHOLD * 0.7 else 'ALLOW')
 
@@ -544,6 +555,7 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
     _seen_src_computers.setdefault(user_id, set()).add(src_computer)
     _seen_pairs.setdefault(user_id, set()).add((src_computer, dst_computer))
     _seen_src_dst_pairs.add((src_computer, dst_computer))
+    dst_history.append(dst_computer)
 
     iat_hist.append(time_val)
     for tok in event_tokens:

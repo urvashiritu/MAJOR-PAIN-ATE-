@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Northstar | Secure Access Demo</title>
+    <link rel="stylesheet" href="/static/css/company.css">
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" href="/company"><span class="brand-mark">N</span><span>NORTHSTAR<span class="brand-sub">SYSTEMS</span></span></a>
+        <nav><a href="#security">Security</a><a href="#access">Employee access</a><a class="soc-link" href="/analyst#/live">SOC monitor ↗</a></nav>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="hero-copy">
+                <div class="eyebrow"><span class="pulse"></span> NORTHSTAR IDENTITY · DEMO ENVIRONMENT</div>
+                <h1>Every sign-in<br>has a story.</h1>
+                <p>Use a saved normal profile for each demo employee. Matching details pass; changing a tracked field is flagged as a profile deviation.</p>
+                <a class="primary-link" href="#access">Open access simulator <span>↓</span></a>
+                <div class="hero-note">DEMO ONLY · No connection to a real company or network</div>
+            </div>
+            <div class="hero-visual" aria-label="Access security summary">
+                <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+                <div class="shield"><span>✦</span></div>
+                <div class="signal signal-a"><i></i> Identity verified</div>
+                <div class="signal signal-b"><i></i> Behavior monitored</div>
+                <div class="visual-caption">IDENTITY · CONTEXT · TRUST</div>
+            </div>
+        </section>
+
+        <section class="access-section" id="access">
+            <div class="section-heading">
+                <div><div class="eyebrow">LIVE ACCESS SIMULATOR</div><h2>Try a sign-in</h2></div>
+                <div class="data-chip"><span></span> LANL-based demo profiles</div>
+            </div>
+            <div class="access-grid">
+                <div class="access-card">
+                    <div class="card-kicker">SIGN-IN DETAILS</div>
+                    <label for="employee">Choose a demo employee</label>
+                    <select id="employee" onchange="applyEmployeeDefaults()">
+                        {% for employee in employees %}
+                        <option value="{{ employee.username }}" data-id="{{ employee.user_id }}" data-src="{{ employee.src }}" data-dst="{{ employee.dst }}" data-auth="{{ employee.auth_type }}" data-logon="{{ employee.logon_type }}" data-ip="{{ employee.source_ip }}">{{ employee.name }} · {{ employee.user_id }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="field-grid">
+                        <div><label for="src-computer">Source computer</label><input id="src-computer" list="machine-list" autocomplete="off" required></div>
+                        <div><label for="dst-computer">Destination computer</label><input id="dst-computer" list="machine-list" autocomplete="off" required></div>
+                        <div><label for="source-ip">Source IP <span class="context-only">context only</span></label><input id="source-ip" value="10.24.8.16" inputmode="decimal"></div>
+                        <div><label for="auth-type">Authentication</label><select id="auth-type"><option>NTLM</option><option>Kerberos</option><option>Other</option></select></div>
+                        <div><label for="logon-type">Logon type</label><select id="logon-type"><option>Network</option><option>Interactive</option><option>Batch</option><option>Service</option><option>RemoteInteractive</option></select></div>
+                        <div><label>Event time</label><div class="field-readonly">Advances 1 minute from the LANL history baseline</div></div>
+                    </div>
+                    <datalist id="machine-list">{% for machine in machines %}<option value="{{ machine }}">{% endfor %}</datalist>
+                    <div class="scenario-note">The exact saved profile is the normal case. Changing source computer, destination, IP, authentication, or logon type is flagged and the changed fields are shown as reasons. The LightGBM score is also shown separately. IP is a demo-only profile field; LANL has no IP data.</div>
+                    <button id="signin-button" class="button button-submit" onclick="sendSignIn()"><span>→</span> Submit sign-in for risk review</button>
+                </div>
+                <div class="result-card" id="result-card" aria-live="polite">
+                    <div class="card-kicker">LATEST PROFILE CHECK</div>
+                    <div class="empty-result" id="empty-result"><div class="empty-icon">↗</div><h3>Ready when you are</h3><p>Submit the saved profile to pass, or change a field to see a profile deviation. The LightGBM score is shown separately.</p></div>
+                    <div id="result-content" hidden>
+                        <div class="result-top"><div><div class="result-user" id="result-user"></div><div class="result-route" id="result-route"></div></div><span id="result-decision" class="decision"></span></div>
+                        <div class="score-line"><span>PROFILE DEVIATION</span><strong id="profile-score"></strong></div>
+                        <div class="score-line"><span>LIGHTGBM REFERENCE SCORE</span><strong id="result-score"></strong></div>
+                        <div class="score-track"><i id="score-fill"></i></div>
+                        <div class="reason" id="result-reason"></div>
+                        <div class="sim-tag">FINAL DECISION: SAVED PROFILE CHECK · LIGHTGBM SCORE IS REFERENCE ONLY</div>
+                    </div>
+                    <div class="loading" id="loading" hidden>Scoring sign-in<span>•••</span></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="access-section" id="normal-profiles">
+            <div class="section-heading"><div><div class="eyebrow">REFERENCE</div><h2>Saved normal profiles</h2></div><div class="data-chip"><span></span> LANL normal sign-ins + demo IPs</div></div>
+            <div class="access-card profile-list"><div class="card-kicker">PROFILE VALUES THAT PASS</div>
+                <div class="profile-table-wrap"><table><thead><tr><th>Employee</th><th>Source computer</th><th>Destination</th><th>Source IP</th><th>Authentication</th><th>Logon type</th></tr></thead><tbody>
+                    {% for employee in employees %}<tr><td>{{ employee.name }}</td><td class="mono">{{ employee.src }}</td><td class="mono">{{ employee.dst }}</td><td class="mono">{{ employee.source_ip }}</td><td>{{ employee.auth_type }}</td><td>{{ employee.logon_type }}</td></tr>{% endfor %}
+                </tbody></table></div>
+                <div class="scenario-note">These computer and authentication values come from a successful non-attack LANL event for that employee. IP addresses are invented demo values because LANL does not record IPs.</div>
+            </div>
+        </section>
+
+        <section class="security-strip" id="security">
+            <div><div class="eyebrow">HOW THE DEMO WORKS</div><h2>Behavior matters as much as identity.</h2></div>
+            <p>Each sign-in gets a LightGBM score and a check against a saved normal profile. Profile changes appear as alerts in the SOC monitor with the changed fields as reasons.</p>
+            <a href="/analyst#/live">View SOC monitor <span>→</span></a>
+        </section>
+    </main>
+
+    <footer><span>NORTHSTAR SYSTEMS</span><span>Academic security analytics demonstration · Simulated events only</span></footer>
+    <script>
+        function applyEmployeeDefaults() {
+            const option = document.getElementById('employee').selectedOptions[0];
+            document.getElementById('src-computer').value = option.dataset.src;
+            document.getElementById('dst-computer').value = option.dataset.dst;
+            document.getElementById('auth-type').value = option.dataset.auth || 'NTLM';
+            document.getElementById('logon-type').value = option.dataset.logon || 'Network';
+            document.getElementById('source-ip').value = option.dataset.ip || '';
+        }
+        applyEmployeeDefaults();
+        async function sendSignIn() {
+            const button = document.getElementById('signin-button');
+            button.disabled = true;
+            document.getElementById('empty-result').hidden = true;
+            document.getElementById('result-content').hidden = true;
+            document.getElementById('loading').hidden = false;
+            try {
+                const response = await fetch('/api/company/event', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        username: document.getElementById('employee').value,
+                        src_computer: document.getElementById('src-computer').value,
+                        dst_computer: document.getElementById('dst-computer').value,
+                        source_ip: document.getElementById('source-ip').value,
+                        auth_type: document.getElementById('auth-type').value,
+                        logon_type: document.getElementById('logon-type').value
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Could not score this sign-in');
+                const event = data.event;
+                document.getElementById('result-user').textContent = event.name + ' · ' + event.user_id;
+                document.getElementById('result-route').textContent = event.src_computer + ' → ' + event.dst_computer + (event.source_ip ? ' · ' + event.source_ip : '') + ' · ' + event.auth_type;
+                const decision = document.getElementById('result-decision');
+                decision.textContent = event.decision.toUpperCase();
+                decision.className = 'decision decision-' + event.decision;
+                document.getElementById('result-score').textContent = Number(event.anomaly_score).toPrecision(4);
+                document.getElementById('profile-score').textContent = (Number(event.profile_deviation_score) * 100).toFixed(0) + '%';
+                document.getElementById('score-fill').style.width = Math.min(100, Number(event.anomaly_score) * 100) + '%';
+                document.getElementById('result-reason').textContent = event.decision === 'flag'
+                    ? 'Flagged for analyst review. An analyst can open this user profile to review reasons or block the account.'
+                    : 'Profile matched. Sign-in allowed.';
+                document.getElementById('result-content').hidden = false;
+            } catch (error) {
+                document.getElementById('empty-result').hidden = false;
+                document.getElementById('empty-result').innerHTML = '<h3>Could not process sign-in</h3><p>' + escapeText(error.message) + '</p>';
+            } finally {
+                document.getElementById('loading').hidden = true;
+                button.disabled = false;
+            }
+        }
+        function escapeText(value) {
+            const node = document.createElement('span'); node.textContent = value; return node.innerHTML;
+        }
+    </script>
+</body>
+</html>

@@ -23,6 +23,7 @@ from auth import authenticate, USERS, get_current_code, get_totp_secret, get_tot
 from scorer import init as scorer_init, score_event, THRESHOLD, DEMO_USERS, MODEL_PATH
 import scorer as _scorer
 import replay as _replay
+import ssh_monitor as _ssh_monitor
 
 app = Flask(__name__,
             template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
@@ -39,6 +40,7 @@ app.config['TEMPLATES_AUTO_RELOAD'] = True
 _live_events = deque(maxlen=500)
 _live_alerts = deque(maxlen=200)
 _live_users = {}  # user_id → {name, raw_id, persona, live_events, flags, max_score}
+_manually_blocked_users = set()  # demo users blocked by an analyst action
 _event_id_counter = 0
 _alert_id_counter = 0
 _sse_subscribers = []
@@ -123,7 +125,11 @@ def _sse_push(event_data):
     cares about recent events. Dropping the whole subscriber instead made the
     dashboard silently miss most events at high replay speeds.
     """
-    msg = f"event: score\ndata: {json.dumps(event_data)}\n\n"
+    public_event = event_data
+    if event_data.get('decision_basis') == 'normal_profile':
+        public_event = dict(event_data)
+        public_event.pop('reasons', None)
+    msg = f"event: score\ndata: {json.dumps(public_event)}\n\n"
     dead = []
     for q in _sse_subscribers:
         try:
@@ -220,6 +226,13 @@ def api_replay_status():
                     'events': sent})
 
 
+@app.route('/api/replay/attack_cases')
+@analyst_required
+def api_replay_attack_cases():
+    """All labeled attack examples in the fixed historical replay window."""
+    return jsonify([event for event in _replay.get_events() if event['is_red']])
+
+
 @app.route('/api/replay/start', methods=['POST'])
 @analyst_required
 def api_replay_start():
@@ -229,7 +242,7 @@ def api_replay_start():
     speed = data.get('speed')
     with _replay_lock:
         if speed:
-            _replay_speed = max(1, min(500, int(speed)))
+            _replay_speed = max(1, min(1000, int(speed)))
         if _replay_events is None:
             _replay_events = _replay.get_events()
         if _replay_index >= len(_replay_events):
@@ -333,6 +346,111 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+
+@app.route('/company')
+def company_demo():
+    """Company-style sign-in simulator backed by LANL-shaped events."""
+    _init_scorer()
+    employee_rows = []
+    machine_examples = set()
+    for username in ('luffy', 'ace', 'igris', 'ashborn'):
+        user = USERS[username]
+        samples = _scorer.get_real_logins(user['user_id'])
+        sample = samples[0] if samples else ('C0', 'C0', 12.0, 'NTLM')
+        employee_rows.append({
+            'username': username, 'name': user['name'],
+            'user_id': user['user_id'], 'src': sample[0], 'dst': sample[1],
+            'hour': round(float(sample[2]), 2), 'auth_type': sample[3] or 'NTLM',
+            'logon_type': sample[4] if len(sample) > 4 else 'Network',
+            'source_ip': _company_demo_ip(username),
+        })
+        machine_examples.update((sample[0], sample[1]))
+    machine_examples.update(list(_scorer._machine_pop)[:40])
+    return render_template('company.html', employees=employee_rows,
+                           machines=sorted(machine_examples))
+
+
+def _company_demo_ip(username):
+    """Stable demo-only IPs; LANL has no source-IP feature."""
+    return {'luffy': '10.24.8.16', 'ace': '10.24.8.22',
+            'igris': '10.24.8.31', 'ashborn': '10.24.8.45'}.get(username, '10.24.8.99')
+
+
+@app.route('/api/company/event', methods=['POST'])
+def api_company_event():
+    """Score a sign-in and compare its fields with the employee's demo profile."""
+    if not os.environ.get('LANL_DEV'):
+        return jsonify({'error': 'company simulator is available in demo mode'}), 403
+    data = request.get_json() or {}
+    username = str(data.get('username', '')).strip().lower()
+    user = USERS.get(username)
+    if not user or user.get('role') != 'employee':
+        return jsonify({'error': 'choose a demo employee'}), 400
+    import ipaddress
+    user_id = user['user_id']
+    if user_id in _manually_blocked_users:
+        return jsonify({'error': 'This user was blocked by the SOC analyst.', 'blocked': True}), 403
+    _init_scorer()
+    src = str(data.get('src_computer', '')).strip()
+    dst = str(data.get('dst_computer', '')).strip()
+    auth_type = str(data.get('auth_type', 'NTLM')).strip()
+    logon_type = str(data.get('logon_type', 'Network')).strip()
+    source_ip = str(data.get('source_ip', '')).strip()
+    if not src or not dst or len(src) > 64 or len(dst) > 64:
+        return jsonify({'error': 'source and destination computers are required'}), 400
+    if auth_type not in ('NTLM', 'Kerberos', 'Other'):
+        return jsonify({'error': 'choose a listed authentication type'}), 400
+    if logon_type not in ('Network', 'Interactive', 'Batch', 'Service', 'RemoteInteractive'):
+        return jsonify({'error': 'choose a listed logon type'}), 400
+    if source_ip:
+        try:
+            source_ip = str(ipaddress.ip_address(source_ip))
+        except ValueError:
+            return jsonify({'error': 'enter a valid source IP address'}), 400
+
+    # Advance one minute from the last recorded event. This keeps rolling
+    # features anchored to the end of LANL history instead of jumping days
+    # forward, where the database windows would incorrectly become all zeros.
+    last_time = int(_scorer._last_timestamps.get(user_id, 0))
+    time_val = last_time + 60
+    hour = (time_val % 86400) / 3600.0
+
+    score, model_decision, features = score_event(
+        user_id=user_id, src_computer=src, dst_computer=dst,
+        auth_type=auth_type, logon_type=logon_type,
+        hour=hour, time_val=time_val,
+    )
+    samples = _scorer.get_real_logins(user_id)
+    normal = samples[0] if samples else ('C0', 'C0', hour, 'NTLM', 'Network')
+    expected = {
+        'source computer': normal[0],
+        'destination computer': normal[1],
+        'authentication': normal[3],
+        'logon type': normal[4] if len(normal) > 4 else 'Network',
+        'source IP': _company_demo_ip(username),
+    }
+    submitted = {
+        'source computer': src,
+        'destination computer': dst,
+        'authentication': auth_type,
+        'logon type': logon_type,
+        'source IP': source_ip,
+    }
+    changed = [name for name, value in expected.items() if submitted[name] != value]
+    profile_match = not changed
+    profile_deviation_score = len(changed) / len(expected)
+    decision = 'ALLOW' if profile_match else 'FLAG'
+    reason = ("Matches this employee's saved normal demo profile." if profile_match else
+              'Flagged for analyst review: changed ' + ', '.join(changed) + '.')
+    _record_event(user_id, user['name'], src, dst, auth_type, score,
+                  decision, features, time_val, source_ip=source_ip,
+                  reason_override=reason, model_decision=model_decision,
+                  profile_match=profile_match,
+                  profile_deviation_score=profile_deviation_score)
+    public_event = dict(_live_events[-1])
+    public_event.pop('reasons', None)
+    return jsonify({'ok': True, 'event': public_event})
 
 
 @app.route('/employee')
@@ -440,13 +558,18 @@ def _explain_event(user_id, features, decision, src=None, dst=None):
         }
 
     if dec == 'ALLOW':
+        context = []
+        if features.get('dst_first', 0) > 0 and dst:
+            context.append(f"new destination {dst}")
+        if features.get('src_first', 0) > 0 and src:
+            context.append(f"new source computer {src}")
+        if features.get('is_rare_hour', 0) > 0:
+            context.append('unusual time for this user')
         pct = snap.get('vel_pct')
-        med = snap.get('vel_median')
-        if pct is not None and med is not None and vel is not None:
-            reason = (f"Within baseline - {int(vel)} logins/hr sits at percentile "
-                      f"{pct:.1f} for this user (median {med:.0f}).")
-        else:
-            reason = "Within baseline - no feature is in this user's tail."
+        if pct is not None and vel is not None:
+            context.append(f"login volume at user-history percentile {pct:.1f}")
+        detail = '; '.join(context[:3]) if context else 'no unusual features detected'
+        reason = f"Model allowed this sign-in: {detail}."
         return {'reasons': reason, 'baseline': baseline, 'history_events': history}
 
     parts = []
@@ -510,7 +633,10 @@ def _derive_reasons(features):
     return '; '.join(reasons) if reasons else 'Multiple behavioral indicators deviate from baseline'
 
 
-def _record_event(user_id, name, src, dst, auth_type, score, decision, features, time_val):
+def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
+                  time_val, source_ip=None, reason_override=None,
+                  model_decision=None, profile_match=None,
+                  profile_deviation_score=None):
     """Record a simulated event from the employee login path.
 
     The event is simulated but its inputs are not: machine, hour and auth type
@@ -522,10 +648,14 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
     """
     global _event_id_counter, _alert_id_counter
     explanation = _explain_event(user_id, features, decision, src, dst)
+    if reason_override:
+        explanation['reasons'] = reason_override
     _event_id_counter += 1
+    final_score = score if profile_deviation_score is None else profile_deviation_score
     event = {
         'id': _event_id_counter,
         'simulated': True,
+        'source_ip': source_ip,
         'user_id': user_id,
         'name': name,
         'src_computer': src,
@@ -533,8 +663,12 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
         'auth_type': auth_type,
         # Six decimals turned every normal probability (~1e-8) into 0.000000.
         'anomaly_score': round(score, 10),
-        'combined_score': round(score, 10),
+        'combined_score': round(final_score, 10),
         'decision': decision.lower(),
+        'model_decision': model_decision.lower() if model_decision else decision.lower(),
+        'decision_basis': 'normal_profile' if profile_match is not None else 'model',
+        'profile_match': profile_match,
+        'profile_deviation_score': profile_deviation_score,
         'is_red': None,
         'ts': time.strftime('%H:%M:%S'),
         'time': int(time_val),
@@ -551,24 +685,24 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
         'persona': 'unknown', 'live_events': 0, 'flags': 0, 'max_score': 0.0
     })
     u['live_events'] += 1
-    u['max_score'] = max(u['max_score'], score)
+    u['max_score'] = max(u['max_score'], final_score)
     if decision.lower() in ('flag', 'block'):
         u['flags'] += 1
-        u['persona'] = 'attacker'
+        u['persona'] = 'flagged' if profile_match is False else 'attacker'
     elif u['persona'] == 'unknown':
         u['persona'] = 'normal'
 
     # Create alert for BLOCK/FLAG
     if decision.lower() in ('flag', 'block'):
         _alert_id_counter += 1
-        severity = 'critical' if score > THRESHOLD else 'high'
+        severity = 'critical' if (model_decision or decision).upper() == 'BLOCK' else 'high'
         alert = {
             'id': _alert_id_counter,
             'eventId': event['id'],
             'user_id': user_id,
             'name': name,
             'severity': severity,
-            'combined_score': round(score, 10),
+            'combined_score': round(final_score, 10),
             'reasons': explanation['reasons'],
             'decision': decision.lower(),
             'timestamp': event['ts'],
@@ -626,7 +760,8 @@ def simulate_login_burst(user_id, username):
     results = []
     for i in range(n_events):
         if real_logins:
-            src, dst, hour, auth = random.choice(real_logins)
+            src, dst, hour, auth, *rest = random.choice(real_logins)
+            login_type = rest[0] if rest else 'Network'
         else:
             is_anomalous = random.random() < anomalous_rate
 
@@ -656,12 +791,13 @@ def simulate_login_burst(user_id, username):
                 hour = random.choice(low_hours)
             else:
                 hour = random.choice(common_hours)
+            login_type = 'Network'
 
         time_val = _scorer._last_timestamps.get(user_id, 0) + 60
 
         score, decision, features = score_event(
             user_id=user_id, src_computer=src, dst_computer=dst,
-            auth_type=auth, logon_type='Network', hour=hour, time_val=time_val,
+            auth_type=auth, logon_type=login_type, hour=hour, time_val=time_val,
         )
 
         _record_event(user_id, username, src, dst, auth, score, decision, features, time_val)
@@ -869,7 +1005,18 @@ def api_live_events():
     to /api/investigation/<id> -- that endpoint addresses replay rows and the
     id spaces overlap.
     """
-    return jsonify(list(_live_events))
+    return jsonify([
+        {k: v for k, v in event.items() if k != 'reasons'}
+        if event.get('decision_basis') == 'normal_profile' else event
+        for event in _live_events
+    ])
+
+
+@app.route('/api/ssh/events')
+@analyst_required
+def api_ssh_events():
+    """Live SSH authentication events from the separate Linux Audit reader."""
+    return jsonify(_ssh_monitor.snapshot())
 
 
 @app.route('/api/stats')
@@ -1481,6 +1628,19 @@ def api_user_profile(user_id):
     session_max = max((e['anomaly_score'] for e in user_live), default=0.0)
     attacks = sum(1 for e in user_live if e['is_red'])
 
+    # Reasons from the company sign-in demo are returned only when an analyst
+    # opens this user's profile. Keep the live event list itself reason-free.
+    demo_flags = [{
+        'ts': e.get('ts'),
+        'src_computer': e.get('src_computer'),
+        'dst_computer': e.get('dst_computer'),
+        'source_ip': e.get('source_ip'),
+        'profile_deviation_score': e.get('profile_deviation_score', 0),
+        'reasons': e.get('reasons', ''),
+    } for e in _live_events
+      if e.get('user_id') == user_id and e.get('decision_basis') == 'normal_profile'
+      and e.get('profile_match') is False]
+
     from auth import USERS as _USERS
     _demo = next((v for v in _USERS.values() if v.get('user_id') == user_id), None)
 
@@ -1490,6 +1650,7 @@ def api_user_profile(user_id):
         # "unknown (U293)" instead of a readable label.
         'name': _demo['name'] if _demo else user_id.split('@')[0],
         'demo_user': _demo is not None,
+        'manuallyBlocked': user_id in _manually_blocked_users,
         'baseline': {
             'totalEvents': user_total,
             'knownSrcComputers': sorted(known_src),
@@ -1507,8 +1668,21 @@ def api_user_profile(user_id):
             'attacks': attacks,
             'maxScore': round(session_max, 6),
             'firstSeen': 'T+%ds' % user_live[0]['offset'] if user_live else None,
-        }
+        },
+        'companyDemoFlags': demo_flags,
     })
+
+
+@app.route('/api/demo_users/<user_id>/block', methods=['POST'])
+@analyst_required
+def api_block_demo_user(user_id):
+    """Block a demo account only after an explicit analyst action."""
+    demo_user = next((u for u in USERS.values()
+                      if u.get('role') == 'employee' and u.get('user_id') == user_id), None)
+    if demo_user is None:
+        return jsonify({'error': 'This is not a demo employee account.'}), 404
+    _manually_blocked_users.add(user_id)
+    return jsonify({'ok': True, 'user_id': user_id, 'blocked': True})
 
 
 # ── Start ───────────────────────────────────────────────────────
@@ -1534,6 +1708,10 @@ if __name__ == '__main__':
         _replay_thread.start()
         print(f"replay autoplaying at {_replay_speed}/s "
               f"({len(_replay_events):,} events, {_replay.get_meta().get('attacks', 0)} attacks)")
+
+    # Separate host telemetry source. It does not enter the LANL scorer,
+    # replay queue, employee event queue, or their counters.
+    _ssh_monitor.start()
 
     print("starting server on http://localhost:5000")
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
