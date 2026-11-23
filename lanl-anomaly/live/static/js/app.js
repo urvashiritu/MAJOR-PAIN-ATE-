@@ -87,8 +87,10 @@
 
     function initTheme() {
         const saved = localStorage.getItem('theme');
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        if (saved === 'dark' || (!saved && prefersDark)) {
+        // Light is the default. Dark is opt-in only: a fresh browser no longer
+        // follows the OS colour scheme, so the login page, employee page and
+        // console all open in the same paper theme.
+        if (saved === 'dark') {
             document.documentElement.classList.add('dark');
         }
         syncThemeUI();

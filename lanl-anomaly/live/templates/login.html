@@ -3,380 +3,384 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LANL SOC - Authentication Required</title>
+    <meta name="color-scheme" content="light">
+    <title>LANL UEBA — Sign in</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link href="/static/vendor/jetbrains-mono.css" rel="stylesheet">
+    <link href="/static/vendor/ibm-plex-sans.css" rel="stylesheet">
     <style>
+        /* Light "paper" tokens — same palette as the analyst console (style.css :root). */
         :root {
-            --bg: #0b0e14;
-            --surface: #10151d;
-            --surface-2: #151a24;
-            --ink: #e8ecf4;
-            --ink-dim: #8b93a5;
-            --ink-faint: #5a6274;
-            --hairline: rgba(255, 255, 255, 0.08);
-            --critical: #e5484d;
-            --low: #57b06c;
+            --bg: #f2efe7;
+            --surface: #faf8f2;
+            --surface-2: #eeeae0;
+            --ink: #232a38;
+            --ink-dim: #4c5568;
+            --ink-faint: #5f687a;
+            --hairline: rgba(35, 42, 56, 0.14);
+            --hairline-soft: rgba(35, 42, 56, 0.07);
+            --wash: rgba(35, 42, 56, 0.05);
+            --ink-ochre: #8a5a12;
             --ochre: #e8a33d;
+            --critical: #c02b2f;
+            --low: #2e7d51;
+            --info: #3a6cb5;
+            --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+            --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-sans);
             background: var(--bg);
             color: var(--ink);
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
         }
 
-        /* Scanlines */
+        /* Faint hairline grid: paper, not terminal. */
         body::before {
             content: '';
             position: fixed;
             inset: 0;
-            background: repeating-linear-gradient(
-                0deg,
-                transparent,
-                transparent 2px,
-                rgba(232, 163, 61, 0.008) 2px,
-                rgba(232, 163, 61, 0.008) 4px
-            );
+            background-image:
+                linear-gradient(var(--hairline-soft) 1px, transparent 1px),
+                linear-gradient(90deg, var(--hairline-soft) 1px, transparent 1px);
+            background-size: 48px 48px;
             pointer-events: none;
-            z-index: 100;
+            z-index: 0;
         }
 
-        /* CRT glow */
-        body::after {
-            content: '';
-            position: fixed;
-            inset: 0;
-            background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.4) 100%);
-            pointer-events: none;
-            z-index: 99;
-        }
-
-        .login-container {
+        .auth-shell {
             position: relative;
             z-index: 1;
-            width: 440px;
-            padding: 0;
-        }
-
-        .terminal-header {
-            background: var(--surface);
-            border: 1px solid var(--hairline);
-            border-bottom: none;
-            border-radius: 8px 8px 0 0;
-            padding: 8px 12px;
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 8px;
+            justify-content: center;
+            gap: 16px;
+            min-height: 100vh;
+            padding: 22px 20px;
         }
 
-        .terminal-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: var(--critical);
-        }
-        .terminal-dot:nth-child(2) { background: var(--ochre); }
-        .terminal-dot:nth-child(3) { background: var(--low); }
+        /* ── Brand lockup ────────────────────────────────────────── */
+        .brand-lockup { display: flex; align-items: center; gap: 12px; }
 
-        .terminal-title {
-            margin-left: 8px;
-            font-size: 11px;
+        .brand-mark {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border: 1px solid var(--hairline);
+            border-radius: 10px;
+            background: var(--surface);
+            color: var(--ink-ochre);
+        }
+
+        .brand-name {
+            font-family: var(--font-mono);
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+
+        .brand-sub {
+            font-family: var(--font-mono);
+            font-size: 9.5px;
+            letter-spacing: 0.22em;
             color: var(--ink-faint);
-            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            margin-top: 3px;
         }
 
-        .terminal-body {
+        /* ── Form ────────────────────────────────────────────────── */
+        .form-panel {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .form-card {
+            width: 100%;
+            max-width: 420px;
             background: var(--surface);
             border: 1px solid var(--hairline);
-            border-top: 1px solid var(--hairline);
-            border-radius: 0 0 8px 8px;
-            padding: 32px;
+            border-radius: 12px;
+            padding: 24px 28px 20px;
+            box-shadow: 0 1px 2px rgba(35, 42, 56, 0.04), 0 12px 32px -18px rgba(35, 42, 56, 0.35);
         }
 
-        .system-banner {
-            text-align: center;
-            margin-bottom: 28px;
+        .form-card header { margin-bottom: 16px; }
+
+        .form-card h2 {
+            font-size: 25px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
         }
 
-        .system-banner .logo {
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--ochre);
-            letter-spacing: 4px;
-            text-transform: uppercase;
-            margin-bottom: 4px;
-        }
-
-        .system-banner .subtitle {
-            font-size: 10px;
+        .form-card header p {
+            margin-top: 6px;
+            font-size: 13.5px;
             color: var(--ink-faint);
-            letter-spacing: 2px;
-            text-transform: uppercase;
         }
 
-        .system-banner .warning {
-            font-size: 9px;
-            color: var(--ochre);
-            letter-spacing: 1px;
-            margin-top: 8px;
-            opacity: 0.8;
+        .error-msg {
+            margin-bottom: 18px;
+            padding: 10px 12px;
+            border: 1px solid rgba(192, 43, 47, 0.35);
+            border-left: 3px solid var(--critical);
+            border-radius: 6px;
+            background: rgba(192, 43, 47, 0.06);
+            font-size: 12.5px;
+            color: var(--critical);
         }
 
-        .prompt-line {
-            font-size: 12px;
-            color: var(--ink-faint);
-            margin-bottom: 20px;
-            line-height: 1.6;
-        }
-
-        .prompt-line .user {
-            color: var(--ochre);
-        }
-
-        .prompt-line .path {
-            color: var(--info);
-        }
-
-        .field-group {
-            margin-bottom: 16px;
-        }
+        .field-group { margin-bottom: 13px; }
 
         .field-label {
             display: block;
-            font-size: 10px;
-            color: var(--ink-faint);
-            letter-spacing: 1px;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.12em;
             text-transform: uppercase;
-            margin-bottom: 6px;
+            color: var(--ink-dim);
+            margin-bottom: 7px;
         }
 
         .field-input {
             width: 100%;
-            background: var(--bg);
-            border: 1px solid var(--hairline);
-            border-radius: 4px;
-            padding: 10px 12px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
+            height: 44px;
+            padding: 0 13px;
+            font-family: var(--font-sans);
+            font-size: 15px;
             color: var(--ink);
+            background: #fffdf6;
+            border: 1px solid var(--hairline);
+            border-radius: 7px;
             outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s;
+            transition: border-color 0.15s, box-shadow 0.15s;
         }
+
+        .field-input::placeholder { color: #9aa0ad; }
 
         .field-input:focus {
-            border-color: var(--ochre);
-            box-shadow: 0 0 0 2px rgba(232, 163, 61, 0.1);
+            border-color: var(--ink-ochre);
+            box-shadow: 0 0 0 3px rgba(232, 163, 61, 0.22);
         }
 
-        .field-input::placeholder {
-            color: var(--ink-faint);
+        .field-input[name="totp"] {
+            font-family: var(--font-mono);
+            letter-spacing: 0.22em;
         }
 
         .submit-btn {
             width: 100%;
-            padding: 12px;
-            background: rgba(232, 163, 61, 0.15);
-            border: 1px solid rgba(232, 163, 61, 0.3);
-            border-radius: 4px;
-            color: var(--ochre);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
+            height: 46px;
+            margin-top: 6px;
+            border: 1px solid var(--ink);
+            border-radius: 7px;
+            background: var(--ink);
+            color: var(--surface);
+            font-family: var(--font-sans);
+            font-size: 15px;
             font-weight: 600;
-            letter-spacing: 2px;
-            text-transform: uppercase;
             cursor: pointer;
-            transition: all 0.2s;
-            margin-top: 8px;
+            transition: background 0.15s, transform 0.06s;
         }
 
-        .submit-btn:hover {
-            background: rgba(232, 163, 61, 0.25);
-            border-color: var(--ochre);
-        }
+        .submit-btn:hover { background: #2f3850; }
+        .submit-btn:active { transform: translateY(1px); }
+        .submit-btn:focus-visible { outline: 2px solid var(--ink-ochre); outline-offset: 2px; }
 
-        .error-msg {
-            background: rgba(229, 72, 77, 0.1);
-            border: 1px solid rgba(229, 72, 77, 0.25);
-            border-radius: 4px;
-            padding: 10px 12px;
-            margin-bottom: 16px;
-            font-size: 11px;
-            color: var(--critical);
-            letter-spacing: 0.5px;
-        }
-
-        .dev-codes {
-            margin-top: 20px;
+        /* ── Demo accounts ───────────────────────────────────────── */
+        .demo {
+            margin-top: 16px;
+            padding-top: 14px;
             border-top: 1px solid var(--hairline);
-            padding-top: 16px;
         }
 
-        .dev-codes h3 {
-            font-size: 10px;
-            color: var(--ink-faint);
-            letter-spacing: 1px;
+        .demo-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .demo-head h3 {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.12em;
             text-transform: uppercase;
-            margin-bottom: 10px;
+            color: var(--ink-dim);
+        }
+
+        .demo-head span {
+            font-family: var(--font-mono);
+            font-size: 9.5px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--ink-ochre);
+            border: 1px solid rgba(138, 90, 18, 0.3);
+            border-radius: 999px;
+            padding: 2px 7px;
         }
 
         .dev-code-row {
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: 1fr 1fr auto auto auto;
             align-items: center;
+            gap: 10px;
             padding: 4px 0;
-            font-size: 11px;
+            border-bottom: 1px dashed var(--hairline-soft);
+            font-family: var(--font-mono);
+            font-size: 12px;
         }
 
-        .dev-code-row .name {
-            color: var(--info);
-        }
+        .dev-code-row:last-child { border-bottom: none; }
+
+        .dev-code-row .name { font-weight: 600; color: var(--ink); }
+        .dev-code-row .pw { color: var(--ink-faint); font-size: 11px; }
 
         .dev-code-row .code {
-            color: var(--ochre);
-            font-weight: 600;
-            letter-spacing: 2px;
-        }
-
-        .dev-code-row .pw {
-            color: var(--ink-dim);
-            font-size: 10px;
-            letter-spacing: 0.5px;
+            color: var(--ink-ochre);
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            font-variant-numeric: tabular-nums;
         }
 
         .dev-code-row .role {
+            font-size: 9.5px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
             color: var(--ink-faint);
-            font-size: 9px;
         }
 
-        .dev-code-timer {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
+        .dev-code-timer { display: flex; align-items: center; gap: 7px; }
 
         .timer-bar-bg {
-            width: 48px;
+            width: 40px;
             height: 3px;
-            background: rgba(255,255,255,0.06);
             border-radius: 2px;
+            background: var(--wash);
             overflow: hidden;
         }
 
         .timer-bar {
+            display: block;
             height: 100%;
+            width: 100%;
             border-radius: 2px;
-            transition: width 1s linear, background 0.3s;
             background: var(--low);
+            transition: width 1s linear, background 0.3s;
         }
 
-        .timer-bar.warn { background: var(--ochre); }
+        .timer-bar.warn { background: #b8791a; }
         .timer-bar.crit { background: var(--critical); }
 
         .timer-sec {
-            font-size: 9px;
-            color: var(--ink-faint);
-            min-width: 14px;
+            min-width: 20px;
             text-align: right;
+            font-size: 10.5px;
+            color: var(--ink-faint);
             font-variant-numeric: tabular-nums;
         }
 
-        .footer {
-            text-align: center;
-            margin-top: 20px;
-            font-size: 9px;
+        .page-foot {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
             color: var(--ink-faint);
-            letter-spacing: 1px;
         }
 
-        .blink {
-            animation: blink 1s step-end infinite;
+        /* ── Responsive ──────────────────────────────────────────── */
+        @media (max-width: 520px) {
+            .auth-shell { padding: 24px 14px; gap: 16px; }
+            .form-card { padding: 22px 18px 18px; }
+            .dev-code-row { grid-template-columns: 1fr auto auto; }
+            .dev-code-row .role { display: none; }
+            .dev-code-row .pw { display: none; }
         }
 
-        @keyframes blink {
-            50% { opacity: 0; }
-        }
-
-        .cursor {
-            display: inline-block;
-            width: 8px;
-            height: 14px;
-            background: var(--ochre);
-            vertical-align: text-bottom;
-            animation: blink 1s step-end infinite;
+        @media (prefers-reduced-motion: reduce) {
+            * { transition: none !important; }
         }
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <div class="terminal-header">
-            <div class="terminal-dot"></div>
-            <div class="terminal-dot"></div>
-            <div class="terminal-dot"></div>
-            <span class="terminal-title">soc-auth-gateway: ssh</span>
-        </div>
-        <div class="terminal-body">
-            <div class="system-banner">
-                <div class="logo">LANL</div>
-                <div class="subtitle">Insider Threat Detection System</div>
-                <div class="warning">UNAUTHORIZED ACCESS IS MONITORED AND PROSECUTED</div>
+    <div class="auth-shell">
+        <header class="brand-lockup" aria-label="LANL UEBA">
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <path d="M3 13h4l2.2-6 3.4 11 2.2-5H21"/>
+                </svg>
+            </span>
+            <div>
+                <div class="brand-name">LANL UEBA</div>
+                <div class="brand-sub">Behavior analytics</div>
             </div>
+        </header>
 
-            <div class="prompt-line">
-                <span class="user">auth@gateway</span>:<span class="path">~</span>$ authenticate --user<span class="cursor"></span>
-            </div>
+        <main class="form-panel">
+            <div class="form-card">
+                <header>
+                    <h2>Sign in</h2>
+                    <p>Analyst or employee account</p>
+                </header>
 
-            {% if error %}
-            <div class="error-msg">[ERROR] {{ error }}</div>
-            {% endif %}
+                {% if error %}
+                <div class="error-msg" role="alert">{{ error }}</div>
+                {% endif %}
 
-            <form method="POST" action="/login">
-                <div class="field-group">
-                    <label class="field-label">Username</label>
-                    <input class="field-input" type="text" name="username" placeholder="enter username" autocomplete="username" autofocus required>
-                </div>
-
-                <div class="field-group">
-                    <label class="field-label">Password</label>
-                    <input class="field-input" type="password" name="password" placeholder="enter password" autocomplete="current-password" required>
-                </div>
-
-                <div class="field-group">
-                    <label class="field-label">TOTP Code</label>
-                    <input class="field-input" type="text" name="totp" placeholder="6-digit code" maxlength="6" pattern="[0-9]{6}" autocomplete="one-time-code" required>
-                </div>
-
-                <button type="submit" class="submit-btn">$ VERIFY CREDENTIALS</button>
-            </form>
-
-            {% if dev_codes %}
-            <div class="dev-codes">
-                <h3>Demo Credentials (Dev Mode)</h3>
-                {% for username, code in dev_codes.items() %}
-                <div class="dev-code-row" data-user="{{ username }}">
-                    <span class="name">{{ username }}</span>
-                    <span class="pw">{{ dev_passwords[username] }}</span>
-                    <span class="code" data-code>{{ code }}</span>
-                    <span class="role">{{ dev_roles[username] }}</span>
-                    <div class="dev-code-timer">
-                        <div class="timer-bar-bg"><div class="timer-bar" data-timer-bar></div></div>
-                        <span class="timer-sec" data-timer-sec>30</span>
+                <form method="POST" action="/login">
+                    <div class="field-group">
+                        <label class="field-label" for="username">Username</label>
+                        <input class="field-input" id="username" type="text" name="username"
+                               placeholder="enter username" autocomplete="username" autofocus required>
                     </div>
-                </div>
-                {% endfor %}
-            </div>
-            {% endif %}
 
-            <div class="footer">
-                SECURE CHANNEL // ENCRYPTED // MONITORED
+                    <div class="field-group">
+                        <label class="field-label" for="password">Password</label>
+                        <input class="field-input" id="password" type="password" name="password"
+                               placeholder="enter password" autocomplete="current-password" required>
+                    </div>
+
+                    <div class="field-group">
+                        <label class="field-label" for="totp">Authenticator code</label>
+                        <input class="field-input" id="totp" type="text" name="totp"
+                               placeholder="6-digit code" maxlength="6" inputmode="numeric"
+                               pattern="[0-9]{6}" autocomplete="one-time-code" required>
+                    </div>
+
+                    <button type="submit" class="submit-btn">Sign in</button>
+                </form>
+
+                {% if dev_codes %}
+                <section class="demo" aria-label="Demo accounts">
+                    <div class="demo-head">
+                        <h3>Demo accounts</h3>
+                        <span>dev mode</span>
+                    </div>
+                    {% for username, code in dev_codes.items() %}
+                    <div class="dev-code-row" data-user="{{ username }}">
+                        <span class="name">{{ username }}</span>
+                        <span class="pw">{{ dev_passwords[username] }}</span>
+                        <span class="code" data-code>{{ code }}</span>
+                        <span class="role">{{ dev_roles[username] }}</span>
+                        <div class="dev-code-timer">
+                            <div class="timer-bar-bg"><div class="timer-bar" data-timer-bar></div></div>
+                            <span class="timer-sec" data-timer-sec>30s</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </section>
+                {% endif %}
             </div>
-        </div>
+        </main>
+
+        <p class="page-foot">LANL UEBA v1.0 · secure channel</p>
     </div>
 
     <script>
@@ -399,7 +403,7 @@
                     const remaining = data[user].remaining;
                     const pct = (remaining / 30) * 100;
                     barEl.style.width = pct + '%';
-                    secEl.textContent = remaining;
+                    secEl.textContent = remaining + 's';
                     barEl.className = 'timer-bar' + (remaining <= 5 ? ' crit' : remaining <= 10 ? ' warn' : '');
                 });
             } catch (e) {}

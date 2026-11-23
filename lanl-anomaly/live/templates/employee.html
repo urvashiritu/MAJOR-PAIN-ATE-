@@ -3,117 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LANL - Access {{ decision }}</title>
+    <meta name="color-scheme" content="light">
+    <title>LANL UEBA — Access {{ decision }}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link href="/static/vendor/jetbrains-mono.css" rel="stylesheet">
+    <link href="/static/vendor/ibm-plex-sans.css" rel="stylesheet">
     <style>
+        /* Light "paper" tokens — same palette as the analyst console (style.css :root). */
         :root {
-            --bg: #0b0e14;
-            --surface: #10151d;
-            --surface-2: #151a24;
-            --ink: #e8ecf4;
-            --ink-dim: #8b93a5;
-            --ink-faint: #5a6274;
-            --hairline: rgba(255, 255, 255, 0.08);
-            --wash: rgba(255, 255, 255, 0.05);
-            --critical: #e5484d;
-            --low: #57b06c;
+            --bg: #f2efe7;
+            --surface: #faf8f2;
+            --surface-2: #eeeae0;
+            --ink: #232a38;
+            --ink-dim: #4c5568;
+            --ink-faint: #5f687a;
+            --hairline: rgba(35, 42, 56, 0.14);
+            --hairline-soft: rgba(35, 42, 56, 0.07);
+            --wash: rgba(35, 42, 56, 0.05);
+            --ink-ochre: #8a5a12;
             --ochre: #e8a33d;
+            --critical: #c02b2f;
+            --low: #2e7d51;
+            --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+            --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-sans);
             background: var(--bg);
             color: var(--ink);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
         }
 
         body::before {
             content: '';
             position: fixed;
             inset: 0;
-            background: repeating-linear-gradient(
-                0deg,
-                transparent,
-                transparent 2px,
-                rgba(232, 163, 61, 0.008) 2px,
-                rgba(232, 163, 61, 0.008) 4px
-            );
+            background-image:
+                linear-gradient(var(--hairline-soft) 1px, transparent 1px),
+                linear-gradient(90deg, var(--hairline-soft) 1px, transparent 1px);
+            background-size: 48px 48px;
             pointer-events: none;
-            z-index: 100;
-        }
-
-        body::after {
-            content: '';
-            position: fixed;
-            inset: 0;
-            background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.4) 100%);
-            pointer-events: none;
-            z-index: 99;
+            z-index: 0;
         }
 
         .container {
             position: relative;
             z-index: 1;
             text-align: center;
-            padding: 48px;
-            max-width: 600px;
+            padding: 44px 24px;
+            max-width: 620px;
+            width: 100%;
         }
 
         .icon-wrap {
-            margin-bottom: 32px;
+            position: relative;
+            display: inline-block;
+            margin-bottom: 26px;
             opacity: 0;
             transform: scale(0.3);
             animation: icon-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s forwards;
         }
 
         .icon {
-            width: 80px;
-            height: 80px;
-            margin: 0 auto;
+            position: relative;
+            width: 76px;
+            height: 76px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 40px;
+            font-size: 34px;
             font-weight: 700;
         }
 
         {% if decision == 'ALLOW' %}
         .icon {
-            background: rgba(87, 176, 108, 0.1);
-            border: 2px solid rgba(87, 176, 108, 0.3);
+            background: rgba(46, 125, 81, 0.10);
+            border: 1px solid rgba(46, 125, 81, 0.35);
             color: var(--low);
-            box-shadow: 0 0 40px rgba(87, 176, 108, 0.15), inset 0 0 20px rgba(87, 176, 108, 0.05);
         }
 
         .ring {
             position: absolute;
-            width: 80px;
-            height: 80px;
+            inset: 0;
             border-radius: 50%;
-            border: 1px solid rgba(87, 176, 108, 0.2);
+            border: 1px solid rgba(46, 125, 81, 0.35);
             animation: ring-pulse 2s ease-in-out infinite;
         }
         {% else %}
         .icon {
-            background: rgba(229, 72, 77, 0.1);
-            border: 2px solid rgba(229, 72, 77, 0.3);
+            background: rgba(192, 43, 47, 0.08);
+            border: 1px solid rgba(192, 43, 47, 0.35);
             color: var(--critical);
-            box-shadow: 0 0 40px rgba(229, 72, 77, 0.15), inset 0 0 20px rgba(229, 72, 77, 0.05);
         }
 
         .ring {
             position: absolute;
-            width: 80px;
-            height: 80px;
+            inset: 0;
             border-radius: 50%;
-            border: 1px solid rgba(229, 72, 77, 0.2);
+            border: 1px solid rgba(192, 43, 47, 0.3);
             animation: ring-pulse-red 1.5s ease-in-out infinite;
         }
         {% endif %}
@@ -124,30 +118,29 @@
         }
 
         @keyframes ring-pulse {
-            0%, 100% { transform: scale(1); opacity: 0.3; }
-            50% { transform: scale(1.3); opacity: 0; }
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.22); opacity: 0; }
         }
 
         @keyframes ring-pulse-red {
-            0%, 100% { transform: scale(1); opacity: 0.4; }
-            50% { transform: scale(1.4); opacity: 0; }
+            0%, 100% { transform: scale(1); opacity: 0.6; }
+            50% { transform: scale(1.28); opacity: 0; }
         }
 
         .status {
-            font-size: 28px;
-            font-weight: 700;
-            letter-spacing: 4px;
-            text-transform: uppercase;
-            margin-bottom: 12px;
+            font-size: 26px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            margin-bottom: 10px;
             opacity: 0;
             transform: translateY(10px);
             animation: slide-up 0.5s ease 0.5s forwards;
         }
 
         {% if decision == 'ALLOW' %}
-        .status { color: var(--low); text-shadow: 0 0 20px rgba(87, 176, 108, 0.3); }
+        .status { color: var(--low); }
         {% else %}
-        .status { color: var(--critical); text-shadow: 0 0 20px rgba(229, 72, 77, 0.3); }
+        .status { color: var(--critical); }
         {% endif %}
 
         @keyframes slide-up {
@@ -157,119 +150,130 @@
         .message {
             font-size: 15px;
             color: var(--ink-dim);
-            line-height: 1.6;
-            margin-bottom: 16px;
+            line-height: 1.65;
+            max-width: 46ch;
+            margin: 0 auto 18px;
             opacity: 0;
             animation: slide-up 0.5s ease 0.7s forwards;
         }
 
-        .threat-detail {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            color: var(--ink-faint);
-            background: var(--wash);
+        .panel {
+            background: var(--surface);
             border: 1px solid var(--hairline);
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin: 16px auto;
-            max-width: 400px;
+            border-radius: 12px;
+            box-shadow: 0 1px 2px rgba(35, 42, 56, 0.04), 0 12px 32px -20px rgba(35, 42, 56, 0.35);
+            padding: 18px 20px;
+            margin: 0 auto 16px;
+            max-width: 420px;
+            text-align: left;
             opacity: 0;
             animation: slide-up 0.5s ease 0.9s forwards;
         }
 
-        .threat-detail .label {
-            color: var(--ink-dim);
-            text-transform: uppercase;
+        .panel .label {
+            font-family: var(--font-mono);
             font-size: 10px;
-            letter-spacing: 1px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--ink-faint);
             margin-bottom: 4px;
         }
 
-        .threat-detail .value {
+        .panel .value {
+            font-family: var(--font-mono);
+            font-size: 13px;
             font-weight: 600;
+            font-variant-numeric: tabular-nums;
         }
 
-        {% if decision == 'BLOCK' %}
+        .panel .note {
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--ink-dim);
+        }
+
         .threat-detail .value { color: var(--critical); }
-        .threat-detail .reason { color: var(--ochre); margin-top: 8px; font-size: 11px; }
-        {% else %}
-        .threat-detail .value { color: var(--low); }
-        .threat-detail .reason { color: var(--ochre); margin-top: 8px; font-size: 11px; }
-        {% endif %}
+        .threat-detail .reason { color: var(--ink-dim); margin-top: 10px; font-size: 13px; line-height: 1.6; }
+        .threat-detail .threshold { color: var(--ink-faint); font-size: 12px; margin-top: 8px; }
 
         .sim-note {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
-            color: var(--ink-faint);
-            background: rgba(232, 163, 61, 0.08);
-            border: 1px solid rgba(232, 163, 61, 0.4);
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin: 16px auto;
-            max-width: 400px;
-            text-align: left;
-            opacity: 0;
-            animation: slide-up 0.5s ease 1.1s forwards;
+            background: rgba(232, 163, 61, 0.10);
+            border: 1px solid rgba(138, 90, 18, 0.28);
         }
 
-        .sim-note .label {
-            color: var(--ochre);
-            text-transform: uppercase;
-            font-size: 10px;
-            letter-spacing: 1px;
-            margin-bottom: 4px;
+        .sim-note .label { color: var(--ink-ochre); }
+        .sim-note .reason { font-size: 12.5px; line-height: 1.6; color: var(--ink-dim); }
+        .sim-note .baseline {
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            color: var(--low);
+            margin-bottom: 12px;
         }
 
         .user-info {
-            font-size: 12px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
             color: var(--ink-faint);
-            letter-spacing: 1px;
-            margin-top: 24px;
+            margin-top: 22px;
             opacity: 0;
             animation: slide-up 0.5s ease 1.1s forwards;
         }
 
-        .user-info span {
-            color: var(--ochre);
+        .user-info span { color: var(--ink); font-weight: 600; }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+            opacity: 0;
+            animation: slide-up 0.5s ease 1.25s forwards;
         }
 
         .back-link {
             display: inline-block;
-            margin-top: 24px;
             padding: 10px 20px;
-            background: var(--wash);
             border: 1px solid var(--hairline);
-            border-radius: 4px;
-            color: var(--ink-dim);
+            border-radius: 7px;
+            background: var(--surface);
+            color: var(--ink);
             text-decoration: none;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
-            letter-spacing: 1px;
-            transition: all 0.2s;
-            opacity: 0;
-            animation: slide-up 0.5s ease 1.3s forwards;
+            font-family: var(--font-sans);
+            font-size: 13.5px;
+            font-weight: 500;
+            transition: border-color 0.15s, background 0.15s;
         }
 
         .back-link:hover {
-            background: rgba(232, 163, 61, 0.1);
-            color: var(--ochre);
-            border-color: rgba(232, 163, 61, 0.3);
+            border-color: var(--ink-ochre);
+            background: var(--surface-2);
         }
 
+        .back-link.primary {
+            background: var(--ink);
+            border-color: var(--ink);
+            color: var(--surface);
+        }
+
+        .back-link.primary:hover { background: #2f3850; }
+
         .footer-line {
-            margin-top: 32px;
-            font-size: 9px;
+            margin-top: 26px;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
             color: var(--ink-faint);
-            letter-spacing: 1px;
             opacity: 0;
-            animation: slide-up 0.5s ease 1.5s forwards;
+            animation: slide-up 0.5s ease 1.4s forwards;
         }
 
         {% if decision != 'ALLOW' %}
         .flash-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(229, 72, 77, 0.15);
+            background: rgba(192, 43, 47, 0.10);
             z-index: 200;
             animation: flash 0.3s ease-out 0.1s forwards;
             pointer-events: none;
@@ -282,13 +286,18 @@
         {% endif %}
 
         @media (prefers-reduced-motion: reduce) {
-            .icon-wrap, .status, .message, .threat-detail, .user-info, .back-link, .footer-line {
+            .icon-wrap, .status, .message, .panel, .user-info, .actions, .footer-line {
                 opacity: 1;
                 transform: none;
                 animation: none;
             }
             .flash-overlay { display: none; }
             .ring { animation: none; }
+        }
+
+        @media (max-width: 520px) {
+            .status { font-size: 22px; }
+            .container { padding: 32px 18px; }
         }
     </style>
 </head>
@@ -326,19 +335,19 @@
         </div>
 
         {% if decision != 'ALLOW' %}
-        <div class="threat-detail">
-            <div class="label">Threat Analysis</div>
-            <div class="value">Risk Score: {{ '%.4f'|format(score) }} &mdash; {{ 'BLOCKED' if decision == 'BLOCK' else 'FLAGGED' }}</div>
-            <div class="label" style="margin-top:8px">Threshold: {{ '%.4f'|format(threshold) }}</div>
+        <div class="panel threat-detail">
+            <div class="label">Threat analysis</div>
+            <div class="value">Risk score {{ '%.4f'|format(score) }} — {{ 'BLOCKED' if decision == 'BLOCK' else 'FLAGGED' }}</div>
+            <div class="threshold">Block threshold {{ '%.4f'|format(threshold) }}</div>
             <div class="reason">{{ reasons }}</div>
         </div>
         {% endif %}
 
         {% if simulated %}
-        <div class="sim-note">
+        <div class="panel sim-note">
             {% if decision == 'ALLOW' and baseline_note %}
             <div class="label">Your baseline</div>
-            <div class="reason" style="color:var(--low);margin-bottom:10px">{{ baseline_note }}</div>
+            <div class="baseline">{{ baseline_note }}</div>
             {% endif %}
             <div class="label">How this was scored</div>
             <div class="reason">Real inputs, real models. The machine, hour and authentication type are a genuine
@@ -349,16 +358,18 @@
         {% endif %}
 
         <div class="user-info">
-            User: <span>{{ name }}</span> &nbsp;//&nbsp; Channel: <span>SECURE</span>
+            User: <span>{{ name }}</span> &nbsp;/&nbsp; Channel: <span>SECURE</span>
         </div>
 
-        <a href="/logout" class="back-link">$ LOGOUT</a>
-        {% if dev_mode %}
-        <a href="/analyst" class="back-link" style="margin-left:8px">$ ANALYST CONSOLE</a>
-        {% endif %}
+        <div class="actions">
+            <a href="/logout" class="back-link{% if dev_mode %} primary{% endif %}">Log out</a>
+            {% if dev_mode %}
+            <a href="/analyst" class="back-link">Analyst console</a>
+            {% endif %}
+        </div>
 
         <div class="footer-line">
-            MONITORED // {{ decision }} // {{ timestamp }}
+            Monitored · {{ decision }} · {{ timestamp }}
         </div>
     </div>
 </body>

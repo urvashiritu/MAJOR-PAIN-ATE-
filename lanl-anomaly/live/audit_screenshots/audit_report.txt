@@ -1,0 +1,99 @@
+[INFO] ============================================================
+[INFO] PHASE 0: Server Health
+[INFO] ============================================================
+[PASS] PASS: Server health check
+[INFO] 
+============================================================
+[INFO] PHASE 1: Analyst Dashboard (auto-login)
+[INFO] ============================================================
+[PASS] PASS: Auto-redirect to /analyst (got: http://localhost:5000/analyst)
+[INFO] Screenshot: 01_dashboard_default.png
+[PASS] PASS: Sidebar rendered
+[PASS] PASS: Sidebar has 'Live Monitoring'
+[PASS] PASS: Sidebar has 'Dataset Analysis'
+[PASS] PASS: Sidebar has Behavior link
+[PASS] PASS: Topbar rendered
+[INFO] Screenshot: 02_behavior_empty.png
+[PASS] PASS: Page 'Behavior Insights' rendered content
+[INFO] Screenshot: 03_model_performance.png
+[PASS] PASS: Page 'Model Performance' rendered content
+[INFO] Screenshot: 04_alerts.png
+[PASS] PASS: Page 'Alerts' rendered content
+[INFO] Screenshot: 05_users.png
+[PASS] PASS: Page 'Users' rendered content
+[INFO] Screenshot: 06_settings.png
+[PASS] PASS: Page 'Settings' rendered content
+[INFO] 
+============================================================
+[INFO] PHASE 2: Employee Login → Events → Dashboard
+[INFO] ============================================================
+[PASS] PASS: Dev login as ace: 200
+[PASS] PASS: ace login response ok: {'name': 'Ace', 'ok': True, 'role': 'employee'}
+[PASS] PASS: ace role is employee: employee
+[INFO] Screenshot: 07_ace_employee_result.png
+[PASS] PASS: Employee page shows access decision
+[INFO] Screenshot: 08_dashboard_after_ace.png
+[PASS] PASS: Dev login as luffy: 200
+[INFO] Screenshot: 09_luffy_employee_result.png
+[PASS] PASS: Dev login as igris: 200
+[INFO] Screenshot: 10_igris_employee_result.png
+[PASS] PASS: Dev login as ashborn: 200
+[INFO] Screenshot: 11_ashborn_employee_result.png
+[INFO] Screenshot: 12_dashboard_all_users.png
+[PASS] PASS: Dashboard shows user names or event data after logins
+[INFO] 
+============================================================
+[INFO] PHASE 3: SPA Pages with Live Data
+[INFO] ============================================================
+[INFO] Screenshot: 13_behavior_with_data.png
+[INFO] Screenshot: 14_alerts_with_data.png
+[INFO] Screenshot: 15_users_with_data.png
+[INFO] Screenshot: 16_model_performance.png
+[INFO] Screenshot: 17_settings.png
+[PASS] PASS: Behavior page shows 'Ace'
+[PASS] PASS: Behavior page shows ATTACKER badge
+[PASS] PASS: Behavior page shows 'Igris'
+[PASS] PASS: Behavior page shows NORMAL badge
+[PASS] PASS: Behavior page labels the training baseline
+[PASS] PASS: Behavior page labels the replay window
+[INFO] 
+============================================================
+[INFO] PHASE 4: Dataset Analysis Page
+[INFO] ============================================================
+[INFO] Screenshot: 18_dataset_top.png
+[INFO] Screenshot: 19_dataset_full.png
+[INFO] Screenshot: 20_dataset_timeline.png
+[INFO] Screenshot: 21_dataset_score_dist.png
+[INFO] Screenshot: 22_dataset_top_attackers.png
+[INFO] Screenshot: 23_dataset_network.png
+[INFO] Screenshot: 24_dataset_heatmap.png
+[PASS] PASS: Dataset shows total events KPI
+[PASS] PASS: Dataset shows threats detected KPI
+[INFO] 
+============================================================
+[INFO] PHASE 5: Search Overlay
+[INFO] ============================================================
+[INFO] Screenshot: 25_search_overlay_open.png
+[PASS] PASS: Search overlay opens on Ctrl+K
+[INFO] Screenshot: 26_search_results_ace.png
+[PASS] PASS: Search results show ace
+[PASS] PASS: Search overlay closes on Escape
+[INFO] 
+============================================================
+[INFO] PHASE 6: Logout → Login Form
+[INFO] ============================================================
+[PASS] PASS: Logout redirects to /login (got: http://localhost:5000/login)
+[INFO] Screenshot: 27_login_page.png
+[PASS] PASS: Login form rendered
+[PASS] PASS: Username input exists
+[PASS] PASS: Password input exists
+[PASS] PASS: TOTP input exists
+[INFO] Screenshot: 28_after_luffy_login.png
+[INFO] After luffy login, URL: http://localhost:5000/login
+[INFO] 
+============================================================
+[INFO] AUDIT COMPLETE
+[INFO] ============================================================
+[INFO] Screenshots saved to: /home/igris/Documents/projects/MAJOR-PAIN-ATE-/lanl-anomaly/live/audit_screenshots
+[INFO] Total screenshots: 28
+[INFO] Results: 36 PASS, 0 FAIL, 0 WARN
