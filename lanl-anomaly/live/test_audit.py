@@ -82,7 +82,6 @@ with sync_playwright() as p:
     sidebar_text = sidebar.inner_text() if sidebar else ""
     check("Live Monitoring" in sidebar_text, "Sidebar has 'Live Monitoring'")
     check("Dataset Analysis" in sidebar_text, "Sidebar has 'Dataset Analysis'")
-    check("Behavior Insights" in sidebar_text or "Behavior" in sidebar_text, "Sidebar has Behavior link")
 
     # --- Step 3: Check header ---
     header = page.query_selector(".topbar")
@@ -90,7 +89,6 @@ with sync_playwright() as p:
 
     # --- Step 4: Navigate to each SPA page ---
     spa_pages = [
-        ("#/behavior", "02_behavior_empty", "Behavior Insights"),
         ("#/model", "03_model_performance", "Model Performance"),
         ("#/alerts", "04_alerts", "Alerts"),
         ("#/users", "05_users", "Users"),
@@ -177,7 +175,6 @@ with sync_playwright() as p:
     log("=" * 60)
 
     for hash_route, img_name, title in [
-        ("#/behavior", "13_behavior_with_data", "Behavior Insights"),
         ("#/alerts", "14_alerts_with_data", "Alerts"),
         ("#/users", "15_users_with_data", "Users"),
         ("#/model", "16_model_performance", "Model Performance"),
@@ -186,25 +183,6 @@ with sync_playwright() as p:
         page.goto(f"{BASE}/analyst{hash_route}", wait_until="networkidle")
         time.sleep(2)
         screenshot(page, img_name, full_page=True)
-
-    # Check behavior page has user names and badges.
-    # Use text_content, not inner_text: .section-title sets
-    # text-transform: uppercase, so inner_text returns "ACE" and a
-    # case-sensitive "Sam" check fails against a page that renders correctly.
-    page.goto(f"{BASE}/analyst#/behavior", wait_until="networkidle")
-    time.sleep(2)
-    behavior_text = page.inner_text("body")
-    behavior_raw = page.text_content("body") or ""
-    check("Sam" in behavior_raw, "Behavior page shows 'Sam'")
-    check("ATTACKER" in behavior_text, "Behavior page shows ATTACKER badge")
-    check("Maya" in behavior_raw, "Behavior page shows 'Maya'")
-    check("NORMAL" in behavior_text, "Behavior page shows NORMAL badge")
-    # The page mixes a training baseline with live replay counts; both must be
-    # labelled or a reader cannot tell which number came from where.
-    check("Training baseline" in behavior_text,
-          "Behavior page labels the training baseline")
-    check("Replay window" in behavior_text,
-          "Behavior page labels the replay window")
 
     # ── Phase 4: Dataset Page ───────────────────────────────────
     log("\n" + "=" * 60)

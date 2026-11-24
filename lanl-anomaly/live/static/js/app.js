@@ -375,7 +375,6 @@
         dashboard: { label: 'Replay Feed' },
         alerts: { label: 'Alerts' },
         users: { label: 'Users' },
-        behavior: { label: 'Behavior Insights' },
         model: { label: 'Model Performance' },
         settings: { label: 'Settings' },
         simulation: { label: 'Simulation Lab' }
@@ -1840,89 +1839,6 @@
     }
 
 
-    /* Behavior Insights page */
-    async function renderBehaviorInsights() {
-        destroyCharts();
-        setActiveNav('behavior');
-        content.innerHTML = pageHead('Understand · Behavior', 'Behavior Insights', 'Loading behavioral baselines...') +
-            '<div class="panel p-4 mb-4"><div class="skeleton-block"></div></div>' +
-            '<div class="panel p-4 mb-4"><div class="skeleton-block"></div></div>';
-        try {
-            const users = await API.knownUsers();
-            const profiles = [];
-            for (const u of users.slice(0, 8)) {
-                try { profiles.push(await API.userProfile(u.user_id)); } catch(e) { profiles.push({ user_id: u.user_id, baseline: {}, replay: {} }); }
-            }
-            const userMeta = {
-                'U293@DOM1': { name: 'Sam', role: 'attacker', badge: 'ATTACKER', badgeColor: 'var(--critical)', narrative: 'Known attacker \u2014 31 red-team events in 6 months of training data' },
-                'U2097@DOM1': { name: 'Maya', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Clean insider \u2014 highest event volume, zero anomalous activity' },
-                'U2899@DOM1': { name: 'Alex', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Standard employee \u2014 normal login patterns' },
-                'U66@DOM1': { name: 'Leo', role: 'attacker', badge: 'ATTACKER', badgeColor: 'var(--critical)', narrative: 'Known attacker \u2014 red-team account in the LANL dataset' },
-            };
-            let html = pageHead('Understand · Behavior', 'Behavior Insights',
-                    'Per-user behavioral baselines derived from 6 months of LANL training data.') +
-                '<div class="insight-box mb-4">' +
-                '<div style="font-weight:700;color:var(--info);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Two different data sources</div>' +
-                '<div class="text-12 text-dim"><b>Training baseline</b> counts (events, pairs, machines, hourly bars) come from the ' +
-                'full 29.9M-event LANL dataset. <b>Replay window</b> counts come from the real events currently streaming on ' +
-                'Live Monitoring. They are not the same measurement and are labelled separately below.</div></div>';
-            profiles.forEach(p => {
-                const b = p.baseline || {};
-                const s = p.replay || {};
-                const meta = userMeta[p.user_id] || { name: (p.user_id || 'unknown').split('@')[0], badge: 'USER', badgeColor: 'var(--info)', narrative: '' };
-                const displayName = meta.name;
-                const pattern = b.hourlyPattern || [];
-                const rareHours = b.rareHours || [];
-                // A flat 24-hour baseline has no peak to show; every bar would be
-                // identical. Likewise, marking all 24 hours "rare" carries no signal.
-                const flatHours = pattern.length > 0 && pattern.every(v => v === pattern[0]);
-                const rareAll = rareHours.length >= 24;
-                const noHourlySignal = !pattern.length || flatHours || rareAll;
-                const maxHour = Math.max(...pattern, 1);
-                const hourlyBars = pattern.map((v, i) => {
-                    const h = Math.max(2, (v / maxHour) * 40);
-                    const color = rareHours.includes(i) ? 'var(--critical)' : 'var(--info)';
-                    return '<div title="' + i + ':00" style="width:100%;height:' + h + 'px;background:' + color + ';border-radius:1px"></div>';
-                }).join('');
-                var badgeStyle = 'display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.05em;color:' + meta.badgeColor + ';border:1px solid ' + meta.badgeColor + ';margin-left:10px';
-                html += '<div class="panel p-4 mb-4"><div class="section-header"><div class="section-title">' + esc(displayName) + '<span style="' + badgeStyle + '">' + meta.badge + '</span></div>' +
-                    '<span class="mono text-11 text-faint">' + esc(p.user_id) + '</span></div>' +
-                    (meta.narrative ? '<div class="text-12 text-dim" style="margin:6px 0 12px">' + meta.narrative + '</div>' : '') +
-                    '<div class="grid-3 gap-4">' +
-                    '<div>' +
-                    '<div class="text-9 text-faint uppercase tracking-widest" style="font-weight:700;margin-bottom:6px">Training baseline &middot; 29.9M dataset</div>' +
-                    '<div class="text-12 text-dim">Events: <strong>' + (b.totalEvents || 0).toLocaleString() + '</strong></div>' +
-                    '<div class="text-12 text-dim">Typical Pairs: <strong>' + (b.typicalPairs || 0) + '</strong></div>' +
-                    '<div class="text-12 text-dim">Avg IAT: <strong>' + (b.avgIAT ? b.avgIAT.toFixed(0) + 's' : 'N/A') + '</strong></div></div>' +
-                    '<div>' +
-                    '<div class="text-9 text-faint uppercase tracking-widest" style="font-weight:700;margin-bottom:6px">Known machines &middot; 6 months</div>' +
-                    '<div class="text-12 text-dim">Sources: <strong>' + (b.knownSrcComputers || []).length + '</strong></div>' +
-                    '<div class="text-12 text-dim">Destinations: <strong>' + (b.knownDstComputers || []).length + '</strong></div>' +
-                    '<div class="text-12 text-dim">Rare Hours: <strong style="color:' + (rareAll ? 'var(--ink-faint)' : 'var(--critical)') + '">' + (rareAll ? 'not separable' : rareHours.length) + '</strong></div></div>' +
-                    '<div>' +
-                    '<div class="text-9 text-faint uppercase tracking-widest" style="font-weight:700;margin-bottom:6px">Replay window &middot; real events</div>' +
-                    '<div class="text-12 text-dim">Events: <strong>' + (s.totalEvents || 0) + '</strong></div>' +
-                    '<div class="text-12 text-dim">Attacks: <strong style="color:' + (s.attacks ? 'var(--critical)' : 'inherit') + '">' + (s.attacks || 0) + '</strong></div>' +
-                    '<div class="text-12 text-dim">Max Score: <strong>' + formatScore(s.maxScore || 0) + '</strong></div></div>' +
-                    '</div>' +
-                    '<div style="margin-top:12px"><div class="text-10 text-dim" style="margin-bottom:4px">Hourly Activity &middot; training baseline</div>' +
-                    (noHourlySignal
-                        ? '<div class="text-11 text-faint" style="padding:10px 0">' +
-                          (flatHours
-                              ? 'Flat baseline across all 24 hours (' + pattern[0] + ' per hour). No hourly peak to plot.'
-                              : rareAll && pattern.length
-                                  ? 'Every hour is marked rare (24/24), so the hourly shading carries no signal.'
-                                  : 'No hourly baseline recorded for this user.') +
-                          '</div>'
-                        : '<div style="display:flex;align-items:flex-end;gap:1px;height:44px">' + hourlyBars + '</div>' +
-                          '<div class="flex-between text-9 text-faint" style="margin-top:2px"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div>') +
-                    '</div>' +
-                    '</div>';
-            });
-            content.innerHTML = html;
-        } catch (err) { content.innerHTML = '<div class="text-12 text-critical py-8">Failed to load behavior insights</div>'; }
-    }
-
     /* Model Performance page */
     async function renderModelPerformance() {
         destroyCharts();
@@ -2094,7 +2010,6 @@
             case 'alerts': renderAlerts(); break;
             case 'users': renderUsers(); break;
             case 'settings': renderSettings(); break;
-            case 'behavior': renderBehaviorInsights(); break;
             case 'model': renderModelPerformance(); break;
             default: renderDashboard(); break;
         }

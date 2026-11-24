@@ -143,7 +143,6 @@ sign-in events, not to read the analyst views.
 | `/employee` | One scored login for the signed-in employee | employee (an analyst is redirected to `/analyst`) |
 | `/analyst` | Live Monitoring | analyst |
 | `/analyst/dataset` | Dataset Analysis | analyst |
-| `/#/behavior` | Behavior Insights | analyst |
 | `/#/model` | Model Performance | analyst |
 | `/#/alerts` | Alerts | analyst |
 | `/#/users` | Users | analyst |
