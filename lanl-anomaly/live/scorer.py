@@ -423,7 +423,6 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
 
     # ── 3. Pair features ──
     pair_key = f"{user_id}|{src_computer}|{dst_computer}"
-    src_dst_key = f"{src_computer}|{dst_computer}"
 
     pair_count = _pair_counts.get(pair_key, 0)
     pair_freq_ratio = pair_count / user_total if user_total > 0 else 0.0
@@ -432,7 +431,11 @@ def score_event(user_id, src_computer, dst_computer, auth_type, logon_type, hour
     pair_first = 1.0 if row_num == 0 else 0.0
     log_pair_rank = math.log(row_num + 2)  # training: log1p(ROW_NUMBER) = log(prior+2)
 
-    src_dst_pair_first = 1.0 if src_dst_key not in _seen_src_dst_pairs else 0.0
+    # _seen_src_dst_pairs holds (src, dst) tuples, so membership must be a tuple
+    # too. Comparing a "src|dst" string against it was always True, which pinned
+    # this feature to 1.0 for every live event, including pairs with 100k+ prior
+    # dataset events.
+    src_dst_pair_first = 1.0 if (src_computer, dst_computer) not in _seen_src_dst_pairs else 0.0
 
     # is_rare_hour matches SCORING_SQL: the event's time-of-day falls in a rare
     # (cume_dist <= 0.2) hour for this user. _rare_tods holds (time % 86400).

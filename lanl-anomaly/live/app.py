@@ -436,6 +436,7 @@ def logout():
 
 @app.route('/employee')
 def employee_view():
+    global _event_id_counter, _alert_id_counter
     if 'user' not in session:
         return redirect(url_for('login'))
     if session.get('role') == 'analyst':
@@ -452,7 +453,18 @@ def employee_view():
         _live_events.clear()
         _live_alerts.clear()
         _live_users.clear()
-        return redirect(url_for('employee_view'))
+        _event_id_counter = 0
+        _alert_id_counter = 0
+        # Do NOT redirect to /employee: that branch scores a fresh sign-in and
+        # writes one event back, so the feed looks like the reset failed. The
+        # confirmation view renders without scoring, and refreshing it is safe
+        # because only demo=reset clears anything.
+        return redirect(url_for('employee_view', demo='cleared'))
+
+    if demo == 'cleared':
+        return render_template('demo_cleared.html',
+                               name=session.get('display_name', username),
+                               dev_mode=bool(os.environ.get('LANL_DEV')))
 
     if not user_id:
         return render_template('employee.html',
