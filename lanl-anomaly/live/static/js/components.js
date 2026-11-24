@@ -1,6 +1,6 @@
 /* UI components — badges, KPI cards, rows, drawer, hold button */
 
-const _displayNames = { ace: 'Ace', luffy: 'Luffy', igris: 'Igris', ashborn: 'Ashborn' };
+const _displayNames = { alex: 'Alex', sam: 'Sam', maya: 'Maya', leo: 'Leo' };
 function _fmtUser(name, userId) {
     const display = _displayNames[name] || name || 'unknown';
     const id = (userId || '').split('@')[0];
@@ -11,10 +11,10 @@ function _fmtUser(name, userId) {
    format as the _dn map on Dataset Analysis, so a viewer can cross-reference
    the two pages. Unknown ids fall back to the short id. */
 const _personaNames = {
-    'U293@DOM1': 'Ace (U293)',
-    'U2097@DOM1': 'Igris (U2097)',
-    'U2899@DOM1': 'Luffy (U2899)',
-    'U66@DOM1': 'Ashborn (U66)',
+    'U293@DOM1': 'Sam (U293)',
+    'U2097@DOM1': 'Maya (U2097)',
+    'U2899@DOM1': 'Alex (U2899)',
+    'U66@DOM1': 'Leo (U66)',
 };
 function humanizeUser(id) {
     if (!id) return id;

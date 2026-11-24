@@ -186,20 +186,35 @@ The values in this table are test data. They are not real accounts.
 
 | Name | User ID | Password | Role | Result |
 |------|---------|----------|------|--------|
-| `luffy` | U2899@DOM1 | mugiwara | employee | ALLOW |
-| `ace` | U293@DOM1 | salvatore | employee | ALLOW |
-| `igris` | U2097@DOM1 | shadow01 | employee | ALLOW |
-| `ashborn` | U66@DOM1 | monarch99 | employee | ALLOW |
+| `alex` | U2899@DOM1 | alex2026 | employee | ALLOW |
+| `sam` | U293@DOM1 | sam2026 | employee | ALLOW |
+| `maya` | U2097@DOM1 | maya2026 | employee | ALLOW |
+| `leo` | U66@DOM1 | leo2026 | employee | ALLOW |
 | `soc_admin` | none | defender | analyst | Dashboard |
 
-Every employee login shows ALLOW. The page scores one real successful sign-in
-taken from that user's own history, so the verdict is stable. Measured in a
-browser: one login per account, all four returned ALLOW. Scores are tiny
-(about 1e-8 to 3e-8), not exactly zero; the UI shows exponential notation for
-these values.
+Every normal employee login shows ALLOW. The page scores one real successful
+sign-in taken from that user's own history, so the verdict is stable. Measured:
+one login per account, all four returned ALLOW at 0.0000 against a 0.187195
+threshold.
 
-The attacks appear on the analyst side instead. The replay window holds 20
-confirmed red-team events, and Dataset Analysis covers all 702. `ace` is the
+The live BLOCK demo is the dormant-account scenario: one hour after the
+account's last recorded activity, a never-seen source authenticates with NTLM
+to a globally rare destination (popularity = 1). The model returns BLOCK on its
+own: 0.6727 (Alex), 0.5074 (Sam), 0.6396 (Maya), 0.3824 (Leo). The score is
+driven by the one-hour inter-arrival gap plus the unseen machine pair, so the
+demo calls it a dormant account, not just a rare device. It is scored from the
+startup state and restores that state afterwards, so repeated clicks return the
+same number (measured: 3 consecutive clicks on Alex, all 0.6727).
+
+Failed sign-ins are recorded and counted. The model reads `fail_1h` from the
+training data, so it never sees live failures; a labelled brute-force rule
+handles them: 10 failures in the last hour -> FLAG, 25 -> BLOCK. The rule only
+escalates and never downgrades a model BLOCK. When the rule fires, the employee
+page says "Brute-force rule" and shows the model's own score separately, so the
+page never presents a rule escalation as a model risk score.
+
+The attacks appear on the analyst side too. The replay window holds 20
+confirmed red-team events, and Dataset Analysis covers all 702. `sam` is the
 account with the clearest red-team activity in the data: 31 of his 241,473
 events are red, and the model scores every one of them a BLOCK. The employee
 page draws only successful sign-ins that are not red events, so none of those
@@ -211,7 +226,11 @@ the file on the first run. Git does not track the file.
 ## Known limits
 
 - The Flask development server serves the app. It is not for production use.
-- Live events are in memory. A restart removes them.
+- Live events are stored in SQLite and survive a process restart. The demo
+  Reset button clears them.
 - The replay shows 9,954 events. It does not show all 29.9M events.
-- The demo user `ace` authenticates from a machine that the model knows. The
-  BLOCK result comes from the replay window, not from the employee path.
+- The live BLOCK demo uses a synthetic one-hour gap. The machines and auth type
+  are real dataset values and the model decision is real, but the gap is
+  constructed so the event is scoreable after the dataset ends.
+- Brute force is handled by a rule, not the model. The model's `fail_1h`
+  feature comes from training data and does not see live failures.

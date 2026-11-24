@@ -337,8 +337,13 @@
         {% if decision != 'ALLOW' %}
         <div class="panel threat-detail">
             <div class="label">Threat analysis</div>
+            {% if escalated %}
+            <div class="value">Brute-force rule — {{ 'BLOCKED' if decision == 'BLOCK' else 'FLAGGED' }}</div>
+            <div class="threshold">Model score {{ '%.4f'|format(score) }} · block threshold {{ '%.4f'|format(threshold) }}</div>
+            {% else %}
             <div class="value">Risk score {{ '%.4f'|format(score) }} — {{ 'BLOCKED' if decision == 'BLOCK' else 'FLAGGED' }}</div>
             <div class="threshold">Block threshold {{ '%.4f'|format(threshold) }}</div>
+            {% endif %}
             <div class="reason">{{ reasons }}</div>
         </div>
         {% endif %}
@@ -367,6 +372,23 @@
             <a href="/analyst" class="back-link">Analyst console</a>
             {% endif %}
         </div>
+
+        {% if dev_mode %}
+        <div class="panel" style="margin-top:18px;text-align:left">
+            <div class="label">Demo controls</div>
+            <div class="reason" style="margin-bottom:10px">
+                Every link scores a real event. Nothing is forced: the model
+                decides, and the brute-force rule is labelled as a rule.
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+                <a href="/employee" class="back-link">Normal sign-in</a>
+                <a href="/employee?demo=suspicious" class="back-link">Dormant + new device</a>
+                <a href="/employee?demo=brute10" class="back-link">10 failed logins</a>
+                <a href="/employee?demo=brute25" class="back-link">25 failed logins</a>
+                <a href="/employee?demo=reset" class="back-link">Reset demo state</a>
+            </div>
+        </div>
+        {% endif %}
 
         <div class="footer-line">
             Monitored · {{ decision }} · {{ timestamp }}

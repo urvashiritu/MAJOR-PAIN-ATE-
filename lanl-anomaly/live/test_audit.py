@@ -112,10 +112,10 @@ with sync_playwright() as p:
     log("=" * 60)
 
     # Step 5: Login as ACE (attacker) via dev/login
-    ace_status, ace_data = _post_json(f"{BASE}/dev/login", {"username": "ace"})
-    check(ace_status == 200, f"Dev login as ace: {ace_status}")
-    check(ace_data.get("ok"), f"ace login response ok: {ace_data}")
-    check(ace_data.get("role") == "employee", f"ace role is employee: {ace_data.get('role')}")
+    sam_status, sam_data = _post_json(f"{BASE}/dev/login", {"username": "sam"})
+    check(sam_status == 200, f"Dev login as sam: {sam_status}")
+    check(sam_data.get("ok"), f"sam login response ok: {sam_data}")
+    check(sam_data.get("role") == "employee", f"sam role is employee: {sam_data.get('role')}")
 
     # Navigate employee page
     ace_page = ctx.new_page()
@@ -134,8 +134,8 @@ with sync_playwright() as p:
     screenshot(page, "08_dashboard_after_ace", full_page=True)
 
     # Step 7: Login as LUFFY (normal)
-    resp2_status, _ = _post_json(f"{BASE}/dev/login", {"username": "luffy"})
-    check(resp2_status == 200, f"Dev login as luffy: {resp2_status}")
+    resp2_status, _ = _post_json(f"{BASE}/dev/login", {"username": "alex"})
+    check(resp2_status == 200, f"Dev login as alex: {resp2_status}")
 
     luffy_page = ctx.new_page()
     luffy_page.goto(f"{BASE}/employee", wait_until="networkidle")
@@ -143,8 +143,8 @@ with sync_playwright() as p:
     screenshot(luffy_page, "09_luffy_employee_result", full_page=True)
 
     # Step 8: Login as IGRIS
-    resp3_status, _ = _post_json(f"{BASE}/dev/login", {"username": "igris"})
-    check(resp3_status == 200, f"Dev login as igris: {resp3_status}")
+    resp3_status, _ = _post_json(f"{BASE}/dev/login", {"username": "maya"})
+    check(resp3_status == 200, f"Dev login as maya: {resp3_status}")
 
     igris_page = ctx.new_page()
     igris_page.goto(f"{BASE}/employee", wait_until="networkidle")
@@ -152,8 +152,8 @@ with sync_playwright() as p:
     screenshot(igris_page, "10_igris_employee_result", full_page=True)
 
     # Step 9: Login as ASHBORN
-    resp4_status, _ = _post_json(f"{BASE}/dev/login", {"username": "ashborn"})
-    check(resp4_status == 200, f"Dev login as ashborn: {resp4_status}")
+    resp4_status, _ = _post_json(f"{BASE}/dev/login", {"username": "leo"})
+    check(resp4_status == 200, f"Dev login as leo: {resp4_status}")
 
     ash_page = ctx.new_page()
     ash_page.goto(f"{BASE}/employee", wait_until="networkidle")
@@ -167,8 +167,8 @@ with sync_playwright() as p:
 
     # Check KPIs populated
     kpi_text = page.inner_text("body")
-    check("U66" in kpi_text or "Ace" in kpi_text or "Igris" in kpi_text or
-          "Luffy" in kpi_text or "events" in kpi_text.lower(),
+    check("U66" in kpi_text or "Sam" in kpi_text or "Maya" in kpi_text or
+          "Alex" in kpi_text or "events" in kpi_text.lower(),
           "Dashboard shows user names or event data after logins")
 
     # ── Phase 3: SPA Pages with Data ───────────────────────────
@@ -190,14 +190,14 @@ with sync_playwright() as p:
     # Check behavior page has user names and badges.
     # Use text_content, not inner_text: .section-title sets
     # text-transform: uppercase, so inner_text returns "ACE" and a
-    # case-sensitive "Ace" check fails against a page that renders correctly.
+    # case-sensitive "Sam" check fails against a page that renders correctly.
     page.goto(f"{BASE}/analyst#/behavior", wait_until="networkidle")
     time.sleep(2)
     behavior_text = page.inner_text("body")
     behavior_raw = page.text_content("body") or ""
-    check("Ace" in behavior_raw, "Behavior page shows 'Ace'")
+    check("Sam" in behavior_raw, "Behavior page shows 'Sam'")
     check("ATTACKER" in behavior_text, "Behavior page shows ATTACKER badge")
-    check("Igris" in behavior_raw, "Behavior page shows 'Igris'")
+    check("Maya" in behavior_raw, "Behavior page shows 'Maya'")
     check("NORMAL" in behavior_text, "Behavior page shows NORMAL badge")
     # The page mixes a training baseline with live replay counts; both must be
     # labelled or a reader cannot tell which number came from where.
@@ -262,11 +262,11 @@ with sync_playwright() as p:
     # Type a search query
     search_input = page.query_selector("#search-modal-input")
     if search_input:
-        search_input.fill("ace")
+        search_input.fill("sam")
         time.sleep(1)
         screenshot(page, "26_search_results_ace")
         search_text = page.inner_text("body")
-        check("ace" in search_text.lower() or "U293" in search_text, "Search results show ace")
+        check("sam" in search_text.lower() or "U293" in search_text, "Search results show sam")
     else:
         log("Search input not found", "WARN")
 
@@ -296,16 +296,16 @@ with sync_playwright() as p:
     check(password_input is not None, "Password input exists")
     check(totp_input is not None, "TOTP input exists")
 
-    # Try logging in as luffy
+    # Try logging in as alex
     if username_input and password_input and totp_input:
-        username_input.fill("luffy")
+        username_input.fill("alex")
         password_input.fill("mugiwara")
         totp_input.fill("000000")
         page.query_selector("form").evaluate("el => el.submit()")
         time.sleep(2)
         screenshot(page, "28_after_luffy_login")
         # May succeed (dev mode ignores TOTP) or fail
-        log(f"After luffy login, URL: {page.url}")
+        log(f"After alex login, URL: {page.url}")
 
     browser.close()
 

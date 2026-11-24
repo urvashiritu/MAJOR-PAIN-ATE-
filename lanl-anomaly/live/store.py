@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS events (
     anomaly_score  REAL,
     combined_score REAL,
     decision       TEXT,
+    result         TEXT DEFAULT 'Success',
     is_red         INTEGER,
     ts             TEXT,
     time           INTEGER,
@@ -74,6 +75,11 @@ def init():
         con = _connect()
         try:
             con.executescript(_SCHEMA)
+            # Migration for databases created before failed logins were
+            # recorded. SQLite has no ADD COLUMN IF NOT EXISTS, so check first.
+            cols = {r[1] for r in con.execute("PRAGMA table_info(events)").fetchall()}
+            if 'result' not in cols:
+                con.execute("ALTER TABLE events ADD COLUMN result TEXT DEFAULT 'Success'")
             con.commit()
         finally:
             con.close()
@@ -96,6 +102,7 @@ def insert_event(event):
         event.get('anomaly_score'),
         event.get('combined_score'),
         event.get('decision'),
+        event.get('result') or 'Success',
         None if event.get('is_red') is None else (1 if event['is_red'] else 0),
         event.get('ts'),
         event.get('time'),
@@ -110,8 +117,8 @@ def insert_event(event):
             cur = con.execute(
                 "INSERT INTO events (simulated, source, user_id, name, src_computer,"
                 " dst_computer, auth_type, anomaly_score, combined_score, decision,"
-                " is_red, ts, time, reasons, baseline, history_events, features)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
+                " result, is_red, ts, time, reasons, baseline, history_events, features)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
             con.commit()
             return int(cur.lastrowid)
         finally:
@@ -132,12 +139,19 @@ def _row_to_event(row):
 
 
 def list_events(limit=500):
-    """Most recent `limit` events, oldest first (same order as the old deque)."""
+    """Most recent `limit` events, oldest first (same order as the old deque).
+
+    Failed sign-ins are stored in the same table only so the brute-force rule
+    can count them (see count_failures). They are not scored events and must
+    not appear in the live feed, so they are excluded here.
+    """
     with _lock:
         con = _connect()
         try:
             rows = con.execute(
-                "SELECT * FROM (SELECT * FROM events ORDER BY id DESC LIMIT ?)"
+                "SELECT * FROM (SELECT * FROM events"
+                " WHERE COALESCE(result, 'Success') != 'Fail'"
+                " ORDER BY id DESC LIMIT ?)"
                 " ORDER BY id ASC", (int(limit),)).fetchall()
         finally:
             con.close()
@@ -155,6 +169,24 @@ def count(source=None):
         con = _connect()
         try:
             return int(con.execute(sql, args).fetchone()[0])
+        finally:
+            con.close()
+
+
+def count_failures(user_id, since_epoch):
+    """Failed authentication attempts for one user at or after `since_epoch`.
+
+    Failure rows carry the wall-clock epoch in `time` (see app._record_failure),
+    so this is a real "last hour" count for the live process, not the dataset's
+    synthetic clock.
+    """
+    with _lock:
+        con = _connect()
+        try:
+            return int(con.execute(
+                "SELECT COUNT(*) FROM events"
+                " WHERE user_id = ? AND result = 'Fail' AND time >= ?",
+                (str(user_id), int(since_epoch))).fetchone()[0])
         finally:
             con.close()
 

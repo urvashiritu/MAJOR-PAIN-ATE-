@@ -55,9 +55,9 @@
     let _livePaintQueued = false;
     window._liveFilter = 'all';
 
-    const _displayNames = { ace: 'Ace', luffy: 'Luffy', igris: 'Igris', ashborn: 'Ashborn' };
+    const _displayNames = { alex: 'Alex', sam: 'Sam', maya: 'Maya', leo: 'Leo' };
     function _fmtUser(name, userId) {
-        // Accepts either a demo username ('ace') or a raw LANL id ('U293@DOM1'),
+        // Accepts either a demo username ('alex') or a raw LANL id ('U293@DOM1'),
     // so replay events that only carry a user id still render a label.
     const display = _displayNames[name] || name || 'unknown';
         const id = (userId || '').split('@')[0];
@@ -1854,10 +1854,10 @@
                 try { profiles.push(await API.userProfile(u.user_id)); } catch(e) { profiles.push({ user_id: u.user_id, baseline: {}, replay: {} }); }
             }
             const userMeta = {
-                'U293@DOM1': { name: 'Ace', role: 'attacker', badge: 'ATTACKER', badgeColor: 'var(--critical)', narrative: 'Known attacker \u2014 31 red-team events in 6 months of training data' },
-                'U2097@DOM1': { name: 'Igris', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Clean insider \u2014 highest event volume, zero anomalous activity' },
-                'U2899@DOM1': { name: 'Luffy', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Standard employee \u2014 normal login patterns' },
-                'U66@DOM1': { name: 'Ashborn', role: 'attacker', badge: 'ATTACKER', badgeColor: 'var(--critical)', narrative: 'Known attacker \u2014 red-team account in the LANL dataset' },
+                'U293@DOM1': { name: 'Sam', role: 'attacker', badge: 'ATTACKER', badgeColor: 'var(--critical)', narrative: 'Known attacker \u2014 31 red-team events in 6 months of training data' },
+                'U2097@DOM1': { name: 'Maya', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Clean insider \u2014 highest event volume, zero anomalous activity' },
+                'U2899@DOM1': { name: 'Alex', role: 'normal', badge: 'NORMAL', badgeColor: 'var(--low)', narrative: 'Standard employee \u2014 normal login patterns' },
+                'U66@DOM1': { name: 'Leo', role: 'attacker', badge: 'ATTACKER', badgeColor: 'var(--critical)', narrative: 'Known attacker \u2014 red-team account in the LANL dataset' },
             };
             let html = pageHead('Understand · Behavior', 'Behavior Insights',
                     'Per-user behavioral baselines derived from 6 months of LANL training data.') +

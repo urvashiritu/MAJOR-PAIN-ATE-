@@ -9,28 +9,28 @@ import time
 _SECRETS_PATH = os.path.join(os.path.dirname(__file__), '.totp_secrets.json')
 
 USERS = {
-    'luffy': {
-        'name': 'Luffy',
+    'alex': {
+        'name': 'Alex',
         'user_id': 'U2899@DOM1',
-        'password': 'mugiwara',
+        'password': 'alex2026',
         'role': 'employee',
     },
-    'ace': {
-        'name': 'Ace',
+    'sam': {
+        'name': 'Sam',
         'user_id': 'U293@DOM1',
-        'password': 'salvatore',
+        'password': 'sam2026',
         'role': 'employee',
     },
-    'igris': {
-        'name': 'Igris',
+    'maya': {
+        'name': 'Maya',
         'user_id': 'U2097@DOM1',
-        'password': 'shadow01',
+        'password': 'maya2026',
         'role': 'employee',
     },
-    'ashborn': {
-        'name': 'Ashborn',
+    'leo': {
+        'name': 'Leo',
         'user_id': 'U66@DOM1',
-        'password': 'monarch99',
+        'password': 'leo2026',
         'role': 'employee',
     },
     'soc_admin': {

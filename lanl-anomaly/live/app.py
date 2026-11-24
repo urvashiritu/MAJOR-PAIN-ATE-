@@ -72,6 +72,71 @@ _scores_df = None
 _cached_dashboard = None
 _cached_alerts = None
 _scorer_ready = False
+# Dataset last-seen timestamp per user, captured before any live event moves it.
+# The suspicious-login demo needs a fixed anchor so its score is deterministic.
+_demo_base_last_t = {}
+# Pristine per-user scorer state captured at startup. The suspicious-login
+# scenario scores from this state, then restores whatever was live, so its
+# score is deterministic no matter how many normal logins happened first.
+_demo_pristine = {}
+
+
+def _snapshot_scorer_state(uid):
+    """Copy the mutable per-user scoring state that score_event() updates."""
+    iat = _scorer._iat_history.get(uid)
+    ctx = _scorer._context_windows.get(uid)
+    return {
+        'last_t': _scorer._last_timestamps.get(uid),
+        'iat': deque(iat, maxlen=iat.maxlen) if iat is not None else None,
+        'ctx': deque(ctx, maxlen=ctx.maxlen) if ctx is not None else None,
+        'seen_dst': set(_scorer._seen_dst_computers.get(uid, ())),
+        'seen_src': set(_scorer._seen_src_computers.get(uid, ())),
+        'seen_pairs': set(_scorer._seen_pairs.get(uid, ())),
+        'pair_rows': {k: v for k, v in _scorer._pair_row_numbers.items()
+                      if k.startswith(uid + '|')},
+        'dst_prior': {k: v for k, v in _scorer._dst_prior_events.items()
+                      if k.startswith(uid + '|')},
+        'seen_src_dst': set(_scorer._seen_src_dst_pairs),
+    }
+
+
+def _restore_scorer_state(uid, snap):
+    """Put a snapshot back. Caller holds scorer.SCORE_LOCK."""
+    if snap['last_t'] is None:
+        _scorer._last_timestamps.pop(uid, None)
+    else:
+        _scorer._last_timestamps[uid] = snap['last_t']
+    if snap['iat'] is None:
+        _scorer._iat_history.pop(uid, None)
+    else:
+        _scorer._iat_history[uid] = deque(snap['iat'], maxlen=snap['iat'].maxlen)
+    if snap['ctx'] is None:
+        _scorer._context_windows.pop(uid, None)
+    else:
+        _scorer._context_windows[uid] = deque(snap['ctx'], maxlen=snap['ctx'].maxlen)
+    _scorer._seen_dst_computers[uid] = set(snap['seen_dst'])
+    _scorer._seen_src_computers[uid] = set(snap['seen_src'])
+    _scorer._seen_pairs[uid] = set(snap['seen_pairs'])
+    for target, wanted in ((_scorer._pair_row_numbers, snap['pair_rows']),
+                           (_scorer._dst_prior_events, snap['dst_prior'])):
+        for key in [k for k in target if k.startswith(uid + '|')]:
+            del target[key]
+        target.update(wanted)
+    _scorer._seen_src_dst_pairs = set(snap['seen_src_dst'])
+
+BRUTE_FLAG = 10
+BRUTE_BLOCK = 25
+
+# Verified BLOCK scenario: dormant for an hour, never-seen source, globally rare
+# destination (popularity=1), NTLM. Deterministic across fresh processes.
+SUSPICIOUS_SRC = 'C1640'
+SUSPICIOUS_DST = {
+    'U2899@DOM1': 'C18787',
+    'U293@DOM1': 'C18787',
+    'U2097@DOM1': 'C18787',
+    'U66@DOM1': 'C4378',
+}
+SUSPICIOUS_GAP = 3600
 
 
 def _load_scores():
@@ -89,6 +154,9 @@ def _init_scorer():
     global _scorer_ready
     if not _scorer_ready:
         scorer_init(DEMO_USERS)
+        for uid in SUSPICIOUS_DST:
+            _demo_base_last_t.setdefault(uid, _scorer._last_timestamps.get(uid, 0))
+            _demo_pristine.setdefault(uid, _snapshot_scorer_state(uid))
         _scorer_ready = True
 
 
@@ -343,6 +411,11 @@ def login():
                 return redirect(url_for('analyst_dashboard'))
             return redirect(url_for('employee_view'))
         error = 'Invalid credentials. Check password and TOTP code.'
+        # Record the failure for the live brute-force rule. Only known demo
+        # users have a LANL id to count against; unknown names are ignored.
+        known = USERS.get(username)
+        if known and known.get('user_id'):
+            _record_failure(username, known['user_id'], known['name'])
 
     dev_codes = {}
     dev_roles = {}
@@ -372,13 +445,30 @@ def employee_view():
     user_info = USERS.get(username, {})
     user_id = user_info.get('user_id')
 
+    demo = request.args.get('demo', '').strip().lower()
+    if demo == 'reset':
+        _store.clear()
+        _store.clear_verdicts('live')
+        _live_events.clear()
+        _live_alerts.clear()
+        _live_users.clear()
+        return redirect(url_for('employee_view'))
+
     if not user_id:
         return render_template('employee.html',
                                name=session.get('display_name', username),
-                               decision='ALLOW', score=0.0, simulated=True)
+                               decision='ALLOW', score=0.0, simulated=True,
+                               escalated=False)
 
     _init_scorer()
-    score, decision, features = simulate_login_burst(user_id, username)
+    if demo == 'suspicious':
+        score, decision, features = score_suspicious_login(user_id, username)
+    else:
+        if demo in ('brute10', 'brute25'):
+            count = 10 if demo == 'brute10' else 25
+            for _ in range(count):
+                _record_failure(username, user_id, session.get('display_name', username))
+        score, decision, features = simulate_login_burst(user_id, username)
 
     # simulate_login_burst records exactly one event, so the newest entry is
     # this login. Reuse its explanation and baseline so the employee page and
@@ -401,6 +491,8 @@ def employee_view():
                            baseline_note=_baseline_note(features, explanation['baseline']),
                            cold_start=explanation['history_events'] < COLD_START_MIN,
                            simulated=True,
+                           escalated=str(explanation['reasons'] or '').startswith(
+                               'Brute-force rule:'),
                            dev_mode=bool(os.environ.get('LANL_DEV')))
 
 
@@ -537,7 +629,8 @@ def _derive_reasons(features):
 
 
 def _record_event(user_id, name, src, dst, auth_type, score, decision, features, time_val,
-                  simulated=True, source='employee-demo', ts=None):
+                  simulated=True, source='employee-demo', ts=None, result='Success',
+                  reasons_override=None):
     """Record one scored event, persist it, and push it to SSE.
 
     Two producers use this:
@@ -550,10 +643,13 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
 
     The event is written to SQLite before it is pushed, so the API still has it
     after a restart. `ts` lets the caller supply the event's own clock instead
-    of the wall clock.
+    of the wall clock. `reasons_override` lets an explicit rule (e.g. brute
+    force) state its own reason instead of the model's.
     """
     global _event_id_counter, _alert_id_counter
     explanation = _explain_event(user_id, features, decision, src, dst)
+    if reasons_override:
+        explanation['reasons'] = reasons_override
     event = {
         'id': None,
         'simulated': bool(simulated),
@@ -563,6 +659,7 @@ def _record_event(user_id, name, src, dst, auth_type, score, decision, features,
         'src_computer': src,
         'dst_computer': dst,
         'auth_type': auth_type,
+        'result': result or 'Success',
         # Six decimals turned every normal probability (~1e-8) into 0.000000.
         'anomaly_score': round(score, 10),
         'combined_score': round(score, 10),
@@ -620,6 +717,89 @@ def _display_name(user_id):
         if u.get('user_id') == user_id:
             return u['name']
     return (user_id or 'unknown').split('@')[0]
+
+
+def _record_failure(username, user_id, name):
+    """Persist one failed sign-in so the brute-force rule can count it.
+
+    A failure is not a model anomaly: it is stored with result='Fail' and
+    decision='allow', does not enter the live event feed, and raises no alert.
+    `time` is the wall clock, because the rule asks "how many failures in the
+    last real hour", not how many in the dataset's clock.
+    """
+    event = {
+        'simulated': True,
+        'source': 'employee-demo',
+        'user_id': user_id,
+        'name': name,
+        'src_computer': '?',
+        'dst_computer': '?',
+        'auth_type': 'Password',
+        'anomaly_score': 0.0,
+        'combined_score': 0.0,
+        'decision': 'allow',
+        'result': 'Fail',
+        'is_red': None,
+        'ts': time.strftime('%H:%M:%S'),
+        'time': int(time.time()),
+        'reasons': 'Failed authentication attempt.',
+        'baseline': {},
+        'history_events': 0,
+        'features': {},
+    }
+    _store.insert_event(event)
+
+
+def _apply_brute_force(user_id, score, decision):
+    """Escalate the model decision with real failed attempts in the last hour.
+
+    The model reads fail_1h from the training data, so it never sees live
+    failures. This is an explicit, labelled rule. It only escalates: a model
+    BLOCK is never downgraded.
+    """
+    n = _store.count_failures(user_id, int(time.time()) - 3600)
+    if n >= BRUTE_BLOCK:
+        return score, 'BLOCK', n, (
+            f"Brute-force rule: {n} failed authentication attempts in the last "
+            f"hour (block at {BRUTE_BLOCK}).")
+    if n >= BRUTE_FLAG and str(decision).lower() != 'block':
+        return score, 'FLAG', n, (
+            f"Brute-force rule: {n} failed authentication attempts in the last "
+            f"hour (flag at {BRUTE_FLAG}).")
+    return score, decision, n, None
+
+
+def score_suspicious_login(user_id, username):
+    """Score the verified dormant-account + new-device scenario.
+
+    A real score_event() call: never-seen source, globally rare destination
+    (popularity=1), NTLM, one hour after the account's last recorded activity.
+    Nothing is forced; the model returns BLOCK on its own.
+    """
+    dst = SUSPICIOUS_DST.get(user_id)
+    if not dst:
+        return simulate_login_burst(user_id, username)
+    base = _demo_base_last_t.setdefault(user_id, _scorer._last_timestamps.get(user_id, 0))
+    time_val = base + SUSPICIOUS_GAP
+    hour = (time_val % 86400) / 3600.0
+    with _scorer.SCORE_LOCK:
+        # Score from the startup state, not from whatever the normal login just
+        # did to it. The live state is restored afterwards, so this demo leaves
+        # the scorer exactly as it found it and always reports the same score.
+        saved = _snapshot_scorer_state(user_id)
+        _restore_scorer_state(user_id, _demo_pristine[user_id])
+        try:
+            score, decision, features = score_event(
+                user_id=user_id, src_computer=SUSPICIOUS_SRC, dst_computer=dst,
+                auth_type='NTLM', logon_type='Network', hour=hour, time_val=time_val,
+            )
+        finally:
+            _restore_scorer_state(user_id, saved)
+    _record_event(user_id, _display_name(user_id), SUSPICIOUS_SRC, dst, 'NTLM',
+                  score, decision, features, time_val, simulated=True,
+                  source='employee-demo')
+    return score, decision, features
+
 
 
 def _handle_ingest_event(ev):
@@ -731,7 +911,9 @@ def simulate_login_burst(user_id, username):
                 auth_type=auth, logon_type='Network', hour=hour, time_val=time_val,
             )
 
-        _record_event(user_id, username, src, dst, auth, score, decision, features, time_val)
+        score, decision, _n_fail, rule_reason = _apply_brute_force(user_id, score, decision)
+        _record_event(user_id, _display_name(user_id), src, dst, auth, score, decision,
+                      features, time_val, reasons_override=rule_reason)
         results.append((score, decision, features))
 
     # With one event there is nothing to maximise, but max() keeps this stable
@@ -743,14 +925,12 @@ def simulate_login_burst(user_id, username):
     # which meant the employee page reported a detection the model never made.
     # The honest result is reported even when it is ALLOW.
     #
-    # An earlier version of this comment claimed live scores are always ~0.001
-    # against a 0.187 threshold because of training-serving skew. That is wrong:
-    # vel_1h and vel_24h are counted from the live LANL DuckDB at this user's
-    # real last-seen timestamp, not from the events generated here. Users whose
-    # real final hour was busy do cross the threshold - U2899@DOM1 scores 0.379
-    # on a single event. Whether a login is flagged depends on the user's real
-    # activity density and on whether a new machine was drawn, not on the
-    # number of events this loop produces.
+    # Measured against the shipped models: a normal sign-in for all four demo
+    # users scores 0.0000 ALLOW at the user's last-seen timestamp + 60s. An
+    # earlier version of this comment claimed U2899@DOM1 scored 0.379 on a
+    # single event; that did not reproduce and has been removed. Live BLOCKs
+    # come from the dormant-account scenario in score_suspicious_login(), which
+    # is measured at 0.38-0.67 across the four users.
     return best
 
 

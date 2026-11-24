@@ -17,7 +17,7 @@ BOTH REAL:
    would fix the plumbing but not the result, because of point 2.
 
 2. The live scoring path genuinely cannot detect these patterns. Scoring a
-   login as ace produces real model scores around 0.000001 against a
+   login as sam produces real model scores around 0.000001 against a
    threshold of 0.187. reports/experiment_log.md documents the cause as
    training-serving skew: live scoring computes features incrementally in
    memory, while the model was trained on batch SQL features over 29.9M rows.
@@ -25,7 +25,7 @@ BOTH REAL:
    of [0, 0.85+], and lists "retrain with incremental features" as the proper
    fix rather than threshold tuning.
 
-This test previously appeared to pass for ace only because
+This test previously appeared to pass for sam only because
 simulate_login_burst() returned a hardcoded THRESHOLD + 0.15 whenever the
 model failed to flag the burst. That forced alert was removed so the app
 would stop reporting detections the model never made. The test was therefore
@@ -52,21 +52,21 @@ SCREENSHOT_DIR = RESULTS_DIR / "screenshots"
 # ── 15 test rounds ────────────────────────────────────────────────
 # Each round: which user logs in, what edge case it targets
 ROUNDS = [
-    {"round": 1,  "user": "luffy",   "target": "normal_allow",       "desc": "First normal login"},
-    {"round": 2,  "user": "igris",   "target": "normal_allow",       "desc": "Second normal user"},
-    {"round": 3,  "user": "ashborn", "target": "normal_allow",       "desc": "Third normal user"},
-    {"round": 4,  "user": "ace",     "target": "attacker_block",     "desc": "First attacker — BLOCK"},
-    {"round": 5,  "user": "luffy",   "target": "accumulated_state",  "desc": "Luffy again — accumulation"},
-    {"round": 6,  "user": "ace",     "target": "double_block",       "desc": "Ace again — double BLOCK"},
-    {"round": 7,  "user": "igris",   "target": "iat_zscore",         "desc": "Igris rapid — timing anomaly"},
-    {"round": 8,  "user": "ace",     "target": "lateral_breadth",    "desc": "Ace third — lateral movement"},
-    {"round": 9,  "user": "luffy",   "target": "velocity_spike",     "desc": "Luffy third — velocity rising"},
-    {"round": 10, "user": "ashborn", "target": "pair_exhaustion",    "desc": "Ashborn second — pairs known"},
-    {"round": 11, "user": "ace",     "target": "forced_injection",   "desc": "Ace fourth — C_ANOMALOUS"},
-    {"round": 12, "user": "luffy",   "target": "rare_hour",          "desc": "Luffy fourth — rare hour"},
-    {"round": 13, "user": "igris",   "target": "auth_mix",           "desc": "Igris second — auth type mix"},
-    {"round": 14, "user": "ace",     "target": "max_velocity",       "desc": "Ace fifth — max velocity"},
-    {"round": 15, "user": "ashborn", "target": "fatigue_noise",      "desc": "Ashborn third — noise test"},
+    {"round": 1,  "user": "alex",   "target": "normal_allow",       "desc": "First normal login"},
+    {"round": 2,  "user": "maya",   "target": "normal_allow",       "desc": "Second normal user"},
+    {"round": 3,  "user": "leo", "target": "normal_allow",       "desc": "Third normal user"},
+    {"round": 4,  "user": "sam",     "target": "attacker_block",     "desc": "First attacker — BLOCK"},
+    {"round": 5,  "user": "alex",   "target": "accumulated_state",  "desc": "Alex again — accumulation"},
+    {"round": 6,  "user": "sam",     "target": "double_block",       "desc": "Sam again — double BLOCK"},
+    {"round": 7,  "user": "maya",   "target": "iat_zscore",         "desc": "Maya rapid — timing anomaly"},
+    {"round": 8,  "user": "sam",     "target": "lateral_breadth",    "desc": "Sam third — lateral movement"},
+    {"round": 9,  "user": "alex",   "target": "velocity_spike",     "desc": "Alex third — velocity rising"},
+    {"round": 10, "user": "leo", "target": "pair_exhaustion",    "desc": "Leo second — pairs known"},
+    {"round": 11, "user": "sam",     "target": "forced_injection",   "desc": "Sam fourth — C_ANOMALOUS"},
+    {"round": 12, "user": "alex",   "target": "rare_hour",          "desc": "Alex fourth — rare hour"},
+    {"round": 13, "user": "maya",   "target": "auth_mix",           "desc": "Maya second — auth type mix"},
+    {"round": 14, "user": "sam",     "target": "max_velocity",       "desc": "Sam fifth — max velocity"},
+    {"round": 15, "user": "leo", "target": "fatigue_noise",      "desc": "Leo third — noise test"},
 ]
 
 
